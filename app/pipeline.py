@@ -122,13 +122,36 @@ def score_new_articles(db, profile_text: str) -> None:
             log.error("Error scoring article id=%d: %s", article["id"], exc)
 
 
+MAX_CLEAN_TITLE_CHARS = 200
+
+
+def _clean_title_from(result: dict, original: str) -> tuple[str | None, int]:
+    """Pull (clean_title, was_clickbait) out of an LLM response, defensively.
+
+    Returns (None, 0) whenever the rewrite shouldn't be shown — not flagged as
+    clickbait, empty, unchanged, or implausibly long. The display path treats
+    NULL as "use the original", so every rejection degrades to current behaviour.
+    """
+    if not result.get("was_clickbait"):
+        return None, 0
+    candidate = str(result.get("clean_title") or "").strip()
+    if not candidate or candidate == (original or "").strip():
+        return None, 0
+    if len(candidate) > MAX_CLEAN_TITLE_CHARS:
+        log.warning("Discarding clean_title of %d chars (limit %d)",
+                    len(candidate), MAX_CLEAN_TITLE_CHARS)
+        return None, 0
+    return candidate, 1
+
+
 def summarize_scored_articles(db) -> None:
     articles = db.execute(
-        "SELECT id, url, raw_snippet, feed_content, thumbnail_url "
+        "SELECT id, url, title, raw_snippet, feed_content, thumbnail_url "
         "FROM articles WHERE status='scored' LIMIT 20"
     ).fetchall()
     model = _summary_model(db)
     base_url = ollama_base(db)
+    declickbait = get_setting(db, "declickbait_enabled", "") == "1"
 
     for article in articles:
         try:
@@ -139,22 +162,54 @@ def summarize_scored_articles(db) -> None:
                 or article["raw_snippet"]
                 or ""
             )
-            prompt = prompts.summarization_prompt(full_text)
-            summary = ollama_client.generate(
-                model=model, prompt=prompt, expect_json=False, base_url=base_url
-            )
+
+            summary = None
+            clean_title, was_clickbait = None, 0
+
+            if declickbait:
+                result = ollama_client.generate(
+                    model=model,
+                    prompt=prompts.summarization_with_title_prompt(
+                        full_text, article["title"]
+                    ),
+                    expect_json=True,
+                    base_url=base_url,
+                )
+                if isinstance(result, dict) and str(result.get("summary") or "").strip():
+                    summary = str(result["summary"]).strip()
+                    clean_title, was_clickbait = _clean_title_from(
+                        result, article["title"]
+                    )
+                else:
+                    # Losing the summary is worse than losing the rewrite, so
+                    # fall back to the plain-text prompt rather than skipping.
+                    log.warning(
+                        "De-clickbait response unusable for article id=%d — "
+                        "retrying with plain summarization", article["id"]
+                    )
+
+            if summary is None:
+                summary = ollama_client.generate(
+                    model=model,
+                    prompt=prompts.summarization_prompt(full_text),
+                    expect_json=False,
+                    base_url=base_url,
+                )
             if summary is None:
                 log.warning("Summarization skipped for article id=%d", article["id"])
                 continue
 
             new_thumb = article["thumbnail_url"] or og_image
             db.execute(
-                "UPDATE articles SET full_text=?, summary=?, "
-                "thumbnail_url=?, status='summarized' WHERE id=?",
-                (full_text, summary.strip(), new_thumb, article["id"]),
+                "UPDATE articles SET full_text=?, summary=?, thumbnail_url=?, "
+                "clean_title=?, title_was_clickbait=?, status='summarized' "
+                "WHERE id=?",
+                (full_text, summary.strip(), new_thumb,
+                 clean_title, was_clickbait, article["id"]),
             )
             db.commit()
-            log.info("Summarized article id=%d", article["id"])
+            log.info("Summarized article id=%d%s", article["id"],
+                     " (title de-clickbaited)" if clean_title else "")
         except Exception as exc:
             log.error("Error summarizing article id=%d: %s", article["id"], exc)
 

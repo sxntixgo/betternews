@@ -128,11 +128,31 @@ def _to_blocks(text: str, embeds_enabled: bool = False) -> list[dict]:
     return blocks
 
 
-def _row_to_article(row) -> dict:
+def _row_to_article(row, declickbait: bool = False) -> dict:
     d = dict(row)
     text = (d.get('full_text_head') or '') + ' ' + (d.get('raw_snippet') or '')
     d['reading_time'] = _extract_reading_time(text)
+    d['display_title'], d['original_title'] = _resolve_title(d, declickbait)
     return d
+
+
+def _declickbait(db) -> bool:
+    return get_setting(db, "declickbait_enabled", "") == "1"
+
+
+def _resolve_title(d: dict, declickbait: bool) -> tuple[str, str | None]:
+    """(title to show, original to show beneath — None when unchanged).
+
+    Falls back to the stored title whenever the rewrite is absent or the setting
+    is off, so articles summarized before the feature existed render unchanged.
+    """
+    title = d.get('title') or ''
+    if not declickbait:
+        return title, None
+    clean = (d.get('clean_title') or '').strip()
+    if not clean or not d.get('title_was_clickbait') or clean == title:
+        return title, None
+    return clean, title
 
 
 # ── Pages ──────────────────────────────────────────────────────────────────────
@@ -182,9 +202,10 @@ def articles():
         params.append(int(feed_arg))
     saved_filter = " AND saved_at IS NOT NULL" if show_saved else ""
     db = get_db()
+    declickbait = _declickbait(db)
     rows = db.execute(
         f"""SELECT id, url, title, summary, score, score_reason, status, thumbnail_url,
-                  raw_snippet, read_at, saved_at,
+                  raw_snippet, read_at, saved_at, clean_title, title_was_clickbait,
                   SUBSTR(full_text, 1, 400) as full_text_head
            FROM articles
            WHERE status IN {statuses}{feed_filter}{saved_filter}
@@ -205,7 +226,7 @@ def articles():
         next_qs = "&".join(parts)
     return render_template(
         "_articles.html",
-        articles=[_row_to_article(r) for r in rows],
+        articles=[_row_to_article(r, declickbait) for r in rows],
         next_qs=next_qs,
         is_first_page=(offset == 0),
     )
@@ -220,12 +241,16 @@ def search():
             "_articles.html", articles=[], next_qs="", is_first_page=True
         )
     db = get_db()
+    declickbait = _declickbait(db)
     # FTS5 query — escape user input by wrapping in quotes (treat as a phrase).
+    # The index covers the stored `title`, so search still matches the original
+    # wording even when a de-clickbaited rewrite is what's displayed.
     fts_query = '"' + q.replace('"', '""') + '"'
     try:
         rows = db.execute(
             """SELECT a.id, a.url, a.title, a.summary, a.score, a.score_reason,
                       a.status, a.thumbnail_url, a.raw_snippet, a.read_at, a.saved_at,
+                      a.clean_title, a.title_was_clickbait,
                       SUBSTR(a.full_text, 1, 400) as full_text_head
                FROM articles_fts f
                JOIN articles a ON a.id = f.rowid
@@ -239,7 +264,7 @@ def search():
         rows = []
     return render_template(
         "_articles.html",
-        articles=[_row_to_article(r) for r in rows],
+        articles=[_row_to_article(r, declickbait) for r in rows],
         next_qs="",
         is_first_page=True,
     )
@@ -264,11 +289,12 @@ def article_save(article_id: int):
     db.commit()
     card = db.execute(
         "SELECT id, url, title, summary, score, score_reason, status, thumbnail_url, "
-        "raw_snippet, read_at, saved_at, "
+        "raw_snippet, read_at, saved_at, clean_title, title_was_clickbait, "
         "SUBSTR(full_text, 1, 400) as full_text_head FROM articles WHERE id=?",
         (article_id,),
     ).fetchone()
-    return render_template("_article_card.html", article=_row_to_article(card))
+    return render_template("_article_card.html",
+                           article=_row_to_article(card, _declickbait(db)))
 
 
 @bp.post("/article/<int:article_id>/dismiss")
@@ -306,11 +332,12 @@ def vote(article_id: int, value: str):
     db.commit()
     row = db.execute(
         "SELECT id, url, title, summary, score, score_reason, status, thumbnail_url, "
-        "raw_snippet, read_at, saved_at, "
+        "raw_snippet, read_at, saved_at, clean_title, title_was_clickbait, "
         "SUBSTR(full_text, 1, 400) as full_text_head FROM articles WHERE id=?",
         (article_id,),
     ).fetchone()
-    return render_template("_article_card.html", article=_row_to_article(row))
+    return render_template("_article_card.html",
+                           article=_row_to_article(row, _declickbait(db)))
 
 
 # ── Feed management ────────────────────────────────────────────────────────────
@@ -558,6 +585,21 @@ def models_form():
     )
 
 
+@bp.get("/settings/titles")
+def titles_form():
+    db = get_db()
+    return render_template("_titles_setting.html", enabled=_declickbait(db))
+
+
+@bp.post("/settings/titles")
+def titles_save():
+    enabled = request.form.get("declickbait_enabled") == "1"
+    db = get_db()
+    set_setting(db, "declickbait_enabled", "1" if enabled else "")
+    db.commit()
+    return render_template("_titles_setting.html", enabled=enabled, saved=True)
+
+
 @bp.get("/settings/embeds")
 def embeds_form():
     db = get_db()
@@ -752,7 +794,7 @@ def feed_set_tags(feed_id: int):
 def article_content(article_id: int):
     db = get_db()
     row = db.execute(
-        "SELECT title, url, full_text, raw_snippet, feed_content "
+        "SELECT title, url, full_text, raw_snippet, feed_content, clean_title, title_was_clickbait "
         "FROM articles WHERE id=?",
         (article_id,)
     ).fetchone()
@@ -766,11 +808,15 @@ def article_content(article_id: int):
     db.commit()
     description = (row["raw_snippet"] or "").strip()
     full_text = row["full_text"] or row["feed_content"] or ""
+    # Strip against the stored title — that's the wording the body may duplicate,
+    # regardless of which title is displayed.
     content = _clean_content(full_text, title=row["title"], description=description)
     embeds_enabled = get_setting(db, "embeds_enabled", "") == "1"
+    title, original_title = _resolve_title(dict(row), _declickbait(db))
     return render_template(
         "_article_content.html",
-        title=row["title"],
+        title=title,
+        original_title=original_title,
         description=description,
         blocks=_to_blocks(content, embeds_enabled=embeds_enabled),
     )

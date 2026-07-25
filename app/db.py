@@ -34,6 +34,8 @@ _ARTICLE_MIGRATIONS = (
     "ALTER TABLE articles ADD COLUMN read_at TEXT",
     "ALTER TABLE articles ADD COLUMN feed_content TEXT",
     "ALTER TABLE articles ADD COLUMN saved_at TEXT",
+    "ALTER TABLE articles ADD COLUMN clean_title TEXT",
+    "ALTER TABLE articles ADD COLUMN title_was_clickbait INTEGER",
 )
 _FEED_MIGRATIONS = (
     "ALTER TABLE feeds ADD COLUMN last_success_at TEXT",

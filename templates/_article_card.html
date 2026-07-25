@@ -21,7 +21,7 @@
           {{ "%.0f"|format(article.score * 100) }}%
         </span>
       {% endif %}
-      <span class="article-title">{{ article.title }}</span>
+      <span class="article-title">{{ article.display_title or article.title }}</span>
       <div class="article-actions-inline">
         <button
           hx-post="/article/{{ article.id }}/save"
@@ -44,6 +44,11 @@
           class="btn-icon btn-dislike" title="Dislike">👎</button>
       </div>
     </div>
+    {% if article.original_title %}
+      <p class="original-title" title="Headline as published">
+        Originally: {{ article.original_title }}
+      </p>
+    {% endif %}
     {% if article.summary %}
       <p class="article-summary">{{ article.summary }}</p>
     {% endif %}

@@ -475,3 +475,147 @@ def test_ollama_base_falls_back_on_invalid_settings(memory_db, caplog):
     set_setting(memory_db, "ollama_port", "not-a-port")
     assert ollama_base(memory_db) == ollama_client.OLLAMA_BASE
     assert "Invalid Ollama host/port" in caplog.text
+
+
+# ── De-clickbait titles ────────────────────────────────────────────────────────
+
+def _enable_declickbait(db):
+    from app.db import set_setting
+    set_setting(db, "declickbait_enabled", "1")
+    db.commit()
+
+
+@patch("app.pipeline.fetch_full_text_and_image")
+@patch("app.pipeline.ollama_client.generate")
+def test_declickbait_off_uses_plain_prompt_and_leaves_columns_null(
+    mock_gen, mock_fetch, memory_db
+):
+    mock_fetch.return_value = ("Full body.", None)
+    mock_gen.return_value = "A summary."
+    fid = add_feed(memory_db)
+    aid = add_article(memory_db, fid, status="scored", title="Real Headline")
+
+    summarize_scored_articles(memory_db)
+
+    assert mock_gen.call_args.kwargs["expect_json"] is False
+    row = memory_db.execute(
+        "SELECT summary, title, clean_title, title_was_clickbait FROM articles WHERE id=?",
+        (aid,)).fetchone()
+    assert row["summary"] == "A summary."
+    assert row["title"] == "Real Headline"
+    assert row["clean_title"] is None
+
+
+@patch("app.pipeline.fetch_full_text_and_image")
+@patch("app.pipeline.ollama_client.generate")
+def test_declickbait_stores_rewrite_without_touching_title(mock_gen, mock_fetch, memory_db):
+    mock_fetch.return_value = ("Full body.", None)
+    mock_gen.return_value = {
+        "summary": "The CEO announced layoffs.",
+        "was_clickbait": True,
+        "clean_title": "CEO announces 400 layoffs",
+    }
+    _enable_declickbait(memory_db)
+    fid = add_feed(memory_db)
+    aid = add_article(memory_db, fid, status="scored",
+                      title="You won't BELIEVE what this CEO just said")
+
+    summarize_scored_articles(memory_db)
+
+    assert mock_gen.call_args.kwargs["expect_json"] is True
+    row = memory_db.execute(
+        "SELECT title, clean_title, title_was_clickbait, summary FROM articles WHERE id=?",
+        (aid,)).fetchone()
+    # The original must survive — it backs search and duplicate detection.
+    assert row["title"] == "You won't BELIEVE what this CEO just said"
+    assert row["clean_title"] == "CEO announces 400 layoffs"
+    assert row["title_was_clickbait"] == 1
+    assert row["summary"] == "The CEO announced layoffs."
+
+
+@patch("app.pipeline.fetch_full_text_and_image")
+@patch("app.pipeline.ollama_client.generate")
+def test_declickbait_false_leaves_clean_title_null(mock_gen, mock_fetch, memory_db):
+    mock_fetch.return_value = ("Full body.", None)
+    mock_gen.return_value = {
+        "summary": "A summary.",
+        "was_clickbait": False,
+        "clean_title": "Ordinary Headline",
+    }
+    _enable_declickbait(memory_db)
+    fid = add_feed(memory_db)
+    aid = add_article(memory_db, fid, status="scored", title="Ordinary Headline")
+
+    summarize_scored_articles(memory_db)
+
+    row = memory_db.execute(
+        "SELECT clean_title, title_was_clickbait FROM articles WHERE id=?", (aid,)).fetchone()
+    assert row["clean_title"] is None
+    assert row["title_was_clickbait"] == 0
+
+
+@patch("app.pipeline.fetch_full_text_and_image")
+@patch("app.pipeline.ollama_client.generate")
+def test_declickbait_malformed_json_still_produces_summary(mock_gen, mock_fetch, memory_db, caplog):
+    """The invariant: losing the rewrite is acceptable, losing the summary is not."""
+    mock_fetch.return_value = ("Full body.", None)
+    mock_gen.side_effect = [None, "Fallback summary."]   # JSON parse fails, then plain text
+    _enable_declickbait(memory_db)
+    fid = add_feed(memory_db)
+    aid = add_article(memory_db, fid, status="scored", title="Some Headline")
+
+    summarize_scored_articles(memory_db)
+
+    row = memory_db.execute(
+        "SELECT status, summary, clean_title FROM articles WHERE id=?", (aid,)).fetchone()
+    assert row["status"] == "summarized"
+    assert row["summary"] == "Fallback summary."
+    assert row["clean_title"] is None
+    assert "retrying with plain summarization" in caplog.text
+
+
+@patch("app.pipeline.fetch_full_text_and_image")
+@patch("app.pipeline.ollama_client.generate")
+def test_declickbait_json_missing_summary_falls_back(mock_gen, mock_fetch, memory_db):
+    mock_fetch.return_value = ("Full body.", None)
+    mock_gen.side_effect = [{"was_clickbait": True, "clean_title": "X"}, "Fallback."]
+    _enable_declickbait(memory_db)
+    fid = add_feed(memory_db)
+    aid = add_article(memory_db, fid, status="scored", title="T")
+
+    summarize_scored_articles(memory_db)
+
+    row = memory_db.execute(
+        "SELECT summary, clean_title FROM articles WHERE id=?", (aid,)).fetchone()
+    assert row["summary"] == "Fallback."
+    assert row["clean_title"] is None
+
+
+@patch("app.pipeline.fetch_full_text_and_image")
+@patch("app.pipeline.ollama_client.generate")
+def test_declickbait_both_calls_fail_skips_article(mock_gen, mock_fetch, memory_db):
+    mock_fetch.return_value = ("Full body.", None)
+    mock_gen.side_effect = [None, None]
+    _enable_declickbait(memory_db)
+    fid = add_feed(memory_db)
+    aid = add_article(memory_db, fid, status="scored", title="T")
+
+    summarize_scored_articles(memory_db)
+
+    row = memory_db.execute("SELECT status FROM articles WHERE id=?", (aid,)).fetchone()
+    assert row["status"] == "scored"   # left for the next run
+
+
+@pytest.mark.parametrize("result,expected", [
+    ({"was_clickbait": True, "clean_title": "Better title"}, ("Better title", 1)),
+    ({"was_clickbait": False, "clean_title": "Better title"}, (None, 0)),
+    ({"was_clickbait": True, "clean_title": ""}, (None, 0)),
+    ({"was_clickbait": True, "clean_title": "   "}, (None, 0)),
+    ({"was_clickbait": True}, (None, 0)),
+    ({"was_clickbait": True, "clean_title": "Original"}, (None, 0)),   # unchanged
+    ({"was_clickbait": True, "clean_title": "x" * 500}, (None, 0)),    # implausible
+    ({}, (None, 0)),
+])
+def test_clean_title_from_rejects_unusable_rewrites(result, expected):
+    from app.pipeline import _clean_title_from
+    assert _clean_title_from(result, "Original") == expected

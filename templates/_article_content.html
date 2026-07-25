@@ -1,6 +1,11 @@
 {% if title %}
   <h1 class="modal-article-title">{{ title }}</h1>
 {% endif %}
+{% if original_title %}
+  <p class="original-title" title="Headline as published">
+    Originally: {{ original_title }}
+  </p>
+{% endif %}
 {% if description %}
   <p class="modal-description">{{ description }}</p>
 {% endif %}

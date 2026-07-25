@@ -27,6 +27,8 @@ CREATE TABLE IF NOT EXISTS articles (
     feed_content   TEXT,                          -- stripped <content:encoded>/<content> (richer than summary)
     full_text      TEXT,                          -- trafilatura extracted text (or feed_content fallback)
     summary        TEXT,                          -- LLM 2-3 sentence summary
+    clean_title    TEXT,                          -- de-clickbaited title; NULL = never processed. `title` is never overwritten.
+    title_was_clickbait INTEGER,                   -- 1 when the LLM judged the original clickbait; only then is clean_title shown
     score          REAL,                          -- 0.0-1.0 from LLM
     score_reason   TEXT,                          -- one-sentence reason from LLM
     thumbnail_url  TEXT,                          -- image extracted from feed entry

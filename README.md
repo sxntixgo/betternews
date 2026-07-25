@@ -14,6 +14,7 @@ Flask + HTMX, no build step, SQLite storage, runs in Docker.
 - **Reader mode** — in-app reader modal with full-text extraction ([trafilatura](https://trafilatura.readthedocs.io/)), falling back to feed-provided content.
 - **PWA-ready** — manifest + service worker for install-to-homescreen.
 - **Background polling** — APScheduler polls feeds and runs the scoring/summary pipeline on an interval.
+- **Clickbait-free headlines** — optional: the summarizer rewrites headlines that withhold their point, and shows the original underneath. Costs no extra LLM calls.
 - **Prompt-injection aware** — article text is wrapped in XML delimiters and scoring is constrained to JSON output.
 
 ## Architecture
@@ -66,6 +67,15 @@ Copy `.env.example` to `.env` and adjust. Key variables:
 | `FLASK_SECRET_KEY` | — | **Set this to a random string** |
 
 Additional tuning vars (`SCORING_SNIPPET_CHARS`, `LOG_FORMAT`, `DB_PATH`/`BACKUP_DIR`/`KEEP`) are documented in `CLAUDE.md`.
+
+### Rewriting clickbait headlines
+
+**Settings → Reader → Headlines** turns on headline rewriting. The summarizer judges
+whether a headline withholds its point to force a click and, if so, rewrites it to
+state what the article reports — reusing the summarization call, so it costs nothing
+extra. The published headline is never overwritten: it stays in the database and is
+shown beneath the rewrite, so you can always see what changed. Only headlines the
+model flags are touched, and it applies to articles summarized from then on.
 
 ### Changing the Ollama endpoint without a rebuild
 

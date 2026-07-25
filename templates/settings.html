@@ -47,6 +47,14 @@
 <section class="settings-group">
   <h2>Reader</h2>
 
+  <h3>Headlines</h3>
+  <div id="titles-panel"
+       hx-get="/settings/titles"
+       hx-trigger="load"
+       hx-swap="innerHTML">
+    <p class="loading">Loading…</p>
+  </div>
+
   <h3>Embeds</h3>
   <div id="embeds-panel"
        hx-get="/settings/embeds"

@@ -1487,3 +1487,108 @@ def test_models_form_uses_configured_endpoint(mock_list, client, app):
     _set_ollama(app, "10.0.10.207", "11434")
     client.get("/settings/models")
     mock_list.assert_called_once_with("http://10.0.10.207:11434")
+
+
+# ── De-clickbait titles ────────────────────────────────────────────────────────
+
+def _set_declickbait(app, on=True):
+    from app.db import get_db_direct, set_setting
+    with app.app_context():
+        db = get_db_direct()
+        set_setting(db, "declickbait_enabled", "1" if on else "")
+        db.commit()
+        db.close()
+
+
+def _clickbait_article(app):
+    from app.db import get_db_direct
+    from tests.conftest import add_article, add_feed
+    with app.app_context():
+        db = get_db_direct()
+        fid = add_feed(db)
+        aid = add_article(db, fid, title="You won't believe what happened")
+        db.execute("UPDATE articles SET clean_title=?, title_was_clickbait=1 WHERE id=?",
+                   ("Council approves budget", aid))
+        db.commit()
+        db.close()
+    return aid
+
+
+def test_titles_setting_toggles(client, app):
+    assert b"Rewrite clickbait headlines" in client.get("/settings/titles").data
+    r = client.post("/settings/titles", data={"declickbait_enabled": "1"})
+    assert b"Saved" in r.data
+    from app.db import get_db_direct, get_setting
+    with app.app_context():
+        db = get_db_direct()
+        assert get_setting(db, "declickbait_enabled") == "1"
+        db.close()
+    client.post("/settings/titles", data={})
+    with app.app_context():
+        db = get_db_direct()
+        assert get_setting(db, "declickbait_enabled") == ""
+        db.close()
+
+
+def test_card_shows_rewrite_and_original_when_enabled(client, app):
+    _clickbait_article(app)
+    _set_declickbait(app, True)
+    data = client.get("/articles").data
+    assert b"Council approves budget" in data
+    assert b"Originally:" in data
+    assert b"You won&#39;t believe what happened" in data
+
+
+def test_card_shows_original_only_when_disabled(client, app):
+    _clickbait_article(app)
+    _set_declickbait(app, False)
+    data = client.get("/articles").data
+    assert b"You won&#39;t believe what happened" in data
+    assert b"Council approves budget" not in data
+    assert b"Originally:" not in data
+
+
+def test_card_unaffected_for_articles_without_rewrite(client, app):
+    """Articles summarized before the feature existed must render unchanged."""
+    from app.db import get_db_direct
+    from tests.conftest import add_article, add_feed
+    with app.app_context():
+        db = get_db_direct()
+        add_article(db, add_feed(db), title="Plain Headline")
+        db.close()
+    _set_declickbait(app, True)
+    data = client.get("/articles").data
+    assert b"Plain Headline" in data
+    assert b"Originally:" not in data
+
+
+def test_reader_modal_shows_rewrite_and_original(client, app):
+    aid = _clickbait_article(app)
+    _set_declickbait(app, True)
+    data = client.get(f"/article/{aid}/content").data
+    assert b"Council approves budget" in data
+    assert b"Originally:" in data
+
+
+def test_reader_modal_uses_original_when_disabled(client, app):
+    aid = _clickbait_article(app)
+    _set_declickbait(app, False)
+    data = client.get(f"/article/{aid}/content").data
+    assert b"You won&#39;t believe what happened" in data
+    assert b"Originally:" not in data
+
+
+def test_search_matches_original_title_while_showing_rewrite(client, app):
+    """FTS indexes the stored title, so the published wording stays findable."""
+    _clickbait_article(app)
+    _set_declickbait(app, True)
+    data = client.get("/search?q=believe").data
+    assert b"Council approves budget" in data
+    assert b"Originally:" in data
+
+
+def test_vote_response_card_respects_setting(client, app):
+    aid = _clickbait_article(app)
+    _set_declickbait(app, True)
+    data = client.post(f"/vote/{aid}/1").data
+    assert b"Council approves budget" in data

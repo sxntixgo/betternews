@@ -22,7 +22,7 @@ Requires: Ollama running on host with `OLLAMA_HOST=0.0.0.0:11434` (env var set b
 
 ## Environment variables
 See `.env.example`. Copy to `.env` before first run. Required vars:
-- `OLLAMA_HOST` — default `http://host.docker.internal:11434`
+- `OLLAMA_HOST` — default `http://host.docker.internal:11434`. Overridable at runtime via Settings → Ollama → Connection (`settings.ollama_host` + `settings.ollama_port`); the env var is the fallback when either is blank.
 - `OLLAMA_TIMEOUT` — seconds per Ollama call, default `180`. Bump for 8b+ models on remote/slower hardware.
 - `SCORING_MODEL` — default `llama3.2:3b`. Overridable at runtime via Settings (`settings.scoring_model`).
 - `SUMMARY_MODEL` — default `llama3.2:3b`. Overridable at runtime via Settings (`settings.summary_model`).
@@ -58,10 +58,14 @@ new → scored → summarized → liked | disliked | dismissed
 - `GET|POST /preferences` — profile text view/edit
 - `POST /preferences/regenerate` — rebuild profile from votes (background thread)
 - `GET|POST /settings/models` — choose scoring/summary models from `ollama_client.list_models()`
+- `GET|POST /settings/ollama` — set the Ollama host/port at runtime (overrides `OLLAMA_HOST`)
+- `POST /settings/ollama/test` — probe the host/port **currently in the form**, without saving
 - `GET|POST /feeds/opml` — OPML export (GET) / import (POST file upload)
 - `POST /feeds/<id>/tags` — save comma-separated tags; sidebar groups feeds by tag.
 
 ## LLM notes
+- **Endpoint resolution:** `pipeline.ollama_base(db)` is the single source of truth — Settings override, else the `OLLAMA_HOST` env var. It is read *per call*, so a change in Settings applies on the next scheduled job with no restart. `ollama_client` itself stays free of app state: `generate()` / `list_models()` / `probe()` take an optional `base_url` and fall back to the env constant.
+- `ollama_client.compose_base_url(host, port)` validates and builds the URL; it raises `ValueError` with UI-ready messages. `probe()` is `list_models()` that reports *why* it failed instead of returning `[]` — use it for anything user-facing.
 - Scoring uses `format:"json"` Ollama param to constrain output to valid JSON.
 - Article content is wrapped in XML delimiters (`<article_snippet>`, `<article_content>`) to mitigate prompt injection.
 - `generate()` returns `None` on failure — all callers must handle `None` gracefully (skip, log, continue). It retries on `ConnectError`/`TimeoutException` up to `MAX_RETRIES`.

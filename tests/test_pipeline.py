@@ -4,6 +4,7 @@ import pytest
 
 from app.feeds import strip_html
 from app.pipeline import (
+    ollama_base,
     score_new_articles,
     summarize_scored_articles,
     run_pipeline,
@@ -444,3 +445,33 @@ def test_fetch_full_text_and_image_no_og_returns_none(mock_get, mock_extract):
     text, og = fetch_full_text_and_image("https://x.example.com")
     assert text == "body"
     assert og is None
+
+
+# ── ollama_base resolution ─────────────────────────────────────────────────────
+
+def test_ollama_base_falls_back_to_env_when_unset(memory_db):
+    from app import ollama_client
+    assert ollama_base(memory_db) == ollama_client.OLLAMA_BASE
+
+
+def test_ollama_base_uses_settings_when_set(memory_db):
+    from app.db import set_setting
+    set_setting(memory_db, "ollama_host", "10.0.10.207")
+    set_setting(memory_db, "ollama_port", "11434")
+    assert ollama_base(memory_db) == "http://10.0.10.207:11434"
+
+
+def test_ollama_base_ignores_partial_settings(memory_db):
+    from app import ollama_client
+    from app.db import set_setting
+    set_setting(memory_db, "ollama_host", "10.0.10.207")   # no port
+    assert ollama_base(memory_db) == ollama_client.OLLAMA_BASE
+
+
+def test_ollama_base_falls_back_on_invalid_settings(memory_db, caplog):
+    from app import ollama_client
+    from app.db import set_setting
+    set_setting(memory_db, "ollama_host", "10.0.10.207")
+    set_setting(memory_db, "ollama_port", "not-a-port")
+    assert ollama_base(memory_db) == ollama_client.OLLAMA_BASE
+    assert "Invalid Ollama host/port" in caplog.text

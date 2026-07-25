@@ -32,6 +32,24 @@ def _summary_model(db) -> str:
     return get_setting(db, "summary_model", DEFAULT_SUMMARY_MODEL) or DEFAULT_SUMMARY_MODEL
 
 
+def ollama_base(db) -> str:
+    """Endpoint for Ollama calls: Settings override, else the OLLAMA_HOST env var.
+
+    Read per call rather than cached, so changing it in Settings takes effect on
+    the next scheduled job without restarting the container.
+    """
+    host = (get_setting(db, "ollama_host", "") or "").strip()
+    port = (get_setting(db, "ollama_port", "") or "").strip()
+    if not (host and port):
+        return ollama_client.OLLAMA_BASE
+    try:
+        return ollama_client.compose_base_url(host, port)
+    except ValueError as exc:
+        log.warning("Invalid Ollama host/port in settings (%s) — using %s",
+                    exc, ollama_client.OLLAMA_BASE)
+        return ollama_client.OLLAMA_BASE
+
+
 def run_pipeline(app: flask.Flask) -> bool:
     """Score new articles then summarize scored ones. Called by APScheduler.
 
@@ -70,6 +88,7 @@ def score_new_articles(db, profile_text: str) -> None:
            WHERE a.status='new' LIMIT 50"""
     ).fetchall()
     model = _scoring_model(db)
+    base_url = ollama_base(db)
 
     for article in articles:
         try:
@@ -78,7 +97,7 @@ def score_new_articles(db, profile_text: str) -> None:
                 profile_text, article["title"], snippet
             )
             result = ollama_client.generate(
-                model=model, prompt=prompt, expect_json=True
+                model=model, prompt=prompt, expect_json=True, base_url=base_url
             )
             if result is None:
                 log.warning("Scoring skipped for article id=%d (no LLM response)", article["id"])
@@ -109,6 +128,7 @@ def summarize_scored_articles(db) -> None:
         "FROM articles WHERE status='scored' LIMIT 20"
     ).fetchall()
     model = _summary_model(db)
+    base_url = ollama_base(db)
 
     for article in articles:
         try:
@@ -121,7 +141,7 @@ def summarize_scored_articles(db) -> None:
             )
             prompt = prompts.summarization_prompt(full_text)
             summary = ollama_client.generate(
-                model=model, prompt=prompt, expect_json=False
+                model=model, prompt=prompt, expect_json=False, base_url=base_url
             )
             if summary is None:
                 log.warning("Summarization skipped for article id=%d", article["id"])
@@ -165,7 +185,8 @@ def regenerate_preferences(app: flask.Flask) -> None:
 
             prompt = prompts.profile_prompt(liked, disliked)
             new_profile = ollama_client.generate(
-                model=_summary_model(db), prompt=prompt, expect_json=False
+                model=_summary_model(db), prompt=prompt, expect_json=False,
+                base_url=ollama_base(db),
             )
             if new_profile is None:
                 log.error("Preference regeneration failed — LLM returned None")

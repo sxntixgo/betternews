@@ -627,7 +627,8 @@ button:disabled { opacity: 0.4; cursor: default; }
 .models-form { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
 .models-row { display: flex; align-items: center; gap: 12px; }
 .models-row label { width: 130px; font-size: 14px; color: var(--muted); }
-.models-row select {
+.models-row select,
+.models-row input[type="text"] {
   flex: 1;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -639,6 +640,33 @@ button:disabled { opacity: 0.4; cursor: default; }
 .models-actions { display: flex; align-items: center; gap: 12px; }
 .models-saved { font-size: 13px; color: var(--accent); }
 .models-warn { font-size: 13px; color: var(--muted); }
+
+/* Result line under the Ollama connection form (save / validation / probe). */
+.ollama-result {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.ollama-result-ok  { color: var(--accent); border-color: var(--accent); }
+.ollama-result-bad { color: #d14343; border-color: #d14343; }
+[data-theme="dark"] .ollama-result-bad { color: #ff8080; border-color: #ff8080; }
+
+/* Settings page: grouped sections, so new toggles have somewhere to land. */
+.settings-group { margin-bottom: 40px; }
+.settings-group > h2 {
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.settings-group > h3 {
+  margin: 24px 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.settings-group > h3:first-of-type { margin-top: 16px; }
 
 h2 { margin-bottom: 16px; font-size: 18px; }
 

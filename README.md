@@ -57,7 +57,7 @@ Copy `.env.example` to `.env` and adjust. Key variables:
 
 | Variable | Default | Description |
 |---|---|---|
-| `OLLAMA_HOST` | `http://host.docker.internal:11434` | Ollama endpoint reachable from the container |
+| `OLLAMA_HOST` | `http://host.docker.internal:11434` | Ollama endpoint reachable from the container (overridable in Settings) |
 | `OLLAMA_TIMEOUT` | `180` | Seconds per Ollama call; bump for larger models |
 | `SCORING_MODEL` | `llama3.2:3b` | Model used for relevance scoring (overridable in Settings) |
 | `SUMMARY_MODEL` | `llama3.2:3b` | Model used for summaries (overridable in Settings) |
@@ -66,6 +66,14 @@ Copy `.env.example` to `.env` and adjust. Key variables:
 | `FLASK_SECRET_KEY` | — | **Set this to a random string** |
 
 Additional tuning vars (`SCORING_SNIPPET_CHARS`, `LOG_FORMAT`, `DB_PATH`/`BACKUP_DIR`/`KEEP`) are documented in `CLAUDE.md`.
+
+### Changing the Ollama endpoint without a rebuild
+
+**Settings → Ollama → Connection** sets the host and port at runtime, overriding
+`OLLAMA_HOST`. **Test connection** probes the values in the form *before* saving and
+reports what it found — reachable and how many models are installed, or the actual
+error ("connection refused", "timed out", an HTTP status). Clear both fields to fall
+back to the environment variable. Changes apply on the next pipeline run; no restart.
 
 ## Usage
 

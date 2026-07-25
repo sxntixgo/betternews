@@ -17,7 +17,7 @@ def test_index_returns_200(client):
 def test_settings_page_renders(client):
     r = client.get("/settings")
     assert r.status_code == 200
-    assert b"Preference Profile" in r.data
+    assert b"Preference profile" in r.data
     assert b"Re-score hidden articles" in r.data
     # Manage-feeds widgets should NOT appear on the settings page anymore
     assert b"Add Feed" not in r.data
@@ -1380,3 +1380,110 @@ def test_favicon_link_present_on_index(client):
 def test_favicon_link_present_on_settings(client):
     r = client.get("/settings")
     assert b'id="favicon"' in r.data
+
+
+# ── Ollama connection settings ─────────────────────────────────────────────────
+
+def _set_ollama(app, host, port):
+    from app.db import get_db_direct, set_setting
+    with app.app_context():
+        db = get_db_direct()
+        set_setting(db, "ollama_host", host)
+        set_setting(db, "ollama_port", port)
+        db.commit()
+        db.close()
+
+
+def test_ollama_form_shows_env_default_when_unset(client):
+    r = client.get("/settings/ollama")
+    assert r.status_code == 200
+    assert b"OLLAMA_HOST" in r.data
+
+
+def test_ollama_save_persists_and_reports(client, app):
+    r = client.post("/settings/ollama",
+                    data={"ollama_host": "10.0.10.207", "ollama_port": "11434"})
+    assert r.status_code == 200
+    assert b"Saved" in r.data
+    from app.db import get_db_direct, get_setting
+    with app.app_context():
+        db = get_db_direct()
+        assert get_setting(db, "ollama_host") == "10.0.10.207"
+        assert get_setting(db, "ollama_port") == "11434"
+        db.close()
+
+
+def test_ollama_save_rejects_bad_port(client, app):
+    r = client.post("/settings/ollama",
+                    data={"ollama_host": "10.0.10.207", "ollama_port": "70000"})
+    assert r.status_code == 200
+    assert b"between 1 and 65535" in r.data
+    from app.db import get_db_direct, get_setting
+    with app.app_context():
+        db = get_db_direct()
+        assert get_setting(db, "ollama_host") == ""   # nothing persisted
+        db.close()
+
+
+def test_ollama_save_rejects_host_with_port(client):
+    r = client.post("/settings/ollama",
+                    data={"ollama_host": "10.0.10.207:11434", "ollama_port": "11434"})
+    assert b"without a port" in r.data
+
+
+def test_ollama_save_blank_reverts_to_env(client, app):
+    _set_ollama(app, "10.0.10.207", "11434")
+    r = client.post("/settings/ollama", data={"ollama_host": "", "ollama_port": ""})
+    assert b"environment variable" in r.data
+    from app.db import get_db_direct, get_setting
+    with app.app_context():
+        db = get_db_direct()
+        assert get_setting(db, "ollama_host") == ""
+        db.close()
+
+
+@patch("app.routes.ollama_client.probe")
+def test_ollama_test_uses_entered_values_without_saving(mock_probe, client, app):
+    mock_probe.return_value = (True, "Connected to http://9.9.9.9:1234 — 1 model(s) installed.", ["a:1"])
+    r = client.post("/settings/ollama/test",
+                    data={"ollama_host": "9.9.9.9", "ollama_port": "1234"})
+    assert r.status_code == 200
+    assert b"1 model(s) installed" in r.data
+    assert b"a:1" in r.data
+    mock_probe.assert_called_once_with("http://9.9.9.9:1234")
+    from app.db import get_db_direct, get_setting
+    with app.app_context():
+        db = get_db_direct()
+        assert get_setting(db, "ollama_host") == ""   # probe must not persist
+        db.close()
+
+
+@patch("app.routes.ollama_client.probe")
+def test_ollama_test_reports_failure(mock_probe, client):
+    mock_probe.return_value = (False, "Connection refused — nothing listening on http://9.9.9.9:1234.", [])
+    r = client.post("/settings/ollama/test",
+                    data={"ollama_host": "9.9.9.9", "ollama_port": "1234"})
+    assert b"Connection refused" in r.data
+    assert b"ollama-result-bad" in r.data
+
+
+def test_ollama_test_validates_before_probing(client):
+    r = client.post("/settings/ollama/test",
+                    data={"ollama_host": "bad host", "ollama_port": "1234"})
+    assert b"not a valid hostname" in r.data
+
+
+@patch("app.routes.ollama_client.probe")
+def test_ollama_test_with_blank_fields_probes_env_default(mock_probe, client):
+    mock_probe.return_value = (True, "ok", [])
+    client.post("/settings/ollama/test", data={"ollama_host": "", "ollama_port": ""})
+    from app import ollama_client as oc
+    mock_probe.assert_called_once_with(oc.OLLAMA_BASE)
+
+
+@patch("app.routes.ollama_client.list_models")
+def test_models_form_uses_configured_endpoint(mock_list, client, app):
+    mock_list.return_value = []
+    _set_ollama(app, "10.0.10.207", "11434")
+    client.get("/settings/models")
+    mock_list.assert_called_once_with("http://10.0.10.207:11434")

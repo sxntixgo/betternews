@@ -7,7 +7,7 @@ from flask import Blueprint, current_app, render_template, request, Response
 
 from app import ollama_client
 from app.db import get_db, get_setting, set_setting
-from app.pipeline import DEFAULT_SCORING_MODEL, DEFAULT_SUMMARY_MODEL
+from app.pipeline import DEFAULT_SCORING_MODEL, DEFAULT_SUMMARY_MODEL, ollama_base
 
 log = logging.getLogger(__name__)
 
@@ -462,10 +462,92 @@ def status():
     )
 
 
+def _ollama_form_state(db, **overrides) -> dict:
+    """Values for _ollama_setting.html: saved settings, or the env default."""
+    host = (get_setting(db, "ollama_host", "") or "").strip()
+    port = (get_setting(db, "ollama_port", "") or "").strip()
+    state = {
+        "host": host,
+        "port": port,
+        "using_env": not (host and port),
+        "env_base": ollama_client.OLLAMA_BASE,
+        "active_base": ollama_base(db),
+    }
+    state.update(overrides)
+    return state
+
+
+@bp.get("/settings/ollama")
+def ollama_form():
+    return render_template("_ollama_setting.html", **_ollama_form_state(get_db()))
+
+
+@bp.post("/settings/ollama")
+def ollama_save():
+    db = get_db()
+    host = request.form.get("ollama_host", "").strip()
+    port = request.form.get("ollama_port", "").strip()
+
+    # Both blank is a deliberate "revert to the OLLAMA_HOST env var".
+    if not host and not port:
+        set_setting(db, "ollama_host", "")
+        set_setting(db, "ollama_port", "")
+        db.commit()
+        return render_template(
+            "_ollama_setting.html",
+            **_ollama_form_state(db, saved=True,
+                                 notice="Cleared — using the OLLAMA_HOST environment variable."),
+        )
+
+    try:
+        base = ollama_client.compose_base_url(host, port)
+    except ValueError as exc:
+        return render_template(
+            "_ollama_setting.html",
+            **_ollama_form_state(db, host=host, port=port, error=str(exc)),
+        )
+
+    set_setting(db, "ollama_host", host)
+    set_setting(db, "ollama_port", port)
+    db.commit()
+    log.info("Ollama endpoint set to %s", base)
+    return render_template(
+        "_ollama_setting.html",
+        **_ollama_form_state(db, saved=True,
+                             notice="Saved. Takes effect on the next pipeline run — no restart needed."),
+    )
+
+
+@bp.post("/settings/ollama/test")
+def ollama_test():
+    """Probe the values currently in the form, without saving them."""
+    db = get_db()
+    host = request.form.get("ollama_host", "").strip()
+    port = request.form.get("ollama_port", "").strip()
+
+    if host or port:
+        try:
+            target = ollama_client.compose_base_url(host, port)
+        except ValueError as exc:
+            return render_template(
+                "_ollama_setting.html",
+                **_ollama_form_state(db, host=host, port=port, error=str(exc)),
+            )
+    else:
+        target = ollama_client.OLLAMA_BASE
+
+    ok, message, models = ollama_client.probe(target)
+    return render_template(
+        "_ollama_setting.html",
+        **_ollama_form_state(db, host=host, port=port,
+                             test_ok=ok, test_message=message, test_models=models),
+    )
+
+
 @bp.get("/settings/models")
 def models_form():
     db = get_db()
-    installed = ollama_client.list_models()
+    installed = ollama_client.list_models(ollama_base(db))
     scoring = get_setting(db, "scoring_model", DEFAULT_SCORING_MODEL) or DEFAULT_SCORING_MODEL
     summary = get_setting(db, "summary_model", DEFAULT_SUMMARY_MODEL) or DEFAULT_SUMMARY_MODEL
     return render_template(
@@ -502,7 +584,7 @@ def models_save():
     set_setting(db, "scoring_model", scoring)
     set_setting(db, "summary_model", summary)
     db.commit()
-    installed = ollama_client.list_models()
+    installed = ollama_client.list_models(ollama_base(db))
     return render_template(
         "_models.html",
         installed=installed,

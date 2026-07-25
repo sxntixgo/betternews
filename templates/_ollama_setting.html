@@ -1,0 +1,51 @@
+<form hx-target="#ollama-panel" hx-swap="innerHTML" class="models-form">
+  <div class="models-row">
+    <label for="ollama_host">Host</label>
+    <input type="text" name="ollama_host" id="ollama_host"
+           value="{{ host }}" placeholder="{{ 'e.g. 10.0.10.207' }}"
+           autocomplete="off" spellcheck="false">
+  </div>
+  <div class="models-row">
+    <label for="ollama_port">Port</label>
+    <input type="text" name="ollama_port" id="ollama_port"
+           value="{{ port }}" placeholder="11434"
+           inputmode="numeric" autocomplete="off" spellcheck="false">
+  </div>
+
+  <p class="hint" style="margin:6px 0 12px">
+    {% if using_env %}
+      Using the <code>OLLAMA_HOST</code> environment variable:
+      <code>{{ env_base }}</code>. Set a host and port here to override it without
+      rebuilding the container.
+    {% else %}
+      Overriding <code>OLLAMA_HOST</code> (<code>{{ env_base }}</code>).
+      Currently calling <code>{{ active_base }}</code>.
+      Clear both fields to go back to the environment variable.
+    {% endif %}
+  </p>
+
+  <div class="models-actions">
+    <button type="submit" hx-post="/settings/ollama">Save</button>
+    <button type="submit" hx-post="/settings/ollama/test" class="btn-secondary">
+      Test connection
+    </button>
+    {% if saved %}<span class="models-saved">Saved.</span>{% endif %}
+  </div>
+
+  {% if error %}
+    <p class="ollama-result ollama-result-bad">{{ error }}</p>
+  {% elif notice %}
+    <p class="ollama-result ollama-result-ok">{{ notice }}</p>
+  {% endif %}
+
+  {% if test_message %}
+    <p class="ollama-result {{ 'ollama-result-ok' if test_ok else 'ollama-result-bad' }}">
+      {{ test_message }}
+    </p>
+    {% if test_models %}
+      <p class="hint" style="margin:4px 0 0">
+        Installed: {{ test_models | join(', ') }}
+      </p>
+    {% endif %}
+  {% endif %}
+</form>

@@ -4,5 +4,9 @@ apscheduler==3.10.4
 feedparser==6.0.11
 httpx==0.28.1
 trafilatura==2.0.0
+sqlalchemy==2.0.36
+alembic==1.14.0
+psycopg[binary]==3.2.3
 pytest==8.3.5
 pytest-mock==3.14.0
+pytest-cov==6.0.0

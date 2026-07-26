@@ -9,6 +9,8 @@ import flask
 
 from datetime import datetime, timezone
 
+from sqlalchemy import text
+
 from app import content_filter, prompts, ollama_client
 from app.db import get_db_direct, get_setting, set_setting
 
@@ -63,15 +65,16 @@ def run_pipeline(app: flask.Flask) -> bool:
         with app.app_context():
             db = get_db_direct()
             try:
-                profile_text = db.execute(
+                row = db.execute(text(
                     "SELECT profile_text FROM preferences WHERE id=1"
-                ).fetchone()["profile_text"]
+                )).mappings().first()
+                profile_text = row["profile_text"] if row else ""
                 score_new_articles(db, profile_text)
                 summarize_scored_articles(db)
                 set_setting(
                     db,
                     "last_pipeline_run_at",
-                    datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    datetime.now(timezone.utc).isoformat(),
                 )
                 db.commit()
             finally:
@@ -82,11 +85,11 @@ def run_pipeline(app: flask.Flask) -> bool:
 
 
 def score_new_articles(db, profile_text: str) -> None:
-    articles = db.execute(
+    articles = db.execute(text(
         """SELECT a.id, a.title, a.raw_snippet, f.score_threshold
            FROM articles a JOIN feeds f ON f.id = a.feed_id
            WHERE a.status='new' LIMIT 50"""
-    ).fetchall()
+    )).mappings().all()
     model = _scoring_model(db)
     base_url = ollama_base(db)
 
@@ -113,8 +116,10 @@ def score_new_articles(db, profile_text: str) -> None:
             status = "hidden" if score < threshold else "scored"
 
             db.execute(
-                "UPDATE articles SET score=?, score_reason=?, status=? WHERE id=?",
-                (score, reason, status, article["id"]),
+                text("UPDATE articles SET score=:score, score_reason=:reason, "
+                     "status=:status WHERE id=:id"),
+                {"score": score, "reason": reason, "status": status,
+                 "id": article["id"]},
             )
             db.commit()
             log.info("Scored article id=%d score=%.2f status=%s", article["id"], score, status)
@@ -173,10 +178,10 @@ def _detect_asides(full_text: str, model: str, base_url: str) -> str | None:
 
 
 def summarize_scored_articles(db) -> None:
-    articles = db.execute(
+    articles = db.execute(text(
         "SELECT id, url, title, raw_snippet, feed_content, thumbnail_url "
         "FROM articles WHERE status='scored' LIMIT 20"
-    ).fetchall()
+    )).mappings().all()
     model = _summary_model(db)
     base_url = ollama_base(db)
     declickbait = get_setting(db, "declickbait_enabled", "") == "1"
@@ -234,11 +239,15 @@ def summarize_scored_articles(db) -> None:
 
             new_thumb = article["thumbnail_url"] or og_image
             db.execute(
-                "UPDATE articles SET full_text=?, summary=?, thumbnail_url=?, "
-                "clean_title=?, title_was_clickbait=?, aside_spans=?, "
-                "status='summarized' WHERE id=?",
-                (full_text, summary.strip(), new_thumb,
-                 clean_title, was_clickbait, aside_spans, article["id"]),
+                text("UPDATE articles SET full_text=:full_text, summary=:summary, "
+                     "thumbnail_url=:thumb, clean_title=:clean_title, "
+                     "title_was_clickbait=:was_clickbait, "
+                     "aside_spans=CAST(:aside_spans AS jsonb), "
+                     "status='summarized' WHERE id=:id"),
+                {"full_text": full_text, "summary": summary.strip(),
+                 "thumb": new_thumb, "clean_title": clean_title,
+                 "was_clickbait": bool(was_clickbait),
+                 "aside_spans": aside_spans, "id": article["id"]},
             )
             db.commit()
             log.info("Summarized article id=%d%s", article["id"],
@@ -252,11 +261,13 @@ def regenerate_preferences(app: flask.Flask) -> None:
     with app.app_context():
         db = get_db_direct()
         try:
-            rows = db.execute(
-                """SELECT v.value, a.title, a.summary
-                   FROM votes v JOIN articles a ON a.id = v.article_id
-                   ORDER BY v.created_at DESC LIMIT 200"""
-            ).fetchall()
+            rows = db.execute(text(
+                """SELECT value,
+                          COALESCE(title_snapshot, '')   AS title,
+                          COALESCE(summary_snapshot, '') AS summary
+                   FROM votes
+                   ORDER BY created_at DESC LIMIT 200"""
+            )).mappings().all()
 
             liked = [
                 f"{r['title']}: {r['summary'] or ''}"
@@ -281,9 +292,12 @@ def regenerate_preferences(app: flask.Flask) -> None:
                 return
 
             db.execute(
-                """INSERT OR REPLACE INTO preferences(id, profile_text, updated_at)
-                   VALUES(1, ?, strftime('%Y-%m-%dT%H:%M:%SZ','now'))""",
-                (new_profile.strip(),),
+                text("""INSERT INTO preferences (id, profile_text, updated_at)
+                        VALUES (1, :profile, now())
+                        ON CONFLICT (id) DO UPDATE
+                        SET profile_text = EXCLUDED.profile_text,
+                            updated_at   = EXCLUDED.updated_at"""),
+                {"profile": new_profile.strip()},
             )
             db.commit()
             log.info("Preference profile updated (%d chars)", len(new_profile))

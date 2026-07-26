@@ -457,3 +457,57 @@ def test_admin_sees_the_user_list(client, app):
     data = client.get("/admin/users").get_data(as_text=True)
     assert "member" in data
     assert "Users" in data
+
+
+# ── signed-out pages must not call authenticated endpoints ────────────────────
+
+AUTHED_ENDPOINTS = ("/sidebar/feeds", "/articles", "/count", "/digest", "/status")
+
+
+@pytest.mark.parametrize("path", ["/login", "/register"])
+def test_signed_out_pages_do_not_fetch_authenticated_endpoints(anon_client, path):
+    """A redirect loop, not a cosmetic issue.
+
+    base.html loads #sidebar-feeds via hx-trigger="load". On a signed-out page
+    that request answers 401 + HX-Redirect: /login, HTMX navigates the window to
+    /login, and /login renders the sidebar again — forever.
+    """
+    body = anon_client.get(path).get_data(as_text=True)
+    for endpoint in AUTHED_ENDPOINTS:
+        assert f'"{endpoint}"' not in body, f"{path} still references {endpoint}"
+    assert "hx-trigger=\"load" not in body
+
+
+@pytest.mark.parametrize("path", ["/login", "/register"])
+def test_signed_out_pages_render_without_the_sidebar(anon_client, path):
+    body = anon_client.get(path).get_data(as_text=True)
+    assert 'id="sidebar-feeds"' not in body
+    assert "site-layout-bare" in body
+
+
+def test_the_403_page_does_not_loop_either(login_as):
+    """It extends base.html too, and a plain user lands on it from an admin route."""
+    c, _ = login_as()
+    body = c.get("/settings").get_data(as_text=True)
+    assert "Admins only" in body
+
+
+def test_signed_in_pages_still_have_the_sidebar(client):
+    body = client.get("/").get_data(as_text=True)
+    assert 'id="sidebar-feeds"' in body
+    assert "site-layout-bare" not in body
+
+
+def test_login_page_returns_200_not_a_redirect(anon_client):
+    """The reported symptom: /login redirecting to /login."""
+    r = anon_client.get("/login")
+    assert r.status_code == 200
+    assert "Location" not in r.headers
+
+
+def test_htmx_request_to_login_is_not_redirected(anon_client):
+    """If HTMX somehow asks for /login, answering with another HX-Redirect to
+    /login is what closes the loop."""
+    r = anon_client.get("/login", headers={"HX-Request": "true"})
+    assert r.status_code == 200
+    assert "HX-Redirect" not in r.headers

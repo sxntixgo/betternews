@@ -21,7 +21,8 @@
   </script>
 </head>
 <body>
-  <div class="site-layout">
+  <div class="site-layout{% if not current_user() %} site-layout-bare{% endif %}">
+    {% if current_user() %}
     <button id="sidebar-drawer-toggle" class="drawer-toggle" aria-label="Open menu" onclick="toggleSidebarDrawer()">
       <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
         <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M4 6h16M4 12h16M4 18h16"/>
@@ -74,6 +75,7 @@
         <button id="theme-toggle" class="btn-icon" aria-label="Toggle dark mode" title="Toggle dark mode"></button>
       </div>
     </aside>
+    {% endif %}
     <div class="site-content">
       <div id="offline-bar" class="offline-bar" hidden>
         Offline — showing what's already downloaded. Votes will sync when you reconnect.
@@ -102,6 +104,8 @@
   </dialog>
 
   <script>
+    window.__signedIn = {{ 'true' if current_user() else 'false' }};
+
     // Dark mode toggle
     var root = document.documentElement;
     var toggleBtn = document.getElementById('theme-toggle');
@@ -157,6 +161,9 @@
       link.href = c.toDataURL('image/png');
     }
     function updateBadge() {
+      // Signed out there is no unread count, and /count would answer with the
+      // login page for the parser to choke on. Leave the favicon plain.
+      if (!window.__signedIn) { drawFavicon(0); return; }
       fetch('/count').then(function(r) { return r.text(); }).then(function(t) {
         var n = parseInt(t, 10) || 0;
         drawFavicon(n);

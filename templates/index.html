@@ -30,9 +30,33 @@
   function fetchPipelineStamp() {
     return fetch('/status', { headers: { Accept: 'application/json' } })
       .then(function(r) { return r.json(); })
-      .then(function(j) { return j.last_pipeline_run_at || ''; })
+      .then(function(j) { showHighScores(j.high_score); return j.last_pipeline_run_at || ''; })
       .catch(function() { return ''; });
   }
+
+  // High-score notifications. The server only ever returns an article once per
+  // person, so there is no client-side dedupe to get wrong.
+  function showHighScores(items) {
+    if (!items || !items.length) return;
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    items.forEach(function(a) {
+      var n = new Notification('Worth reading', {
+        body: a.title, tag: 'article-' + a.id, icon: '/static/icon-192.png'
+      });
+      n.onclick = function() { window.focus(); n.close(); };
+    });
+  }
+
+  // Ask once, on a real click — browsers reject permission prompts otherwise.
+  document.body.addEventListener('click', function askOnce() {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+    document.body.removeEventListener('click', askOnce);
+  }, { once: true });
+
+  // Poll for high scorers in the background too, not only after a refresh.
+  setInterval(fetchPipelineStamp, 120000);
 
   var pollBtn = document.getElementById('poll-btn');
   function setPolling(active) {

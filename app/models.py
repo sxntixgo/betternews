@@ -191,6 +191,22 @@ settings = Table(
 )
 
 
+# One row per pipeline run. LOG_FORMAT=json already emits timings, but nothing
+# surfaced them; this is what /insights reads.
+pipeline_runs = Table(
+    "pipeline_runs", metadata,
+    Column("id", Integer, primary_key=True),
+    _ts(name="started_at", nullable=False, server_default=func.now()),
+    _ts(name="finished_at"),
+    Column("scored_n", Integer, nullable=False, server_default="0"),
+    Column("summarized_n", Integer, nullable=False, server_default="0"),
+    Column("errors_n", Integer, nullable=False, server_default="0"),
+    Column("llm_calls", Integer, nullable=False, server_default="0"),
+    Column("skipped", Boolean, nullable=False, server_default="false"),
+)
+Index("ix_pipeline_runs_started_at", pipeline_runs.c.started_at.desc())
+
+
 login_attempts = Table(
     "login_attempts", metadata,
     Column("username", Text, primary_key=True),

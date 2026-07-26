@@ -80,6 +80,29 @@
 </section>
 {% endif %}
 
+{% if runs %}
+<section class="settings-group">
+  <h2>Recent pipeline runs</h2>
+  <ul class="feed-list">
+    {% for r in runs %}
+      <li class="feed-item">
+        <div class="feed-main">
+          <strong>{{ r.started_at | dt }}</strong>
+          <span class="feed-meta">
+            {%- if r.skipped %}skipped — another run held the lock
+            {%- else %}{{ r.scored_n }} scored · {{ r.summarized_n }} summarized
+              {%- if r.seconds %} · {{ '%.0f'|format(r.seconds) }}s{% endif %}
+              {%- if r.errors_n %} · {{ r.errors_n }} errors{% endif %}
+              {%- if not r.finished_at %} · running{% endif %}
+            {%- endif %}
+          </span>
+        </div>
+      </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
 <section class="settings-group">
   <h2>Pipeline</h2>
   <dl class="status-list">

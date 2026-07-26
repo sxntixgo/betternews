@@ -112,6 +112,8 @@ gets swapped into `#article-list`.
 - Scoring uses `format:"json"` Ollama param to constrain output to valid JSON.
 - Article content is wrapped in XML delimiters (`<article_snippet>`, `<article_content>`) to mitigate prompt injection.
 - `generate()` returns `None` on failure — all callers must handle `None` gracefully (skip, log, continue). It retries on `ConnectError`/`TimeoutException` up to `MAX_RETRIES`.
+- **Batched scoring.** `SCORING_BATCH_SIZE` (default 8) scores several articles per call. A batch is only accepted if *every* requested id comes back — a partial answer means the model lost track, and trusting it silently leaves articles unscored. Anything unusable falls back to one call per article. `SCORING_BATCH_SIZE=1` reproduces the original behaviour exactly.
+- `pipeline_runs` records every run (counts, duration, lock skips) and feeds `/insights`.
 - Ollama calls are serialized intentionally — concurrent requests contend for GPU VRAM.
 
 ## Frontend

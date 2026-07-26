@@ -100,6 +100,15 @@ def per_topic(db, limit: int = 15) -> list[dict]:
     """), {"n": limit}).mappings().all()
 
 
+def recent_runs(db, limit: int = 20) -> list[dict]:
+    """Turns LOG_FORMAT=json timings into something visible."""
+    return db.execute(text("""
+        SELECT started_at, finished_at, scored_n, summarized_n, errors_n, skipped,
+               EXTRACT(EPOCH FROM (finished_at - started_at)) AS seconds
+        FROM pipeline_runs ORDER BY started_at DESC LIMIT :n
+    """), {"n": limit}).mappings().all()
+
+
 def pipeline_health(db) -> dict:
     row = db.execute(text("""
         SELECT COUNT(*) FILTER (WHERE status = 'new')        AS unscored,

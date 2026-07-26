@@ -171,6 +171,32 @@ def record_vote(db, user_id: int, article_id: int, value: int) -> None:
                   opinion="liked" if value == 1 else "disliked")
 
 
+def high_score_unnotified(db, user_id: int, threshold: float, limit: int = 5):
+    """Articles worth interrupting someone for, that they haven't been told about.
+
+    `notified_at` lives in user_article_state, so each person is notified once —
+    a shared flag on the article would silence everyone after the first.
+    """
+    stmt = (
+        select(A.c.id, A.c.title, A.c.clean_title, A.c.score)
+        .select_from(A.outerjoin(
+            S, and_(S.c.article_id == A.c.id, S.c.user_id == user_id)))
+        .where(A.c.status == "summarized")
+        .where(A.c.score >= threshold)
+        .where(S.c.read_at.is_(None))
+        .where(S.c.dismissed_at.is_(None))
+        .where(S.c.notified_at.is_(None))
+        .order_by(A.c.score.desc())
+        .limit(limit)
+    )
+    return db.execute(stmt).mappings().all()
+
+
+def mark_notified(db, user_id: int, article_ids: list[int]) -> None:
+    for aid in article_ids:
+        _upsert_state(db, user_id, aid, notified_at=func.now())
+
+
 def unread_count(db, user_id: int) -> int:
     stmt = (
         select(func.count())

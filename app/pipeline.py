@@ -20,6 +20,9 @@ DEFAULT_SCORING_MODEL = os.environ.get("SCORING_MODEL", "llama3.2:3b")
 DEFAULT_SUMMARY_MODEL = os.environ.get("SUMMARY_MODEL", "llama3.2:3b")
 SCORE_THRESHOLD = float(os.environ.get("SCORE_THRESHOLD", "0.35"))
 SCORING_SNIPPET_CHARS = int(os.environ.get("SCORING_SNIPPET_CHARS", "2000"))
+# 1 reproduces the original one-call-per-article behaviour exactly.
+SCORING_BATCH_SIZE = max(1, int(os.environ.get("SCORING_BATCH_SIZE", "8")))
+HIGH_SCORE_NOTIFY = float(os.environ.get("HIGH_SCORE_NOTIFY", "0.8"))
 
 # Process-wide lock — prevents concurrent /poll clicks within one worker.
 _PIPELINE_LOCK = threading.Lock()
@@ -81,15 +84,27 @@ def run_pipeline(app: flask.Flask) -> bool:
             db = get_db_direct()
             if not _try_advisory_lock(db):
                 log.info("Pipeline already running in another process — skipping")
+                db.execute(text(
+                    "INSERT INTO pipeline_runs (finished_at, skipped) "
+                    "VALUES (now(), true)"))
+                db.commit()
                 db.close()
                 return False
             try:
+                run_id = db.execute(text(
+                    "INSERT INTO pipeline_runs (started_at) VALUES (now()) "
+                    "RETURNING id")).scalar()
+                db.commit()
                 row = db.execute(text(
                     "SELECT profile_text FROM preferences WHERE id=1"
                 )).mappings().first()
                 profile_text = row["profile_text"] if row else ""
-                score_new_articles(db, profile_text)
-                summarize_scored_articles(db)
+                scored = score_new_articles(db, profile_text)
+                summarized = summarize_scored_articles(db)
+                db.execute(text(
+                    "UPDATE pipeline_runs SET finished_at=now(), scored_n=:s, "
+                    "summarized_n=:m WHERE id=:i"),
+                    {"s": int(scored or 0), "m": int(summarized or 0), "i": run_id})
                 set_setting(
                     db,
                     "last_pipeline_run_at",
@@ -105,83 +120,130 @@ def run_pipeline(app: flask.Flask) -> bool:
         _PIPELINE_LOCK.release()
 
 
-def score_new_articles(db, profile_text: str) -> None:
+def score_new_articles(db, profile_text: str) -> int:
+    """Score everything waiting. Returns how many were scored."""
     articles = db.execute(text(
         """SELECT a.id, a.title, a.raw_snippet, f.score_threshold
            FROM articles a JOIN feeds f ON f.id = a.feed_id
            WHERE a.status='new' LIMIT 50"""
     )).mappings().all()
+    if not articles:
+        return 0
+
     model = _scoring_model(db)
     base_url = ollama_base(db)
     vocab = topics_mod.vocabulary(db)
     rule_map = topics_mod.rules(db)
-    # Settings override the env default, so /insights can retune it live.
     try:
         global_threshold = float(get_setting(db, "score_threshold", "") or SCORE_THRESHOLD)
     except ValueError:
         global_threshold = SCORE_THRESHOLD
 
-    for article in articles:
-        try:
-            snippet = (article["raw_snippet"] or "")[:SCORING_SNIPPET_CHARS]
-            prompt = prompts.scoring_prompt(
-                profile_text, article["title"], snippet, vocabulary=vocab
-            )
-            result = ollama_client.generate(
-                model=model, prompt=prompt, expect_json=True, base_url=base_url
-            )
+    scored = 0
+    for start in range(0, len(articles), SCORING_BATCH_SIZE):
+        chunk = articles[start:start + SCORING_BATCH_SIZE]
+        results = None
+        if len(chunk) > 1:
+            results = _score_batch(chunk, profile_text, model, base_url, vocab)
+            if results is None:
+                # Batched JSON is the least reliable part of this; never drop
+                # articles because of it.
+                log.warning("Batch scoring unusable for %d articles — "
+                            "falling back to one call each", len(chunk))
+        if results is None:
+            results = _score_individually(chunk, profile_text, model, base_url, vocab)
+
+        for article in chunk:
+            result = results.get(article["id"])
             if result is None:
-                log.warning("Scoring skipped for article id=%d (no LLM response)", article["id"])
+                log.warning("Scoring skipped for article id=%d (no LLM response)",
+                            article["id"])
                 continue
+            try:
+                _persist_score(db, article, result, rule_map, global_threshold)
+                scored += 1
+            except Exception as exc:
+                log.error("Error scoring article id=%d: %s", article["id"], exc)
+    return scored
 
-            score = max(0.0, min(1.0, float(result.get("score", 0.5))))
-            reason = str(result.get("reason", ""))
-            article_topics = topics_mod.normalize(result.get("topics"))
 
-            # Rules are the deterministic layer over the model's judgement.
-            score, muted, note = topics_mod.apply_rules(score, article_topics, rule_map)
-            if note:
-                reason = f"{note}. {reason}".strip()
+def _score_batch(chunk, profile_text, model, base_url, vocab) -> dict | None:
+    """One call for the whole chunk, or None if the reply is unusable."""
+    items = [{"id": a["id"],
+              "title": a["title"],
+              "snippet": (a["raw_snippet"] or "")[:SCORING_SNIPPET_CHARS]}
+             for a in chunk]
+    try:
+        reply = ollama_client.generate(
+            model=model,
+            prompt=prompts.batch_scoring_prompt(profile_text, items, vocabulary=vocab),
+            expect_json=True, base_url=base_url,
+        )
+    except Exception as exc:
+        log.error("Batch scoring call failed: %s", exc)
+        return None
+    if not isinstance(reply, dict):
+        return None
+    rows = reply.get("results")
+    if not isinstance(rows, list):
+        return None
 
-            threshold = (
-                article["score_threshold"]
-                if article["score_threshold"] is not None
-                else global_threshold
+    wanted = {a["id"] for a in chunk}
+    out = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        try:
+            rid = int(row.get("id"))
+        except (TypeError, ValueError):
+            continue
+        if rid in wanted:
+            out[rid] = row
+    # A partial answer means the model lost track; redo the chunk properly
+    # rather than silently leaving articles unscored.
+    return out if len(out) == len(wanted) else None
+
+
+def _score_individually(chunk, profile_text, model, base_url, vocab) -> dict:
+    out = {}
+    for article in chunk:
+        snippet = (article["raw_snippet"] or "")[:SCORING_SNIPPET_CHARS]
+        try:
+            reply = ollama_client.generate(
+                model=model,
+                prompt=prompts.scoring_prompt(profile_text, article["title"], snippet,
+                                              vocabulary=vocab),
+                expect_json=True, base_url=base_url,
             )
-            status = "hidden" if (muted or score < threshold) else "scored"
-
-            db.execute(
-                text("UPDATE articles SET score=:score, score_reason=:reason, "
-                     "status=:status, topics=:topics WHERE id=:id"),
-                {"score": score, "reason": reason, "status": status,
-                 "topics": article_topics or None, "id": article["id"]},
-            )
-            db.commit()
-            log.info("Scored article id=%d score=%.2f status=%s", article["id"], score, status)
         except Exception as exc:
             log.error("Error scoring article id=%d: %s", article["id"], exc)
+            continue
+        if isinstance(reply, dict):
+            out[article["id"]] = reply
+    return out
 
 
-MAX_CLEAN_TITLE_CHARS = 200
+def _persist_score(db, article, result, rule_map, global_threshold) -> None:
+    score = max(0.0, min(1.0, float(result.get("score", 0.5))))
+    reason = str(result.get("reason", ""))
+    article_topics = topics_mod.normalize(result.get("topics"))
 
+    score, muted, note = topics_mod.apply_rules(score, article_topics, rule_map)
+    if note:
+        reason = f"{note}. {reason}".strip()
 
-def _clean_title_from(result: dict, original: str) -> tuple[str | None, int]:
-    """Pull (clean_title, was_clickbait) out of an LLM response, defensively.
+    threshold = (article["score_threshold"]
+                 if article["score_threshold"] is not None else global_threshold)
+    status = "hidden" if (muted or score < threshold) else "scored"
 
-    Returns (None, 0) whenever the rewrite shouldn't be shown — not flagged as
-    clickbait, empty, unchanged, or implausibly long. The display path treats
-    NULL as "use the original", so every rejection degrades to current behaviour.
-    """
-    if not result.get("was_clickbait"):
-        return None, 0
-    candidate = str(result.get("clean_title") or "").strip()
-    if not candidate or candidate == (original or "").strip():
-        return None, 0
-    if len(candidate) > MAX_CLEAN_TITLE_CHARS:
-        log.warning("Discarding clean_title of %d chars (limit %d)",
-                    len(candidate), MAX_CLEAN_TITLE_CHARS)
-        return None, 0
-    return candidate, 1
+    db.execute(
+        text("UPDATE articles SET score=:score, score_reason=:reason, "
+             "status=:status, topics=:topics WHERE id=:id"),
+        {"score": score, "reason": reason, "status": status,
+         "topics": article_topics or None, "id": article["id"]},
+    )
+    db.commit()
+    log.info("Scored article id=%d score=%.2f status=%s", article["id"], score, status)
 
 
 def _detect_asides(full_text: str, model: str, base_url: str) -> str | None:
@@ -212,7 +274,29 @@ def _detect_asides(full_text: str, model: str, base_url: str) -> str | None:
         return None
 
 
-def summarize_scored_articles(db) -> None:
+MAX_CLEAN_TITLE_CHARS = 200
+
+
+def _clean_title_from(result: dict, original: str) -> tuple[str | None, int]:
+    """Pull (clean_title, was_clickbait) out of an LLM response, defensively.
+
+    Returns (None, 0) whenever the rewrite shouldn't be shown — not flagged as
+    clickbait, empty, unchanged, or implausibly long. The display path treats
+    NULL as "use the original", so every rejection degrades to current behaviour.
+    """
+    if not result.get("was_clickbait"):
+        return None, 0
+    candidate = str(result.get("clean_title") or "").strip()
+    if not candidate or candidate == (original or "").strip():
+        return None, 0
+    if len(candidate) > MAX_CLEAN_TITLE_CHARS:
+        log.warning("Discarding clean_title of %d chars (limit %d)",
+                    len(candidate), MAX_CLEAN_TITLE_CHARS)
+        return None, 0
+    return candidate, 1
+
+
+def summarize_scored_articles(db) -> int:
     articles = db.execute(text(
         "SELECT id, url, title, raw_snippet, feed_content, thumbnail_url "
         "FROM articles WHERE status='scored' LIMIT 20"
@@ -221,6 +305,7 @@ def summarize_scored_articles(db) -> None:
     base_url = ollama_base(db)
     declickbait = get_setting(db, "declickbait_enabled", "") == "1"
     filter_llm = get_setting(db, "content_filter_llm", "") == "1"
+    done = 0
 
     for article in articles:
         try:
@@ -285,10 +370,12 @@ def summarize_scored_articles(db) -> None:
                  "aside_spans": aside_spans, "id": article["id"]},
             )
             db.commit()
+            done += 1
             log.info("Summarized article id=%d%s", article["id"],
                      " (title de-clickbaited)" if clean_title else "")
         except Exception as exc:
             log.error("Error summarizing article id=%d: %s", article["id"], exc)
+    return done
 
 
 def regenerate_preferences(app: flask.Flask) -> None:

@@ -681,11 +681,22 @@ def status():
         "SELECT MAX(last_polled_at) AS t FROM feeds"
     )).scalar()
     last_pipeline = get_setting(db, "last_pipeline_run_at", "") or None
+    notify = []
+    if get_setting(db, "notify_high_score", "") == "1":
+        from app.pipeline import HIGH_SCORE_NOTIFY
+        uid = current_user_id(db)
+        rows = art_repo.high_score_unnotified(db, uid, HIGH_SCORE_NOTIFY)
+        notify = [{"id": r["id"], "title": r["clean_title"] or r["title"],
+                   "score": r["score"]} for r in rows]
+        if notify:
+            art_repo.mark_notified(db, uid, [n["id"] for n in notify])
+            db.commit()
     feed_count = db.execute(sql("SELECT COUNT(*) FROM feeds")).scalar()
     wants_json = "application/json" in request.headers.get("Accept", "")
     if wants_json:
         from flask import jsonify
         return jsonify({
+            "high_score": notify,
             "last_poll_at": last_poll,
             "last_pipeline_run_at": last_pipeline,
             "feed_count": feed_count,
@@ -948,6 +959,7 @@ def insights_page():
         per_feed=insights.per_feed(db),
         per_topic=insights.per_topic(db),
         pipeline=insights.pipeline_health(db),
+        runs=insights.recent_runs(db),
     )
 
 
@@ -966,6 +978,28 @@ def insights_apply_threshold():
     set_setting(db, "score_threshold", str(value))
     db.commit()
     return Response(f"threshold set to {value}", status=200)
+
+
+@bp.get("/settings/notifications")
+@auth.admin_required
+def notifications_form():
+    db = get_db()
+    from app.pipeline import HIGH_SCORE_NOTIFY
+    return render_template("_notifications_setting.html",
+                           enabled=get_setting(db, "notify_high_score", "") == "1",
+                           threshold=HIGH_SCORE_NOTIFY)
+
+
+@bp.post("/settings/notifications")
+@auth.admin_required
+def notifications_save():
+    db = get_db()
+    enabled = request.form.get("notify_high_score") == "1"
+    set_setting(db, "notify_high_score", "1" if enabled else "")
+    db.commit()
+    from app.pipeline import HIGH_SCORE_NOTIFY
+    return render_template("_notifications_setting.html", enabled=enabled,
+                           threshold=HIGH_SCORE_NOTIFY, saved=True)
 
 
 @bp.get("/settings/topics")

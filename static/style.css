@@ -900,3 +900,7 @@ dialog[open] { display: flex; flex-direction: column; }
   color: var(--accent);
   font-weight: 600;
 }
+
+/* Signed-out pages (sign in, register, 403) render with no sidebar, so the
+   content must not sit in a column that assumes one. */
+.site-layout-bare .site-content { margin-left: 0; width: 100%; }

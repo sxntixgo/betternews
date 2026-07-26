@@ -14,8 +14,8 @@
       </span>
       <small class="feed-meta">
         {{ feed.url }}
-        {% if feed.last_success_at %} · ok {{ feed.last_success_at[:16].replace('T', ' ') }}
-        {% elif feed.last_polled_at %} · last attempt {{ feed.last_polled_at[:16].replace('T', ' ') }}
+        {% if feed.last_success_at %} · ok {{ feed.last_success_at | dt }}
+        {% elif feed.last_polled_at %} · last attempt {{ feed.last_polled_at | dt }}
         {% endif %}
         {% if feed.last_error %}<br><span class="feed-error">{{ feed.last_error }}</span>{% endif %}
       </small>

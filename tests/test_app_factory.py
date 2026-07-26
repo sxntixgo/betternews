@@ -80,3 +80,42 @@ def test_scheduler_starts_in_web_when_opted_in(mock_init, monkeypatch, database_
     create_app()
     mock_init.return_value.start.assert_called_once()
     dispose_engine()
+
+
+# ── Timestamp rendering ────────────────────────────────────────────────────────
+
+def test_dt_filter_formats_datetimes():
+    """Columns are TIMESTAMPTZ now; templates used to slice ISO strings."""
+    from datetime import datetime, timezone
+    from app import _fmt_dt
+    assert _fmt_dt(datetime(2026, 7, 26, 5, 30, tzinfo=timezone.utc)) == "2026-07-26 05:30"
+
+
+def test_dt_filter_tolerates_legacy_strings():
+    from app import _fmt_dt
+    assert _fmt_dt("2026-07-26T05:30:00Z") == "2026-07-26 05:30"
+
+
+def test_dt_filter_handles_empty_and_odd_values():
+    from app import _fmt_dt
+    assert _fmt_dt(None) == ""
+    assert _fmt_dt("") == ""
+    assert _fmt_dt(12345) == "12345"
+
+
+def test_feed_rows_render_with_real_timestamps(client, app):
+    """Regression: the resume route 500'd because this branch slices a datetime."""
+    from datetime import datetime, timezone
+    from app.db import get_db_direct
+    from sqlalchemy import text
+    from tests.conftest import add_feed
+    with app.app_context():
+        db = get_db_direct()
+        fid = add_feed(db)
+        db.execute(text("UPDATE feeds SET last_success_at=:t, last_polled_at=:t WHERE id=:i"),
+                   {"t": datetime.now(timezone.utc), "i": fid})
+        db.commit()
+        db.close()
+    r = client.post(f"/feeds/{fid}/resume")
+    assert r.status_code == 200
+    assert b"ok " in r.data

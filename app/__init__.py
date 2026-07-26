@@ -50,6 +50,8 @@ def create_app() -> Flask:
     with app.app_context():
         init_db()
 
+    app.add_template_filter(_fmt_dt, "dt")
+
     from app.routes import bp
     app.register_blueprint(bp)
 
@@ -63,6 +65,23 @@ def create_app() -> Flask:
         scheduler.start()
 
     return app
+
+
+def _fmt_dt(value, fmt: str = "%Y-%m-%d %H:%M") -> str:
+    """Render a timestamp for display.
+
+    Columns are TIMESTAMPTZ since the Postgres migration, so templates get
+    datetimes where they used to get ISO strings. Tolerates both rather than
+    letting a stray string slice raise in a template.
+    """
+    if not value:
+        return ""
+    if isinstance(value, str):
+        return value[:16].replace("T", " ")
+    try:
+        return value.strftime(fmt)
+    except AttributeError:
+        return str(value)
 
 
 def _should_run_scheduler(app: Flask) -> bool:

@@ -102,8 +102,10 @@ def test_vocabulary_returns_most_used_first(db_conn):
     assert vocab[0] == "ai" and "hardware" in vocab
 
 
-def test_vocabulary_is_empty_on_a_fresh_install(db_conn):
-    assert topics.vocabulary(db_conn) == []
+def test_vocabulary_falls_back_to_seeds_on_a_fresh_install(db_conn):
+    """Superseded by seeding: an empty list is exactly what caused the model to
+    invent its own taxonomy on the first live runs."""
+    assert topics.vocabulary(db_conn) == list(topics.SEED_VOCABULARY)[:30]
 
 
 def test_counts_joins_rules(db_conn):
@@ -253,3 +255,96 @@ def test_invalid_stored_threshold_falls_back(db_conn):
         score_new_articles(db_conn, "p")
     assert db_conn.execute(text("SELECT status FROM articles WHERE id=:i"),
                            {"i": aid}).scalar() == "scored"
+
+
+@pytest.mark.parametrize("raw,expected", [
+    # Observed live: the model strings concepts together unless told not to.
+    (["tecnologia-software-desarrollo"], []),
+    (["ai", "politica-economia-argentina", "business"], ["ai", "business"]),
+    # Two-word names for a single thing must survive.
+    (["formula-1", "central-bank"], ["formula-1", "central-bank"]),
+])
+def test_runaway_compound_slugs_are_rejected(raw, expected):
+    """A slug nobody would type is a slug no rule will ever match.
+
+    Only 3-or-more-word compounds are rejected here: "tech-economy" and
+    "central-bank" are indistinguishable by shape, so two-word slugs are the
+    prompt's job, backed by the vocabulary feedback loop.
+    """
+    assert topics.normalize(raw) == expected
+
+
+def test_prompt_demands_english_single_concept_slugs():
+    from app.prompts import scoring_prompt, batch_scoring_prompt
+    for p in (scoring_prompt("p", "t", "s"),
+              batch_scoring_prompt("p", [{"id": 1, "title": "t", "snippet": "s"}])):
+        assert "English" in p
+        assert "ai-business" in p          # the counter-example
+
+
+# ── vocabulary anchoring (found live) ──────────────────────────────────────────
+
+def test_vocabulary_is_seeded_on_a_cold_install(db_conn):
+    """An empty vocabulary is why early live runs invented a private taxonomy."""
+    vocab = topics.vocabulary(db_conn)
+    assert "ai" in vocab and "politics" in vocab
+    assert len(vocab) >= 20
+
+
+def test_observed_topics_come_before_seeds(db_conn):
+    fid = add_feed(db_conn)
+    for i in range(3):
+        add_article(db_conn, fid, seq=i, guid=f"a{i}", topics=["housing"])
+    assert topics.vocabulary(db_conn)[0] == "housing"
+
+
+@pytest.mark.parametrize("raw,expected", [
+    # Every one of these came back from llama3.1:8b on real articles.
+    (["ai-tech"], ["ai"]),
+    (["futbol"], ["football"]),
+    (["economia"], ["economy"]),
+    (["economics"], ["economy"]),
+    (["tech-economy"], ["economy"]),
+    (["geopolitica"], ["world"]),
+    (["tecnologia"], ["software"]),
+    # Contentless labels carry no signal and would collect everything.
+    (["noticias"], []), (["news"], []), (["general"], []),
+])
+def test_live_observed_slugs_are_canonicalised(raw, expected):
+    assert topics.normalize(raw) == expected
+
+
+def test_aliasing_does_not_create_duplicates():
+    assert topics.normalize(["ai", "ai-tech", "ia"]) == ["ai"]
+
+
+def test_renormalize_fixes_already_stored_topics(db_conn):
+    """Articles tagged before an alias existed keep the old slug, so rules on
+    the canonical name silently miss them."""
+    fid = add_feed(db_conn)
+    a = add_article(db_conn, fid, seq=1, guid="a", topics=["futbol", "geopolitica"])
+    b = add_article(db_conn, fid, seq=2, guid="b", topics=["ai"])
+    assert topics.renormalize_all(db_conn) == 1        # only `a` needed changing
+    db_conn.commit()
+    rows = {r["id"]: r["topics"] for r in db_conn.execute(text(
+        "SELECT id, topics FROM articles")).mappings()}
+    assert rows[a] == ["football", "world"]
+    assert rows[b] == ["ai"]
+
+
+def test_renormalize_clears_topics_that_become_empty(db_conn):
+    aid = add_article(db_conn, add_feed(db_conn), topics=["noticias", "news"])
+    topics.renormalize_all(db_conn)
+    db_conn.commit()
+    assert db_conn.execute(text("SELECT topics FROM articles WHERE id=:i"),
+                           {"i": aid}).scalar() is None
+
+
+def test_renormalize_route(client, app):
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        add_article(db, add_feed(db), topics=["futbol"])
+        db.close()
+    r = client.post("/settings/topics", data={"topic": "-", "action": "renormalize"})
+    assert b"Tidied topics on 1 articles" in r.data

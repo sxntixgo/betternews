@@ -35,7 +35,12 @@ INSTRUCTIONS:
 - score 1.0 = highly relevant to this reader. 0.0 = completely irrelevant.
 - If you cannot determine relevance, use 0.5.
 
-- topics: 2-4 short lowercase slugs naming the subject matter (e.g. "ai", "formula-1", "local-politics"). Prefer a slug from the vocabulary below when one fits; invent one only when none does. No spaces — use hyphens.
+- topics: 2-4 lowercase slugs naming the subject matter.
+  - ALWAYS in English, whatever language the article is in. "politica" and "politics" must not both exist.
+  - ONE concept per slug. "ai" and "business", never "ai-business" or "tech-economy-politics".
+  - Choose from the vocabulary below. Only invent a slug if nothing there applies at all — that should be rare.
+  - Do not use vague labels like "news", "general" or "other".
+  - Use hyphens only inside a single name, e.g. "formula-1", "central-bank".
 
 KNOWN TOPICS:
 {vocab_block}
@@ -82,7 +87,7 @@ INSTRUCTIONS:
 - Score EVERY article. Return one result per article, using the exact id given.
 - The ids you must return are: {ids}
 - score 1.0 = highly relevant to this reader. 0.0 = completely irrelevant. Use 0.5 if unsure.
-- topics: 2-4 short lowercase slugs naming the subject matter. Prefer a slug from the vocabulary when one fits. No spaces — use hyphens.
+- topics: 2-4 lowercase slugs, ALWAYS in English, ONE concept each ("ai" and "business", never "ai-business"). Prefer a slug from the vocabulary when one fits.
 
 KNOWN TOPICS:
 {vocab_block}

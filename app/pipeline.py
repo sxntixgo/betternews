@@ -293,6 +293,20 @@ def _detect_asides(full_text: str, model: str, base_url: str) -> str | None:
 
 MAX_CLEAN_TITLE_CHARS = 200
 
+_FALSEY_STRINGS = {"", "false", "no", "0", "none", "null"}
+
+
+def llm_bool(value) -> bool:
+    """Interpret a boolean from an LLM as a boolean.
+
+    Models return these inconsistently — `true`, `"true"`, `"True"`, `"false"`.
+    Python treats the *string* "false" as truthy, so a plain `if value` silently
+    inverts the answer. Observed live with llama3.1:8b returning "True".
+    """
+    if isinstance(value, str):
+        return value.strip().lower() not in _FALSEY_STRINGS
+    return bool(value)
+
 
 def _clean_title_from(result: dict, original: str) -> tuple[str | None, int]:
     """Pull (clean_title, was_clickbait) out of an LLM response, defensively.
@@ -301,7 +315,7 @@ def _clean_title_from(result: dict, original: str) -> tuple[str | None, int]:
     clickbait, empty, unchanged, or implausibly long. The display path treats
     NULL as "use the original", so every rejection degrades to current behaviour.
     """
-    if not result.get("was_clickbait"):
+    if not llm_bool(result.get("was_clickbait")):
         return None, 0
     candidate = str(result.get("clean_title") or "").strip()
     if not candidate or candidate == (original or "").strip():

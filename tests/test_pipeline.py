@@ -734,3 +734,32 @@ def test_run_pipeline_skips_when_another_process_holds_the_lock(
     monkeypatch.setattr(pipeline, "_try_advisory_lock", lambda db: False)
     assert pipeline.run_pipeline(app) is False
     mock_gen.assert_not_called()
+
+
+# ── LLM boolean coercion (found live) ──────────────────────────────────────────
+
+@pytest.mark.parametrize("value,expected", [
+    (True, True), (False, False),
+    ("true", True), ("True", True), ("TRUE", True),
+    # The dangerous ones: a plain `if value` reads these as True.
+    ("false", False), ("False", False), ("no", False), ("0", False),
+    ("", False), ("null", False), ("none", False),
+    (None, False), (1, True), (0, False),
+])
+def test_llm_bool_handles_what_models_actually_return(value, expected):
+    from app.pipeline import llm_bool
+    assert llm_bool(value) is expected
+
+
+def test_string_false_does_not_rewrite_a_clean_headline():
+    """llama3.1:8b returns "True"/"False" as strings; the string "False" is
+    truthy in Python, which would silently invert the decision."""
+    from app.pipeline import _clean_title_from
+    result = {"was_clickbait": "False", "clean_title": "A rewrite"}
+    assert _clean_title_from(result, "Original headline") == (None, 0)
+
+
+def test_string_true_does_rewrite():
+    from app.pipeline import _clean_title_from
+    result = {"was_clickbait": "True", "clean_title": "A rewrite"}
+    assert _clean_title_from(result, "Original headline") == ("A rewrite", 1)

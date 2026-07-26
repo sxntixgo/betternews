@@ -1023,6 +1023,12 @@ def topics_save():
             topics_mod.delete_rule(db, topic)
         elif action == "mute":
             topics_mod.set_rule(db, topic, muted=True)
+        elif action == "renormalize":
+            n = topics_mod.renormalize_all(db)
+            db.commit()
+            return render_template("_topics_setting.html",
+                                   topics=topics_mod.counts(db),
+                                   saved=True, renormalized=n)
         elif action in ("boost", "demote"):
             delta = 0.2 if action == "boost" else -0.2
             topics_mod.set_rule(db, topic, adjustment=delta)

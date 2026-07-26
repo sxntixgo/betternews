@@ -11,8 +11,8 @@ from sqlalchemy import text as sql
 
 from app import content_filter, ollama_client
 from app import (auth, digest as digest_mod, export as export_mod, extract,
-                 health, insights, retention, topics as topics_mod,
-                 user_topics)
+                 health, insights, pipeline_status, retention,
+                 topics as topics_mod, user_topics)
 from app.repo import articles as art_repo, users as user_repo
 from app.db import get_db, get_setting, set_setting
 from app.pipeline import DEFAULT_SCORING_MODEL, DEFAULT_SUMMARY_MODEL, ollama_base
@@ -521,6 +521,9 @@ def articles():
         articles=[_row_to_article(r, declickbait) for r in rows],
         next_qs=next_qs,
         is_first_page=(offset == 0),
+        # Only diagnose the first page: page 2 being empty just means the end.
+        status=(pipeline_status.diagnose(db, user_id=uid, visible=len(rows))
+                if offset == 0 else None),
     )
 
 

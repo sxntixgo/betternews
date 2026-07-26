@@ -1,0 +1,15 @@
+{# Why the list is empty. A blank page is how a broken model went unnoticed. #}
+<div class="empty-state empty-{{ status.kind }}">
+  <h2>{{ status.title }}</h2>
+  <p>{{ status.detail }}</p>
+  {% if status.action and (not status.admin_only or is_admin()) %}
+    {% set label, href = status.action %}
+    {% if href %}
+      <a class="btn-secondary" href="{{ href }}">{{ label }}</a>
+    {% else %}
+      <button class="btn-secondary" hx-post="/poll" hx-swap="none">{{ label }}</button>
+    {% endif %}
+  {% elif status.admin_only %}
+    <p class="hint">An administrator needs to sort this out.</p>
+  {% endif %}
+</div>

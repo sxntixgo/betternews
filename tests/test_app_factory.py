@@ -64,7 +64,8 @@ def test_worker_module_registers_every_job(app, monkeypatch):
     from app.scheduler import init_scheduler
     sched = init_scheduler(app)
     ids = {j.id for j in sched.get_jobs()}
-    assert ids == {"poll_feeds", "run_pipeline", "regen_prefs", "retention"}
+    assert ids == {"poll_feeds", "run_pipeline", "regen_prefs", "retention",
+                   "retry_paused"}
 
 
 @patch("app.scheduler.init_scheduler")

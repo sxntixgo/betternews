@@ -9,7 +9,7 @@ from flask import (Blueprint, current_app, g, redirect, render_template,
 from sqlalchemy import text as sql
 
 from app import content_filter, ollama_client
-from app import auth, retention
+from app import auth, health, retention
 from app.repo import articles as art_repo, users as user_repo
 from app.db import get_db, get_setting, set_setting
 from app.pipeline import DEFAULT_SCORING_MODEL, DEFAULT_SUMMARY_MODEL, ollama_base
@@ -1166,6 +1166,26 @@ def article_content(article_id: int):
         filter_mode=mode,
         aside_count=aside_count,
     )
+
+
+@bp.get("/health")
+def healthcheck():
+    """Liveness *and* ingestion. Public: the container healthcheck calls it.
+
+    Returning 200 while nothing has been ingested for weeks is how the June
+    outage stayed invisible.
+    """
+    db = get_db()
+    st = health.ingestion_status(db)
+    body = {
+        "status": "ok" if st["healthy"] else "degraded",
+        "feeds_total": st["total"],
+        "feeds_paused": st["paused"],
+        "last_success_at": st["last_success_at"].isoformat() if st["last_success_at"] else None,
+        "ingestion_stale": st["stale"],
+    }
+    from flask import jsonify
+    return jsonify(body), (200 if st["healthy"] else 503)
 
 
 @bp.get("/count")

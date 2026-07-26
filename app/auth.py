@@ -35,7 +35,7 @@ LOCKOUT_MINUTES = 15
 PUBLIC_ENDPOINTS = {
     "main.login", "main.login_post",
     "main.register", "main.register_post",
-    "main.logout", "static",
+    "main.logout", "main.healthcheck", "static",
 }
 
 

@@ -16,6 +16,7 @@ def _on_job_error(event) -> None:
 def init_scheduler(app) -> BackgroundScheduler:
     from app.feeds import poll_all_feeds
     from app.pipeline import run_pipeline, regenerate_preferences
+    from app.health import retry_paused_feeds
     from app.retention import run as run_retention
 
     scheduler = BackgroundScheduler(daemon=True)
@@ -56,6 +57,17 @@ def init_scheduler(app) -> BackgroundScheduler:
         id="retention",
         args=[app],
         misfire_grace_time=3600,
+    )
+
+    # Auto-pause protects the pipeline from a dead feed, but without a retry it
+    # turns a transient failure into permanent silence.
+    scheduler.add_job(
+        retry_paused_feeds,
+        "interval",
+        minutes=60,
+        id="retry_paused",
+        args=[app],
+        misfire_grace_time=900,
     )
 
     return scheduler

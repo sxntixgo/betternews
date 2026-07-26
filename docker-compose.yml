@@ -36,7 +36,9 @@ services:
       - "host.docker.internal:host-gateway"  # Required for Linux containers to reach Windows host
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/')"]
+      # /health is 503 when feeds are all paused or nothing has been ingested
+      # for hours — a container that answers HTTP but ingests nothing is not healthy.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
       interval: 60s
       timeout: 10s
       retries: 3

@@ -2,6 +2,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
+from sqlalchemy import text
 
 from app.feeds import (
     poll_all_feeds,
@@ -93,7 +94,7 @@ def test_extract_thumbnail_none_when_nothing_present():
 def test_parse_date_published():
     entry = SimpleNamespace()
     entry.get = lambda k, d=None: (2026, 4, 19, 12, 0, 0, 0, 0, 0) if k == "published_parsed" else d
-    assert _parse_date(entry).startswith("2026-04-19")
+    assert _parse_date(entry).date().isoformat() == "2026-04-19"
 
 
 def test_parse_date_missing():
@@ -109,9 +110,12 @@ def test_parse_date_invalid_struct_returns_none():
     assert _parse_date(entry) is None
 
 
-def test_utcnow_iso_format():
-    s = _utcnow()
-    assert s.endswith("Z") and "T" in s
+def test_utcnow_returns_aware_datetime():
+    """TIMESTAMPTZ columns take datetimes; the old ISO-string formatting is gone."""
+    from datetime import datetime, timezone
+    t = _utcnow()
+    assert isinstance(t, datetime)
+    assert t.tzinfo is timezone.utc
 
 
 # ── poll_all_feeds (integration with feedparser mocked) ────────────────────────
@@ -138,7 +142,7 @@ def test_poll_all_feeds_inserts_new_articles(mock_parse, app):
     from app.db import get_db_direct
     with app.app_context():
         db = get_db_direct()
-        db.execute("INSERT INTO feeds(url) VALUES(?)", ("https://example.com/rss",))
+        db.execute(text("INSERT INTO feeds(url) VALUES(:p0)"), {"p0": "https://example.com/rss"})
         db.commit()
         db.close()
 
@@ -146,9 +150,7 @@ def test_poll_all_feeds_inserts_new_articles(mock_parse, app):
 
     with app.app_context():
         db = get_db_direct()
-        rows = db.execute(
-            "SELECT title, raw_snippet, feed_content FROM articles"
-        ).fetchall()
+        rows = db.execute(text("SELECT title, raw_snippet, feed_content FROM articles")).mappings().all()
         assert len(rows) == 1
         assert rows[0]["title"] == "First"
         assert "summary" in rows[0]["raw_snippet"]
@@ -167,7 +169,7 @@ def test_poll_all_feeds_skips_bozo_with_no_entries(mock_parse, app, caplog):
     from app.db import get_db_direct
     with app.app_context():
         db = get_db_direct()
-        db.execute("INSERT INTO feeds(url) VALUES(?)", ("https://broken.example/rss",))
+        db.execute(text("INSERT INTO feeds(url) VALUES(:p0)"), {"p0": "https://broken.example/rss"})
         db.commit()
         db.close()
 
@@ -182,7 +184,7 @@ def test_poll_all_feeds_handles_unexpected_error(mock_parse, app, caplog):
     from app.db import get_db_direct
     with app.app_context():
         db = get_db_direct()
-        db.execute("INSERT INTO feeds(url) VALUES(?)", ("https://broken.example/rss",))
+        db.execute(text("INSERT INTO feeds(url) VALUES(:p0)"), {"p0": "https://broken.example/rss"})
         db.commit()
         db.close()
 
@@ -196,10 +198,7 @@ def test_poll_skips_paused_feed(mock_parse, app):
     from app.db import get_db_direct
     with app.app_context():
         db = get_db_direct()
-        db.execute(
-            "INSERT INTO feeds(url, paused) VALUES(?, 1)",
-            ("https://paused.example/rss",),
-        )
+        db.execute(text("INSERT INTO feeds (url, paused) VALUES (:p0, true)"), {"p0": "https://paused.example/rss"})
         db.commit()
         db.close()
     poll_all_feeds(app)
@@ -222,8 +221,10 @@ def test_poll_passes_etag_and_modified(mock_parse, app):
     with app.app_context():
         db = get_db_direct()
         db.execute(
-            "INSERT INTO feeds(url, etag, last_modified) VALUES(?, ?, ?)",
-            ("https://x.example/rss", "W/\"abc\"", "Wed, 01 Jan 2026 00:00:00 GMT"),
+            text("INSERT INTO feeds (url, etag, last_modified) "
+                 "VALUES (:url, :etag, :mod)"),
+            {"url": "https://x.example/rss", "etag": 'W/"abc"',
+             "mod": "Wed, 01 Jan 2026 00:00:00 GMT"},
         )
         db.commit()
         db.close()
@@ -246,7 +247,7 @@ def test_poll_handles_304_not_modified(mock_parse, app):
     from app.db import get_db_direct
     with app.app_context():
         db = get_db_direct()
-        db.execute("INSERT INTO feeds(url) VALUES(?)", ("https://x.example/rss",))
+        db.execute(text("INSERT INTO feeds(url) VALUES(:p0)"), {"p0": "https://x.example/rss"})
         db.commit()
         db.close()
 
@@ -254,10 +255,8 @@ def test_poll_handles_304_not_modified(mock_parse, app):
 
     with app.app_context():
         db = get_db_direct()
-        row = db.execute(
-            "SELECT last_polled_at, last_success_at, consecutive_failures FROM feeds"
-        ).fetchone()
-        n = db.execute("SELECT COUNT(*) AS n FROM articles").fetchone()["n"]
+        row = db.execute(text("SELECT last_polled_at, last_success_at, consecutive_failures FROM feeds")).mappings().first()
+        n = db.execute(text("SELECT COUNT(*) AS n FROM articles")).mappings().first()["n"]
         db.close()
     assert row["last_polled_at"] is not None
     assert row["last_success_at"] is not None
@@ -279,7 +278,7 @@ def test_poll_stores_etag_and_modified_from_response(mock_parse, app):
     from app.db import get_db_direct
     with app.app_context():
         db = get_db_direct()
-        db.execute("INSERT INTO feeds(url) VALUES(?)", ("https://x.example/rss",))
+        db.execute(text("INSERT INTO feeds(url) VALUES(:p0)"), {"p0": "https://x.example/rss"})
         db.commit()
         db.close()
 
@@ -287,7 +286,7 @@ def test_poll_stores_etag_and_modified_from_response(mock_parse, app):
 
     with app.app_context():
         db = get_db_direct()
-        row = db.execute("SELECT etag, last_modified FROM feeds").fetchone()
+        row = db.execute(text("SELECT etag, last_modified FROM feeds")).mappings().first()
         db.close()
     assert row["etag"] == "new-etag"
     assert row["last_modified"] == "Thu, 02 Jan 2026 00:00:00 GMT"
@@ -305,7 +304,7 @@ def test_poll_failure_increments_counter(mock_parse, app):
     from app.db import get_db_direct
     with app.app_context():
         db = get_db_direct()
-        db.execute("INSERT INTO feeds(url) VALUES(?)", ("https://broken.example/rss",))
+        db.execute(text("INSERT INTO feeds(url) VALUES(:p0)"), {"p0": "https://broken.example/rss"})
         db.commit()
         db.close()
 
@@ -313,9 +312,7 @@ def test_poll_failure_increments_counter(mock_parse, app):
 
     with app.app_context():
         db = get_db_direct()
-        row = db.execute(
-            "SELECT consecutive_failures, last_error FROM feeds"
-        ).fetchone()
+        row = db.execute(text("SELECT consecutive_failures, last_error FROM feeds")).mappings().first()
         db.close()
     assert row["consecutive_failures"] == 1
     assert "malformed" in row["last_error"]
@@ -335,10 +332,7 @@ def test_poll_auto_pauses_after_threshold(mock_parse, app):
     with app.app_context():
         db = get_db_direct()
         # Pre-seed at threshold-1 so a single poll trips the pause.
-        db.execute(
-            "INSERT INTO feeds(url, consecutive_failures) VALUES(?, ?)",
-            ("https://x.example/rss", AUTO_PAUSE_AFTER_FAILURES - 1),
-        )
+        db.execute(text("INSERT INTO feeds(url, consecutive_failures) VALUES(:p0, :p1)"), {"p0": "https://x.example/rss", "p1": AUTO_PAUSE_AFTER_FAILURES - 1})
         db.commit()
         db.close()
 
@@ -346,7 +340,7 @@ def test_poll_auto_pauses_after_threshold(mock_parse, app):
 
     with app.app_context():
         db = get_db_direct()
-        row = db.execute("SELECT paused, consecutive_failures FROM feeds").fetchone()
+        row = db.execute(text("SELECT paused, consecutive_failures FROM feeds")).mappings().first()
         db.close()
     assert row["paused"] == 1
     assert row["consecutive_failures"] == AUTO_PAUSE_AFTER_FAILURES
@@ -373,7 +367,7 @@ def test_poll_all_feeds_dedup_via_unique(mock_parse, app):
     from app.db import get_db_direct
     with app.app_context():
         db = get_db_direct()
-        db.execute("INSERT INTO feeds(url) VALUES(?)", ("https://example.com/rss",))
+        db.execute(text("INSERT INTO feeds(url) VALUES(:p0)"), {"p0": "https://example.com/rss"})
         db.commit()
         db.close()
 
@@ -382,6 +376,6 @@ def test_poll_all_feeds_dedup_via_unique(mock_parse, app):
 
     with app.app_context():
         db = get_db_direct()
-        n = db.execute("SELECT COUNT(*) AS n FROM articles").fetchone()["n"]
+        n = db.execute(text("SELECT COUNT(*) AS n FROM articles")).mappings().first()["n"]
         assert n == 1
         db.close()

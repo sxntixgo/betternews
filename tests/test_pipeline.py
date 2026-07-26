@@ -1,6 +1,15 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
+from sqlalchemy import text
+
+
+def _add_vote(db, article_id, value):
+    """Mirror the route: a vote is user-scoped and snapshots its article."""
+    from app.repo.articles import record_vote
+    from app.repo.users import ensure_bootstrap_user
+    record_vote(db, ensure_bootstrap_user(db), article_id, value)
+    db.commit()
 
 from app.feeds import strip_html
 from app.pipeline import (
@@ -39,7 +48,7 @@ def test_score_sets_status_scored(mock_gen, memory_db):
 
     score_new_articles(memory_db, "I like tech news")
 
-    row = memory_db.execute("SELECT score, status FROM articles WHERE id=?", (article_id,)).fetchone()
+    row = memory_db.execute(text("SELECT score, status FROM articles WHERE id=:p0"), {"p0": article_id}).mappings().first()
     assert row["status"] == "scored"
     assert abs(row["score"] - 0.8) < 0.001
 
@@ -52,7 +61,7 @@ def test_score_below_threshold_sets_hidden(mock_gen, memory_db):
 
     score_new_articles(memory_db, "")
 
-    row = memory_db.execute("SELECT status FROM articles WHERE id=?", (article_id,)).fetchone()
+    row = memory_db.execute(text("SELECT status FROM articles WHERE id=:p0"), {"p0": article_id}).mappings().first()
     assert row["status"] == "hidden"
 
 
@@ -64,7 +73,7 @@ def test_score_llm_none_skips_article(mock_gen, memory_db):
 
     score_new_articles(memory_db, "")
 
-    row = memory_db.execute("SELECT status FROM articles WHERE id=?", (article_id,)).fetchone()
+    row = memory_db.execute(text("SELECT status FROM articles WHERE id=:p0"), {"p0": article_id}).mappings().first()
     assert row["status"] == "new"
 
 
@@ -76,7 +85,7 @@ def test_score_clamps_out_of_range(mock_gen, memory_db):
 
     score_new_articles(memory_db, "")
 
-    row = memory_db.execute("SELECT score FROM articles").fetchone()
+    row = memory_db.execute(text("SELECT score FROM articles")).mappings().first()
     assert row["score"] <= 1.0
 
 
@@ -113,9 +122,7 @@ def test_summarize_sets_status_summarized(mock_gen, mock_fetch, memory_db):
 
     summarize_scored_articles(memory_db)
 
-    row = memory_db.execute(
-        "SELECT summary, status FROM articles WHERE id=?", (article_id,)
-    ).fetchone()
+    row = memory_db.execute(text("SELECT summary, status FROM articles WHERE id=:p0"), {"p0": article_id}).mappings().first()
     assert row["status"] == "summarized"
     assert row["summary"] == "This is the summary."
 
@@ -164,7 +171,7 @@ def test_summarize_llm_none_skips(mock_gen, mock_fetch, memory_db):
 
     summarize_scored_articles(memory_db)
 
-    row = memory_db.execute("SELECT status FROM articles WHERE id=?", (article_id,)).fetchone()
+    row = memory_db.execute(text("SELECT status FROM articles WHERE id=:p0"), {"p0": article_id}).mappings().first()
     assert row["status"] == "scored"
 
 
@@ -210,13 +217,13 @@ def test_regenerate_preferences_writes_profile(mock_gen, app):
         db = get_db_direct()
         feed_id = add_feed(db)
         a1 = add_article(db, feed_id, seq=1, guid="g1", title="Rust 2025")
-        db.execute("INSERT INTO votes(article_id, value) VALUES(?, 1)", (a1,))
+        _add_vote(db, a1, 1)
         db.commit()
         db.close()
     regenerate_preferences(app)
     with app.app_context():
         db = get_db_direct()
-        row = db.execute("SELECT profile_text FROM preferences WHERE id=1").fetchone()
+        row = db.execute(text("SELECT profile_text FROM preferences WHERE id=1")).mappings().first()
         assert "Rust news" in row["profile_text"]
         db.close()
 
@@ -236,7 +243,7 @@ def test_regenerate_preferences_llm_none(mock_gen, app, caplog):
         db = get_db_direct()
         feed_id = add_feed(db)
         a = add_article(db, feed_id)
-        db.execute("INSERT INTO votes(article_id, value) VALUES(?, 1)", (a,))
+        _add_vote(db, a, 1)
         db.commit()
         db.close()
     regenerate_preferences(app)
@@ -270,12 +277,12 @@ def test_score_uses_per_feed_threshold_override(mock_gen, memory_db):
     """A feed with a lower threshold keeps articles that the global threshold would hide."""
     mock_gen.return_value = {"score": 0.2, "reason": "borderline"}
     feed_id = add_feed(memory_db)
-    memory_db.execute("UPDATE feeds SET score_threshold=0.1 WHERE id=?", (feed_id,))
+    memory_db.execute(text("UPDATE feeds SET score_threshold=0.1 WHERE id=:p0"), {"p0": feed_id})
     add_article(memory_db, feed_id, status="new")
 
     score_new_articles(memory_db, "")
 
-    row = memory_db.execute("SELECT status FROM articles").fetchone()
+    row = memory_db.execute(text("SELECT status FROM articles")).mappings().first()
     assert row["status"] == "scored"  # 0.2 >= per-feed 0.1
 
 
@@ -288,7 +295,7 @@ def test_score_falls_back_to_global_threshold(mock_gen, memory_db):
 
     score_new_articles(memory_db, "")
 
-    row = memory_db.execute("SELECT status FROM articles").fetchone()
+    row = memory_db.execute(text("SELECT status FROM articles")).mappings().first()
     assert row["status"] == "hidden"
 
 
@@ -415,7 +422,7 @@ def test_summarize_writes_og_image_when_thumbnail_missing(mock_gen, mock_fetch, 
 
     summarize_scored_articles(memory_db)
 
-    row = memory_db.execute("SELECT thumbnail_url FROM articles").fetchone()
+    row = memory_db.execute(text("SELECT thumbnail_url FROM articles")).mappings().first()
     assert row["thumbnail_url"] == "https://x/og.jpg"
 
 
@@ -429,7 +436,7 @@ def test_summarize_keeps_existing_thumbnail(mock_gen, mock_fetch, memory_db):
 
     summarize_scored_articles(memory_db)
 
-    row = memory_db.execute("SELECT thumbnail_url FROM articles").fetchone()
+    row = memory_db.execute(text("SELECT thumbnail_url FROM articles")).mappings().first()
     assert row["thumbnail_url"] == "https://orig/thumb.jpg"
 
 
@@ -498,9 +505,7 @@ def test_declickbait_off_uses_plain_prompt_and_leaves_columns_null(
     summarize_scored_articles(memory_db)
 
     assert mock_gen.call_args.kwargs["expect_json"] is False
-    row = memory_db.execute(
-        "SELECT summary, title, clean_title, title_was_clickbait FROM articles WHERE id=?",
-        (aid,)).fetchone()
+    row = memory_db.execute(text("SELECT summary, title, clean_title, title_was_clickbait FROM articles WHERE id=:p0"), {"p0": aid}).mappings().first()
     assert row["summary"] == "A summary."
     assert row["title"] == "Real Headline"
     assert row["clean_title"] is None
@@ -523,9 +528,7 @@ def test_declickbait_stores_rewrite_without_touching_title(mock_gen, mock_fetch,
     summarize_scored_articles(memory_db)
 
     assert mock_gen.call_args.kwargs["expect_json"] is True
-    row = memory_db.execute(
-        "SELECT title, clean_title, title_was_clickbait, summary FROM articles WHERE id=?",
-        (aid,)).fetchone()
+    row = memory_db.execute(text("SELECT title, clean_title, title_was_clickbait, summary FROM articles WHERE id=:p0"), {"p0": aid}).mappings().first()
     # The original must survive — it backs search and duplicate detection.
     assert row["title"] == "You won't BELIEVE what this CEO just said"
     assert row["clean_title"] == "CEO announces 400 layoffs"
@@ -548,8 +551,7 @@ def test_declickbait_false_leaves_clean_title_null(mock_gen, mock_fetch, memory_
 
     summarize_scored_articles(memory_db)
 
-    row = memory_db.execute(
-        "SELECT clean_title, title_was_clickbait FROM articles WHERE id=?", (aid,)).fetchone()
+    row = memory_db.execute(text("SELECT clean_title, title_was_clickbait FROM articles WHERE id=:p0"), {"p0": aid}).mappings().first()
     assert row["clean_title"] is None
     assert row["title_was_clickbait"] == 0
 
@@ -566,8 +568,7 @@ def test_declickbait_malformed_json_still_produces_summary(mock_gen, mock_fetch,
 
     summarize_scored_articles(memory_db)
 
-    row = memory_db.execute(
-        "SELECT status, summary, clean_title FROM articles WHERE id=?", (aid,)).fetchone()
+    row = memory_db.execute(text("SELECT status, summary, clean_title FROM articles WHERE id=:p0"), {"p0": aid}).mappings().first()
     assert row["status"] == "summarized"
     assert row["summary"] == "Fallback summary."
     assert row["clean_title"] is None
@@ -585,8 +586,7 @@ def test_declickbait_json_missing_summary_falls_back(mock_gen, mock_fetch, memor
 
     summarize_scored_articles(memory_db)
 
-    row = memory_db.execute(
-        "SELECT summary, clean_title FROM articles WHERE id=?", (aid,)).fetchone()
+    row = memory_db.execute(text("SELECT summary, clean_title FROM articles WHERE id=:p0"), {"p0": aid}).mappings().first()
     assert row["summary"] == "Fallback."
     assert row["clean_title"] is None
 
@@ -602,7 +602,7 @@ def test_declickbait_both_calls_fail_skips_article(mock_gen, mock_fetch, memory_
 
     summarize_scored_articles(memory_db)
 
-    row = memory_db.execute("SELECT status FROM articles WHERE id=?", (aid,)).fetchone()
+    row = memory_db.execute(text("SELECT status FROM articles WHERE id=:p0"), {"p0": aid}).mappings().first()
     assert row["status"] == "scored"   # left for the next run
 
 
@@ -640,7 +640,7 @@ def test_aside_pass_skipped_when_setting_off(mock_gen, mock_fetch, memory_db):
     summarize_scored_articles(memory_db)
 
     assert mock_gen.call_count == 1        # summarization only
-    row = memory_db.execute("SELECT aside_spans FROM articles WHERE id=?", (aid,)).fetchone()
+    row = memory_db.execute(text("SELECT aside_spans FROM articles WHERE id=:p0"), {"p0": aid}).mappings().first()
     assert row["aside_spans"] is None
 
 
@@ -657,7 +657,7 @@ def test_aside_pass_stores_fingerprints(mock_gen, mock_fetch, memory_db):
 
     summarize_scored_articles(memory_db)
 
-    row = memory_db.execute("SELECT aside_spans FROM articles WHERE id=?", (aid,)).fetchone()
+    row = memory_db.execute(text("SELECT aside_spans FROM articles WHERE id=:p0"), {"p0": aid}).mappings().first()
     assert cf.load_stored(row["aside_spans"]) == {
         cf.fingerprint("Last month's recap."): cf.KIND_OLDER
     }
@@ -675,8 +675,7 @@ def test_aside_pass_failure_does_not_lose_the_summary(mock_gen, mock_fetch, memo
 
     summarize_scored_articles(memory_db)
 
-    row = memory_db.execute(
-        "SELECT status, summary, aside_spans FROM articles WHERE id=?", (aid,)).fetchone()
+    row = memory_db.execute(text("SELECT status, summary, aside_spans FROM articles WHERE id=:p0"), {"p0": aid}).mappings().first()
     assert row["status"] == "summarized"
     assert row["summary"] == "A summary."
     assert row["aside_spans"] is None
@@ -693,7 +692,7 @@ def test_aside_pass_exception_is_swallowed(mock_gen, mock_fetch, memory_db, capl
 
     summarize_scored_articles(memory_db)
 
-    row = memory_db.execute("SELECT status FROM articles WHERE id=?", (aid,)).fetchone()
+    row = memory_db.execute(text("SELECT status FROM articles WHERE id=:p0"), {"p0": aid}).mappings().first()
     assert row["status"] == "summarized"
     assert "Aside detection failed" in caplog.text
 

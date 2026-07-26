@@ -2,6 +2,21 @@ import io
 from unittest.mock import MagicMock, patch
 
 import pytest
+from sqlalchemy import text
+
+
+def _mark_read(db, article_id):
+    from app.repo.articles import mark_read
+    from app.repo.users import ensure_bootstrap_user
+    mark_read(db, ensure_bootstrap_user(db), article_id)
+    db.commit()
+
+
+def _mark_saved(db, article_id):
+    from app.repo.articles import toggle_saved
+    from app.repo.users import ensure_bootstrap_user
+    toggle_saved(db, ensure_bootstrap_user(db), article_id)
+    db.commit()
 
 from tests.conftest import add_article, add_feed
 
@@ -83,10 +98,7 @@ def test_articles_marks_read_class(client, app):
         db = get_db_direct()
         feed_id = add_feed(db)
         article_id = add_article(db, feed_id, title="ReadOne")
-        db.execute(
-            "UPDATE articles SET read_at='2026-01-01T00:00:00Z' WHERE id=?",
-            (article_id,),
-        )
+        _mark_read(db, article_id)
         db.commit()
         db.close()
     r = client.get("/articles")
@@ -126,9 +138,11 @@ def test_vote_like(client, app):
 
     with app.app_context():
         db = get_db_direct()
-        row = db.execute("SELECT status FROM articles WHERE id=?", (article_id,)).fetchone()
-        assert row["status"] == "liked"
-        vote = db.execute("SELECT value FROM votes WHERE article_id=?", (article_id,)).fetchone()
+        row = db.execute(text(
+            "SELECT opinion FROM user_article_state WHERE article_id=:p0"),
+            {"p0": article_id}).mappings().first()
+        assert row["opinion"] == "liked"
+        vote = db.execute(text("SELECT value FROM votes WHERE article_id=:p0"), {"p0": article_id}).mappings().first()
         assert vote["value"] == 1
         db.close()
 
@@ -185,7 +199,7 @@ def test_article_content_marks_read(client, app):
     assert r.status_code == 200
     with app.app_context():
         db = get_db_direct()
-        row = db.execute("SELECT read_at FROM articles WHERE id=?", (article_id,)).fetchone()
+        row = db.execute(text("SELECT s.read_at FROM user_article_state s JOIN articles a ON a.id = s.article_id WHERE a.id=:p0"), {"p0": article_id}).mappings().first()
         assert row["read_at"] is not None
         db.close()
 
@@ -205,7 +219,7 @@ def test_article_content_uses_feed_content_fallback(client, app):
             full_text=None,
             feed_content="Body from RSS feed_content tag.",
         )
-        article_id = db.execute("SELECT id FROM articles").fetchone()["id"]
+        article_id = db.execute(text("SELECT id FROM articles")).mappings().first()["id"]
         db.close()
     r = client.get(f"/article/{article_id}/content")
     assert b"feed_content" in r.data
@@ -259,7 +273,7 @@ def test_feeds_delete(client, app):
     from app.db import get_db_direct
     with app.app_context():
         db = get_db_direct()
-        feed_id = db.execute("SELECT id FROM feeds").fetchone()["id"]
+        feed_id = db.execute(text("SELECT id FROM feeds")).mappings().first()["id"]
         db.close()
     r = client.delete(f"/feeds/{feed_id}")
     assert r.status_code == 200
@@ -296,7 +310,7 @@ def test_feeds_import_opml_inserts_new(client, app):
     from app.db import get_db_direct
     with app.app_context():
         db = get_db_direct()
-        urls = {row["url"] for row in db.execute("SELECT url FROM feeds").fetchall()}
+        urls = {row["url"] for row in db.execute(text("SELECT url FROM feeds")).mappings().all()}
         assert urls == {"https://a.example.com/rss", "https://b.example.com/atom"}
         db.close()
 
@@ -435,7 +449,7 @@ def test_preferences_save(client, app):
     from app.db import get_db_direct
     with app.app_context():
         db = get_db_direct()
-        row = db.execute("SELECT profile_text FROM preferences WHERE id=1").fetchone()
+        row = db.execute(text("SELECT profile_text FROM preferences WHERE id=1")).mappings().first()
         assert row["profile_text"] == "Loves Rust news."
         db.close()
 
@@ -595,7 +609,7 @@ def test_article_content_renders_twitter_embed_when_enabled(client, app):
         set_setting(db, "embeds_enabled", "1")
         feed_id = add_feed(db)
         add_article(db, feed_id, full_text=body)
-        article_id = db.execute("SELECT id FROM articles").fetchone()["id"]
+        article_id = db.execute(text("SELECT id FROM articles")).mappings().first()["id"]
         db.commit()
         db.close()
     r = client.get(f"/article/{article_id}/content")
@@ -612,7 +626,7 @@ def test_article_content_skips_embed_when_setting_off(client, app):
         db = get_db_direct()
         feed_id = add_feed(db)
         add_article(db, feed_id, full_text=body)
-        article_id = db.execute("SELECT id FROM articles").fetchone()["id"]
+        article_id = db.execute(text("SELECT id FROM articles")).mappings().first()["id"]
         db.close()
     r = client.get(f"/article/{article_id}/content")
     html = r.data.decode()
@@ -668,7 +682,7 @@ def test_article_content_renders_bulleted_list(client, app):
         db = get_db_direct()
         feed_id = add_feed(db)
         add_article(db, feed_id, full_text=body)
-        article_id = db.execute("SELECT id FROM articles").fetchone()["id"]
+        article_id = db.execute(text("SELECT id FROM articles")).mappings().first()["id"]
         db.close()
     r = client.get(f"/article/{article_id}/content")
     body_html = r.data.decode()
@@ -694,7 +708,7 @@ def test_article_content_skips_description_when_full_text_repeats_it(client, app
             raw_snippet=desc,
             full_text=body,
         )
-        article_id = db.execute("SELECT id FROM articles").fetchone()["id"]
+        article_id = db.execute(text("SELECT id FROM articles")).mappings().first()["id"]
         db.close()
     r = client.get(f"/article/{article_id}/content")
     assert r.data.count(b"Short unique preamble") == 1
@@ -931,7 +945,7 @@ def test_rescore_hidden_requeues_and_runs_pipeline(client, app):
     mock_pipeline.assert_called_once()
     with app.app_context():
         db = get_db_direct()
-        rows = {r["guid"]: r["status"] for r in db.execute("SELECT guid, status FROM articles")}
+        rows = {r["guid"]: r["status"] for r in db.execute(text("SELECT guid, status FROM articles")).mappings()}
         db.close()
     assert rows["h1"] == "new"
     assert rows["h2"] == "new"
@@ -953,12 +967,16 @@ def test_dismiss_all_marks_summarized_liked_disliked(client, app):
     assert b"dismissed 3" in r.data
     with app.app_context():
         db = get_db_direct()
-        rows = {row["guid"]: row["status"] for row in db.execute("SELECT guid, status FROM articles")}
+        rows = {r["guid"]: r["dismissed"] for r in db.execute(text(
+            """SELECT a.guid, (s.dismissed_at IS NOT NULL) AS dismissed
+               FROM articles a
+               LEFT JOIN user_article_state s ON s.article_id = a.id"""
+        )).mappings()}
         db.close()
-    assert rows["s"] == "dismissed"
-    assert rows["l"] == "dismissed"
-    assert rows["d"] == "dismissed"
-    assert rows["h"] == "hidden"
+    assert rows["s"] is True
+    assert rows["l"] is True
+    assert rows["d"] is True
+    assert rows["h"] is False        # hidden articles are not in the list
 
 
 def test_dismiss_all_respects_feed_filter(client, app):
@@ -975,10 +993,14 @@ def test_dismiss_all_respects_feed_filter(client, app):
     assert b"dismissed 1" in r.data
     with app.app_context():
         db = get_db_direct()
-        rows = {row["guid"]: row["status"] for row in db.execute("SELECT guid, status FROM articles")}
+        rows = {r["guid"]: r["dismissed"] for r in db.execute(text(
+            """SELECT a.guid, (s.dismissed_at IS NOT NULL) AS dismissed
+               FROM articles a
+               LEFT JOIN user_article_state s ON s.article_id = a.id"""
+        )).mappings()}
         db.close()
-    assert rows["k"] == "summarized"
-    assert rows["d"] == "dismissed"
+    assert rows["k"] is False
+    assert rows["d"] is True
 
 
 def test_dismiss_all_ignores_non_numeric_feed_arg(client, app):
@@ -1003,7 +1025,7 @@ def test_feed_pause_marks_paused(client, app):
     assert r.status_code == 200
     with app.app_context():
         db = get_db_direct()
-        row = db.execute("SELECT paused FROM feeds WHERE id=?", (feed_id,)).fetchone()
+        row = db.execute(text("SELECT paused FROM feeds WHERE id=:p0"), {"p0": feed_id}).mappings().first()
         db.close()
     assert row["paused"] == 1
 
@@ -1013,20 +1035,14 @@ def test_feed_resume_clears_paused_and_failures(client, app):
     with app.app_context():
         db = get_db_direct()
         feed_id = add_feed(db)
-        db.execute(
-            "UPDATE feeds SET paused=1, consecutive_failures=7, last_error='boom' WHERE id=?",
-            (feed_id,),
-        )
+        db.execute(text("UPDATE feeds SET paused=true, consecutive_failures=7, last_error='boom' WHERE id=:p0"), {"p0": feed_id})
         db.commit()
         db.close()
     r = client.post(f"/feeds/{feed_id}/resume")
     assert r.status_code == 200
     with app.app_context():
         db = get_db_direct()
-        row = db.execute(
-            "SELECT paused, consecutive_failures, last_error FROM feeds WHERE id=?",
-            (feed_id,),
-        ).fetchone()
+        row = db.execute(text("SELECT paused, consecutive_failures, last_error FROM feeds WHERE id=:p0"), {"p0": feed_id}).mappings().first()
         db.close()
     assert row["paused"] == 0
     assert row["consecutive_failures"] == 0
@@ -1043,7 +1059,7 @@ def test_feed_set_threshold_with_value(client, app):
     assert r.status_code == 200
     with app.app_context():
         db = get_db_direct()
-        row = db.execute("SELECT score_threshold FROM feeds WHERE id=?", (feed_id,)).fetchone()
+        row = db.execute(text("SELECT score_threshold FROM feeds WHERE id=:p0"), {"p0": feed_id}).mappings().first()
         db.close()
     assert abs(row["score_threshold"] - 0.55) < 1e-6
 
@@ -1053,14 +1069,14 @@ def test_feed_set_threshold_clears_when_empty(client, app):
     with app.app_context():
         db = get_db_direct()
         feed_id = add_feed(db)
-        db.execute("UPDATE feeds SET score_threshold=0.7 WHERE id=?", (feed_id,))
+        db.execute(text("UPDATE feeds SET score_threshold=0.7 WHERE id=:p0"), {"p0": feed_id})
         db.commit()
         db.close()
     r = client.post(f"/feeds/{feed_id}/threshold", data={"score_threshold": ""})
     assert r.status_code == 200
     with app.app_context():
         db = get_db_direct()
-        row = db.execute("SELECT score_threshold FROM feeds WHERE id=?", (feed_id,)).fetchone()
+        row = db.execute(text("SELECT score_threshold FROM feeds WHERE id=:p0"), {"p0": feed_id}).mappings().first()
         db.close()
     assert row["score_threshold"] is None
 
@@ -1101,9 +1117,11 @@ def test_article_save_toggles_on_and_off(client, app):
     assert r2.status_code == 200
     with app.app_context():
         db = get_db_direct()
-        row = db.execute("SELECT saved_at FROM articles WHERE id=?", (article_id,)).fetchone()
+        row = db.execute(text(
+            "SELECT saved_at FROM user_article_state WHERE article_id=:p0"),
+            {"p0": article_id}).mappings().first()
         db.close()
-    assert row["saved_at"] is None
+    assert row is None or row["saved_at"] is None
 
 
 def test_article_save_404(client):
@@ -1118,10 +1136,7 @@ def test_articles_saved_filter_returns_only_saved(client, app):
         feed_id = add_feed(db)
         a_saved = add_article(db, feed_id, seq=1, guid="s", status="summarized", title="SavedOne")
         add_article(db, feed_id, seq=2, guid="u", status="summarized", title="UnsavedOne")
-        db.execute(
-            "UPDATE articles SET saved_at='2026-04-19T00:00:00Z' WHERE id=?",
-            (a_saved,),
-        )
+        _mark_saved(db, a_saved)
         db.commit()
         db.close()
     r = client.get("/articles?saved=1")
@@ -1140,7 +1155,7 @@ def test_articles_saved_filter_pagination_qs(client, app):
                 db, feed_id, seq=i, guid=f"g{i}", status="summarized",
                 title=f"S{i}",
             )
-            db.execute("UPDATE articles SET saved_at='2026-04-19T00:00:00Z' WHERE id=?", (aid,))
+            _mark_saved(db, aid)
         db.commit()
         db.close()
     r = client.get("/articles?saved=1")
@@ -1172,26 +1187,10 @@ def test_search_returns_matching_articles(client, app):
     assert b"Cooking with cast iron" not in r.data
 
 
-def test_search_handles_fts_table_missing(client, app, caplog):
-    """If the FTS5 table is gone, /search logs a warning and returns 200 with no rows."""
-    import logging
-    caplog.set_level(logging.WARNING, logger="app.routes")
-    from app.db import get_db_direct
-    with app.app_context():
-        db = get_db_direct()
-        db.executescript(
-            "DROP TRIGGER IF EXISTS articles_ai;"
-            "DROP TRIGGER IF EXISTS articles_au;"
-            "DROP TRIGGER IF EXISTS articles_ad;"
-            "DROP TABLE IF EXISTS articles_fts;"
-        )
-        db.commit()
-        db.close()
-    r = client.get("/search?q=anything")
+def test_search_handles_bad_query_gracefully(client, app):
+    """websearch_to_tsquery tolerates junk that FTS5 MATCH would reject."""
+    r = client.get('/search?q=")((&^%$')
     assert r.status_code == 200
-    assert b"article-row" not in r.data
-    assert "FTS search failed" in caplog.text
-
 
 def test_search_quotes_escape_double_quotes(client, app):
     """A user query with embedded quotes is safely doubled inside the FTS phrase."""
@@ -1212,10 +1211,7 @@ def test_sidebar_feeds_includes_saved_count(client, app):
         db = get_db_direct()
         feed_id = add_feed(db, title="MyFeed")
         aid = add_article(db, feed_id, status="summarized")
-        db.execute(
-            "UPDATE articles SET saved_at='2026-04-19T00:00:00Z' WHERE id=?",
-            (aid,),
-        )
+        _mark_saved(db, aid)
         db.commit()
         db.close()
     r = client.get("/sidebar/feeds")
@@ -1269,7 +1265,7 @@ def test_feed_set_tags_stores_normalized_value(client, app):
     assert r.status_code == 200
     with app.app_context():
         db = get_db_direct()
-        row = db.execute("SELECT tags FROM feeds WHERE id=?", (feed_id,)).fetchone()
+        row = db.execute(text("SELECT tags FROM feeds WHERE id=:p0"), {"p0": feed_id}).mappings().first()
         db.close()
     assert row["tags"] == "news,tech"
 
@@ -1279,14 +1275,14 @@ def test_feed_set_tags_empty_clears_to_null(client, app):
     with app.app_context():
         db = get_db_direct()
         feed_id = add_feed(db)
-        db.execute("UPDATE feeds SET tags=? WHERE id=?", ("tech", feed_id))
+        db.execute(text("UPDATE feeds SET tags=:p0 WHERE id=:p1"), {"p0": "tech", "p1": feed_id})
         db.commit()
         db.close()
     r = client.post(f"/feeds/{feed_id}/tags", data={"tags": ""})
     assert r.status_code == 200
     with app.app_context():
         db = get_db_direct()
-        row = db.execute("SELECT tags FROM feeds WHERE id=?", (feed_id,)).fetchone()
+        row = db.execute(text("SELECT tags FROM feeds WHERE id=:p0"), {"p0": feed_id}).mappings().first()
         db.close()
     assert row["tags"] is None
 
@@ -1298,8 +1294,8 @@ def test_sidebar_feeds_groups_by_tag(client, app):
         tech_id = add_feed(db, url="https://t.example.com/rss", title="TechFeed")
         news_id = add_feed(db, url="https://n.example.com/rss", title="NewsFeed")
         untagged_id = add_feed(db, url="https://u.example.com/rss", title="LonelyFeed")
-        db.execute("UPDATE feeds SET tags='tech' WHERE id=?", (tech_id,))
-        db.execute("UPDATE feeds SET tags='news' WHERE id=?", (news_id,))
+        db.execute(text("UPDATE feeds SET tags='tech' WHERE id=:p0"), {"p0": tech_id})
+        db.execute(text("UPDATE feeds SET tags='news' WHERE id=:p0"), {"p0": news_id})
         db.commit()
         db.close()
     r = client.get("/sidebar/feeds")
@@ -1333,7 +1329,7 @@ def test_sidebar_feeds_feed_in_multiple_tags(client, app):
     with app.app_context():
         db = get_db_direct()
         fid = add_feed(db, title="Multi")
-        db.execute("UPDATE feeds SET tags='news,tech' WHERE id=?", (fid,))
+        db.execute(text("UPDATE feeds SET tags='news,tech' WHERE id=:p0"), {"p0": fid})
         db.commit()
         db.close()
     r = client.get("/sidebar/feeds")
@@ -1356,9 +1352,11 @@ def test_article_dismiss_marks_dismissed(client, app):
     assert r.status_code == 200
     with app.app_context():
         db = get_db_direct()
-        row = db.execute("SELECT status FROM articles WHERE id=?", (aid,)).fetchone()
+        row = db.execute(text(
+            "SELECT dismissed_at FROM user_article_state WHERE article_id=:p0"),
+            {"p0": aid}).mappings().first()
         db.close()
-    assert row["status"] == "dismissed"
+    assert row is not None and row["dismissed_at"] is not None
 
 
 def test_article_dismiss_unknown_returns_404(client):
@@ -1506,8 +1504,7 @@ def _clickbait_article(app):
         db = get_db_direct()
         fid = add_feed(db)
         aid = add_article(db, fid, title="You won't believe what happened")
-        db.execute("UPDATE articles SET clean_title=?, title_was_clickbait=1 WHERE id=?",
-                   ("Council approves budget", aid))
+        db.execute(text("UPDATE articles SET clean_title=:p0, title_was_clickbait=true WHERE id=:p1"), {"p0": "Council approves budget", "p1": aid})
         db.commit()
         db.close()
     return aid
@@ -1673,8 +1670,8 @@ def test_stored_llm_spans_are_applied(client, app):
     aid = _padded_article(app, body=f"Today the council met.\n{recap}\nThe vote passed.")
     with app.app_context():
         db = get_db_direct()
-        db.execute("UPDATE articles SET aside_spans=? WHERE id=?",
-                   (cf.dump_spans([(cf.fingerprint(recap), cf.KIND_OLDER)]), aid))
+        db.execute(text("UPDATE articles SET aside_spans=CAST(:s AS jsonb) WHERE id=:id"),
+                   {"s": cf.dump_spans([(cf.fingerprint(recap), cf.KIND_OLDER)]), "id": aid})
         db.commit()
         db.close()
     _set_filter(app, "highlight")
@@ -1688,7 +1685,8 @@ def test_corrupt_aside_spans_degrade_to_pattern_pass(client, app):
     aid = _padded_article(app)
     with app.app_context():
         db = get_db_direct()
-        db.execute("UPDATE articles SET aside_spans=? WHERE id=?", ("{{bad json", aid))
+        db.execute(text("UPDATE articles SET aside_spans=CAST(:s AS jsonb) WHERE id=:id"),
+                   {"s": '"not-a-list"', "id": aid})
         db.commit()
         db.close()
     _set_filter(app, "remove")
@@ -1774,3 +1772,19 @@ def test_bullet_run_splits_when_a_rail_starts_mid_list():
     assert "aside" not in uls[0]
     assert uls[1]["items"] == ["other story"]
     assert uls[1]["aside"] == cf.KIND_RELATED
+
+
+def test_search_survives_backend_failure(client, app, monkeypatch, caplog):
+    """A search backend error returns an empty list, not a 500."""
+    import logging
+    caplog.set_level(logging.WARNING, logger="app.routes")
+    from app.repo import articles as art_repo
+    monkeypatch.setattr(art_repo, "search",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    r = client.get("/search?q=anything")
+    assert r.status_code == 200
+    assert "Search failed" in caplog.text
+
+
+def test_vote_on_unknown_article_returns_404(client):
+    assert client.post("/vote/999999/1").status_code == 404

@@ -5,7 +5,10 @@ from html import escape
 
 from flask import Blueprint, current_app, render_template, request, Response
 
+from sqlalchemy import text as sql
+
 from app import content_filter, ollama_client
+from app.repo import articles as art_repo, users as user_repo
 from app.db import get_db, get_setting, set_setting
 from app.pipeline import DEFAULT_SCORING_MODEL, DEFAULT_SUMMARY_MODEL, ollama_base
 
@@ -185,6 +188,11 @@ def _row_to_article(row, declickbait: bool = False) -> dict:
     return d
 
 
+def current_user_id(db) -> int:
+    """The acting user. Phase 0 has exactly one; Phase 1 reads it from session."""
+    return user_repo.ensure_bootstrap_user(db)
+
+
 def _declickbait(db) -> bool:
     return get_setting(db, "declickbait_enabled", "") == "1"
 
@@ -243,25 +251,15 @@ def articles():
         offset = max(0, int(request.args.get("offset", "0")))
     except ValueError:
         offset = 0
-    params: list = []
-    feed_filter = ""
     feed_arg = request.args.get("feed", "").strip()
-    if feed_arg.isdigit():
-        feed_filter = " AND feed_id=?"
-        params.append(int(feed_arg))
-    saved_filter = " AND saved_at IS NOT NULL" if show_saved else ""
+    feed_id = int(feed_arg) if feed_arg.isdigit() else None
     db = get_db()
+    uid = current_user_id(db)
     declickbait = _declickbait(db)
-    rows = db.execute(
-        f"""SELECT id, url, title, summary, score, score_reason, status, thumbnail_url,
-                  raw_snippet, read_at, saved_at, clean_title, title_was_clickbait,
-                  SUBSTR(full_text, 1, 400) as full_text_head
-           FROM articles
-           WHERE status IN {statuses}{feed_filter}{saved_filter}
-           ORDER BY {order}
-           LIMIT ? OFFSET ?""",
-        params + [_PAGE_SIZE, offset],
-    ).fetchall()
+    rows = art_repo.list_for_user(
+        db, uid, hidden=show_hidden, saved=show_saved, feed_id=feed_id,
+        sort=sort, limit=_PAGE_SIZE, offset=offset,
+    )
     next_offset = offset + _PAGE_SIZE if len(rows) == _PAGE_SIZE else None
     next_qs = ""
     if next_offset is not None:
@@ -290,26 +288,12 @@ def search():
             "_articles.html", articles=[], next_qs="", is_first_page=True
         )
     db = get_db()
+    uid = current_user_id(db)
     declickbait = _declickbait(db)
-    # FTS5 query — escape user input by wrapping in quotes (treat as a phrase).
-    # The index covers the stored `title`, so search still matches the original
-    # wording even when a de-clickbaited rewrite is what's displayed.
-    fts_query = '"' + q.replace('"', '""') + '"'
     try:
-        rows = db.execute(
-            """SELECT a.id, a.url, a.title, a.summary, a.score, a.score_reason,
-                      a.status, a.thumbnail_url, a.raw_snippet, a.read_at, a.saved_at,
-                      a.clean_title, a.title_was_clickbait,
-                      SUBSTR(a.full_text, 1, 400) as full_text_head
-               FROM articles_fts f
-               JOIN articles a ON a.id = f.rowid
-               WHERE articles_fts MATCH ?
-               ORDER BY rank
-               LIMIT ?""",
-            (fts_query, _PAGE_SIZE),
-        ).fetchall()
+        rows = art_repo.search(db, uid, q, limit=_PAGE_SIZE)
     except Exception as exc:
-        log.warning("FTS search failed for %r: %s", q, exc)
+        log.warning("Search failed for %r: %s", q, exc)
         rows = []
     return render_template(
         "_articles.html",
@@ -323,25 +307,12 @@ def search():
 def article_save(article_id: int):
     """Toggle the saved/read-later flag on an article and return the refreshed card."""
     db = get_db()
-    row = db.execute(
-        "SELECT saved_at FROM articles WHERE id=?", (article_id,)
-    ).fetchone()
-    if row is None:
+    uid = current_user_id(db)
+    if not art_repo.exists(db, article_id):
         return Response("not found", status=404)
-    if row["saved_at"]:
-        db.execute("UPDATE articles SET saved_at=NULL WHERE id=?", (article_id,))
-    else:
-        db.execute(
-            "UPDATE articles SET saved_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') "
-            "WHERE id=?", (article_id,)
-        )
+    art_repo.toggle_saved(db, uid, article_id)
     db.commit()
-    card = db.execute(
-        "SELECT id, url, title, summary, score, score_reason, status, thumbnail_url, "
-        "raw_snippet, read_at, saved_at, clean_title, title_was_clickbait, "
-        "SUBSTR(full_text, 1, 400) as full_text_head FROM articles WHERE id=?",
-        (article_id,),
-    ).fetchone()
+    card = art_repo.get_card(db, uid, article_id)
     return render_template("_article_card.html",
                            article=_row_to_article(card, _declickbait(db)))
 
@@ -350,14 +321,10 @@ def article_save(article_id: int):
 def article_dismiss(article_id: int):
     """Mark a single article as dismissed. Used by the swipe-left gesture."""
     db = get_db()
-    exists = db.execute(
-        "SELECT 1 FROM articles WHERE id=?", (article_id,)
-    ).fetchone()
-    if exists is None:
+    uid = current_user_id(db)
+    if not art_repo.exists(db, article_id):
         return Response("not found", status=404)
-    db.execute(
-        "UPDATE articles SET status='dismissed' WHERE id=?", (article_id,)
-    )
+    art_repo.dismiss(db, uid, article_id)
     db.commit()
     return Response("", status=200)
 
@@ -371,20 +338,12 @@ def vote(article_id: int, value: str):
     if value not in (1, -1):
         return Response("invalid vote", status=400)
     db = get_db()
-    db.execute(
-        "INSERT INTO votes(article_id, value) VALUES(?, ?)", (article_id, value)
-    )
-    status = "liked" if value == 1 else "disliked"
-    db.execute(
-        "UPDATE articles SET status=? WHERE id=?", (status, article_id)
-    )
+    uid = current_user_id(db)
+    if not art_repo.exists(db, article_id):
+        return Response("not found", status=404)
+    art_repo.record_vote(db, uid, article_id, value)
     db.commit()
-    row = db.execute(
-        "SELECT id, url, title, summary, score, score_reason, status, thumbnail_url, "
-        "raw_snippet, read_at, saved_at, clean_title, title_was_clickbait, "
-        "SUBSTR(full_text, 1, 400) as full_text_head FROM articles WHERE id=?",
-        (article_id,),
-    ).fetchone()
+    row = art_repo.get_card(db, uid, article_id)
     return render_template("_article_card.html",
                            article=_row_to_article(row, _declickbait(db)))
 
@@ -396,16 +355,8 @@ def sidebar_feeds():
     """Feed list with per-feed unread + hidden + saved counts for the left sidebar.
     Feeds are grouped by tag; feeds with no tags appear under 'Untagged'."""
     db = get_db()
-    rows = db.execute(
-        """SELECT f.id, COALESCE(f.title, f.url) AS title, f.paused, f.tags,
-                  SUM(CASE WHEN a.status='summarized' AND a.read_at IS NULL THEN 1 ELSE 0 END) AS unread,
-                  SUM(CASE WHEN a.status='hidden' THEN 1 ELSE 0 END) AS hidden,
-                  SUM(CASE WHEN a.saved_at IS NOT NULL THEN 1 ELSE 0 END) AS saved
-           FROM feeds f
-           LEFT JOIN articles a ON a.feed_id=f.id
-           GROUP BY f.id
-           ORDER BY title"""
-    ).fetchall()
+    uid = current_user_id(db)
+    rows = art_repo.sidebar_counts(db, uid)
     total_unread = sum((r["unread"] or 0) for r in rows)
     total_hidden = sum((r["hidden"] or 0) for r in rows)
     total_saved = sum((r["saved"] or 0) for r in rows)
@@ -444,20 +395,22 @@ def feeds_add():
     if not url:
         return Response("url required", status=400)
     db = get_db()
-    try:
-        db.execute("INSERT INTO feeds(url) VALUES(?)", (url,))
-        db.commit()
-    except Exception:
+    res = db.execute(
+        sql("INSERT INTO feeds (url) VALUES (:url) ON CONFLICT (url) DO NOTHING"),
+        {"url": url},
+    )
+    if not res.rowcount:
         return Response("feed already exists", status=409)
+    db.commit()
     return render_template("_feeds.html", feeds=_all_feeds(db))
 
 
 @bp.get("/preferences")
 def preferences_get():
     db = get_db()
-    row = db.execute(
+    row = db.execute(sql(
         "SELECT profile_text, updated_at FROM preferences WHERE id=1"
-    ).fetchone()
+    )).mappings().first()
     return render_template(
         "_preferences.html",
         profile_text=row["profile_text"] if row else "",
@@ -470,17 +423,17 @@ def preferences_save():
     text = request.form.get("profile_text", "").strip()
     db = get_db()
     db.execute(
-        """INSERT INTO preferences(id, profile_text, updated_at)
-           VALUES(1, ?, strftime('%Y-%m-%dT%H:%M:%SZ','now'))
-           ON CONFLICT(id) DO UPDATE
-             SET profile_text=excluded.profile_text,
-                 updated_at=excluded.updated_at""",
-        (text,),
+        sql("""INSERT INTO preferences (id, profile_text, updated_at)
+               VALUES (1, :profile, now())
+               ON CONFLICT (id) DO UPDATE
+                 SET profile_text = EXCLUDED.profile_text,
+                     updated_at   = EXCLUDED.updated_at"""),
+        {"profile": text},
     )
     db.commit()
-    row = db.execute(
+    row = db.execute(sql(
         "SELECT profile_text, updated_at FROM preferences WHERE id=1"
-    ).fetchone()
+    )).mappings().first()
     return render_template(
         "_preferences.html",
         profile_text=row["profile_text"],
@@ -509,17 +462,12 @@ def preferences_regenerate():
 @bp.get("/status")
 def status():
     db = get_db()
-    counts = {
-        row["status"]: row["n"]
-        for row in db.execute(
-            "SELECT status, COUNT(*) AS n FROM articles GROUP BY status"
-        ).fetchall()
-    }
-    last_poll = db.execute(
+    counts = {r["status"]: r["n"] for r in art_repo.status_counts(db)}
+    last_poll = db.execute(sql(
         "SELECT MAX(last_polled_at) AS t FROM feeds"
-    ).fetchone()["t"]
+    )).scalar()
     last_pipeline = get_setting(db, "last_pipeline_run_at", "") or None
-    feed_count = db.execute("SELECT COUNT(*) AS n FROM feeds").fetchone()["n"]
+    feed_count = db.execute(sql("SELECT COUNT(*) FROM feeds")).scalar()
     wants_json = "application/json" in request.headers.get("Accept", "")
     if wants_json:
         from flask import jsonify
@@ -713,7 +661,7 @@ def models_save():
 @bp.get("/feeds/opml")
 def feeds_export_opml():
     db = get_db()
-    rows = db.execute("SELECT url, title FROM feeds ORDER BY id").fetchall()
+    rows = db.execute(sql("SELECT url, title FROM feeds ORDER BY id")).mappings().all()
     body = "\n".join(
         f'      <outline type="rss" text="{escape(r["title"] or r["url"])}" '
         f'title="{escape(r["title"] or r["url"])}" xmlUrl="{escape(r["url"])}"/>'
@@ -754,11 +702,11 @@ def feeds_import_opml():
     db = get_db()
     added = 0
     for url in urls:
-        try:
-            db.execute("INSERT INTO feeds(url) VALUES(?)", (url,))
-            added += 1
-        except Exception:
-            pass
+        res = db.execute(
+            sql("INSERT INTO feeds (url) VALUES (:url) ON CONFLICT (url) DO NOTHING"),
+            {"url": url},
+        )
+        added += res.rowcount
     db.commit()
     return render_template("_feeds.html", feeds=_all_feeds(db), opml_added=added)
 
@@ -766,18 +714,18 @@ def feeds_import_opml():
 @bp.delete("/feeds/<int:feed_id>")
 def feeds_delete(feed_id: int):
     db = get_db()
-    db.execute("DELETE FROM feeds WHERE id=?", (feed_id,))
+    db.execute(sql("DELETE FROM feeds WHERE id=:id"), {"id": feed_id})
     db.commit()
     rows = _all_feeds(db)
     return render_template("_feeds.html", feeds=rows)
 
 
 def _all_feeds(db):
-    return db.execute(
+    return db.execute(sql(
         "SELECT id, url, title, last_polled_at, last_success_at, last_error, "
         "consecutive_failures, paused, score_threshold, tags "
         "FROM feeds ORDER BY id"
-    ).fetchall()
+    )).mappings().all()
 
 
 def _normalize_tags(raw: str) -> str:
@@ -805,7 +753,7 @@ def _split_tags(raw: str | None) -> list[str]:
 def feed_pause(feed_id: int):
     """Pause polling for a feed. Idempotent."""
     db = get_db()
-    db.execute("UPDATE feeds SET paused=1 WHERE id=?", (feed_id,))
+    db.execute(sql("UPDATE feeds SET paused=true WHERE id=:id"), {"id": feed_id})
     db.commit()
     rows = _all_feeds(db)
     return render_template("_feeds.html", feeds=rows)
@@ -816,9 +764,9 @@ def feed_resume(feed_id: int):
     """Resume polling for a feed and reset its failure counter."""
     db = get_db()
     db.execute(
-        "UPDATE feeds SET paused=0, consecutive_failures=0, last_error=NULL "
-        "WHERE id=?",
-        (feed_id,),
+        sql("UPDATE feeds SET paused=false, consecutive_failures=0, "
+            "last_error=NULL WHERE id=:id"),
+        {"id": feed_id},
     )
     db.commit()
     rows = _all_feeds(db)
@@ -831,7 +779,7 @@ def feed_set_threshold(feed_id: int):
     raw = request.form.get("score_threshold", "").strip()
     db = get_db()
     if raw == "":
-        db.execute("UPDATE feeds SET score_threshold=NULL WHERE id=?", (feed_id,))
+        db.execute(sql("UPDATE feeds SET score_threshold=NULL WHERE id=:id"), {"id": feed_id})
     else:
         try:
             value = float(raw)
@@ -840,7 +788,8 @@ def feed_set_threshold(feed_id: int):
         if not 0.0 <= value <= 1.0:
             return Response("threshold must be 0.0-1.0", status=400)
         db.execute(
-            "UPDATE feeds SET score_threshold=? WHERE id=?", (value, feed_id)
+            sql("UPDATE feeds SET score_threshold=:v WHERE id=:id"),
+            {"v": value, "id": feed_id},
         )
     db.commit()
     rows = _all_feeds(db)
@@ -854,8 +803,8 @@ def feed_set_tags(feed_id: int):
     normalized = _normalize_tags(raw)
     db = get_db()
     db.execute(
-        "UPDATE feeds SET tags=? WHERE id=?",
-        (normalized or None, feed_id),
+        sql("UPDATE feeds SET tags=:tags WHERE id=:id"),
+        {"tags": normalized or None, "id": feed_id},
     )
     db.commit()
     rows = _all_feeds(db)
@@ -867,19 +816,15 @@ def feed_set_tags(feed_id: int):
 @bp.get("/article/<int:article_id>/content")
 def article_content(article_id: int):
     db = get_db()
-    row = db.execute(
+    row = db.execute(sql(
         "SELECT title, url, full_text, raw_snippet, feed_content, clean_title, "
         "title_was_clickbait, aside_spans "
-        "FROM articles WHERE id=?",
-        (article_id,)
-    ).fetchone()
+        "FROM articles WHERE id=:id"),
+        {"id": article_id},
+    ).mappings().first()
     if not row:
         return Response("Article not found.", status=404)
-    db.execute(
-        "UPDATE articles SET read_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') "
-        "WHERE id=? AND read_at IS NULL",
-        (article_id,),
-    )
+    art_repo.mark_read(db, current_user_id(db), article_id)
     db.commit()
     description = (row["raw_snippet"] or "").strip()
     full_text = row["full_text"] or row["feed_content"] or ""
@@ -891,7 +836,7 @@ def article_content(article_id: int):
     mode = _content_filter_mode(db)
     groups, aside_count = _content_blocks(
         content, embeds_enabled, mode,
-        row["aside_spans"] if "aside_spans" in row.keys() else None,
+        row["aside_spans"],
     )
     return render_template(
         "_article_content.html",
@@ -907,10 +852,7 @@ def article_content(article_id: int):
 @bp.get("/count")
 def article_count():
     db = get_db()
-    row = db.execute(
-        "SELECT COUNT(*) as n FROM articles WHERE status IN ('summarized', 'liked', 'disliked')"
-    ).fetchone()
-    return str(row["n"])
+    return str(art_repo.unread_count(db, current_user_id(db)))
 
 
 # ── Manual triggers ────────────────────────────────────────────────────────────
@@ -941,19 +883,11 @@ def dismiss_all():
     feed filter when ?feed=<id> is provided. Votes remain in the votes table
     so the preference signal is preserved."""
     db = get_db()
-    params: list = []
-    feed_filter = ""
     feed_arg = request.args.get("feed", "").strip()
-    if feed_arg.isdigit():
-        feed_filter = " AND feed_id=?"
-        params.append(int(feed_arg))
-    cursor = db.execute(
-        "UPDATE articles SET status='dismissed' "
-        f"WHERE status IN ('summarized','liked','disliked'){feed_filter}",
-        params,
-    )
+    feed_id = int(feed_arg) if feed_arg.isdigit() else None
+    n = art_repo.dismiss_all(db, current_user_id(db), feed_id)
     db.commit()
-    return Response(f"dismissed {cursor.rowcount} articles", status=200)
+    return Response(f"dismissed {n} articles", status=200)
 
 
 @bp.post("/rescore-hidden")
@@ -964,12 +898,8 @@ def rescore_hidden():
     from app.pipeline import run_pipeline
 
     db = get_db()
-    cursor = db.execute(
-        "UPDATE articles SET status='new', score=NULL, score_reason=NULL "
-        "WHERE status='hidden'"
-    )
+    n = art_repo.rescore_hidden(db)
     db.commit()
-    n = cursor.rowcount
 
     app = current_app._get_current_object()
 

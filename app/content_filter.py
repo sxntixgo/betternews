@@ -109,13 +109,17 @@ def classify_lines(lines: list[str], stored: dict[str, str] | None = None) -> li
     return kinds
 
 
-def load_stored(raw: str | None) -> dict[str, str]:
-    """Parse the persisted aside_spans JSON. Never raises — bad data means no
-    LLM asides, which degrades to pass-1-only rather than a broken reader."""
+def load_stored(raw) -> dict[str, str]:
+    """Normalize persisted aside_spans. Never raises — bad data means no LLM
+    asides, degrading to pass-1-only rather than a broken reader.
+
+    Accepts either a JSON string or the already-decoded value psycopg hands
+    back for a jsonb column.
+    """
     if not raw:
         return {}
     try:
-        data = json.loads(raw)
+        data = json.loads(raw) if isinstance(raw, (str, bytes)) else raw
         if not isinstance(data, list):
             return {}
         out = {}

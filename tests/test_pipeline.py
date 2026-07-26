@@ -709,3 +709,34 @@ def test_aside_pass_skips_very_short_bodies(mock_gen, mock_fetch, memory_db):
     summarize_scored_articles(memory_db)
 
     assert mock_gen.call_count == 1   # not worth a call
+
+
+# ── Cross-process pipeline lock ────────────────────────────────────────────────
+
+def test_advisory_lock_blocks_a_second_process(app):
+    """threading.Lock cannot span workers; the advisory lock must."""
+    from app.db import get_db_direct
+    from app.pipeline import _try_advisory_lock, _advisory_unlock
+    with app.app_context():
+        a, b = get_db_direct(), get_db_direct()   # two separate sessions
+        try:
+            assert _try_advisory_lock(a) is True
+            assert _try_advisory_lock(b) is False   # would be True with a threading lock
+            _advisory_unlock(a)
+            a.commit()
+            assert _try_advisory_lock(b) is True
+            _advisory_unlock(b)
+            b.commit()
+        finally:
+            a.close(); b.close()
+
+
+@patch("app.pipeline.fetch_full_text_and_image")
+@patch("app.pipeline.ollama_client.generate")
+def test_run_pipeline_skips_when_another_process_holds_the_lock(
+    mock_gen, mock_fetch, app, monkeypatch
+):
+    from app import pipeline
+    monkeypatch.setattr(pipeline, "_try_advisory_lock", lambda db: False)
+    assert pipeline.run_pipeline(app) is False
+    mock_gen.assert_not_called()

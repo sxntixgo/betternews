@@ -2,11 +2,13 @@
 
 ## What this is
 Single-user, self-hosted RSS reader with LLM-powered relevance ranking.
-Flask app in Docker; Ollama on Windows host; SQLite in ./data/rss.db.
+Flask app in Docker; Ollama on Windows host; **Postgres 16** in the `db` compose service.
 
 ## Key files
 - `app/__init__.py` — Flask app factory (`create_app`). Start here.
-- `app/db.py` — DB connection + `get_setting`/`set_setting` helpers. Use `get_db()` inside request context; `get_db_direct()` outside.
+- `app/db.py` — SQLAlchemy engine + `get_setting`/`set_setting`. `get_db()` inside a request (auto-commits on a clean response, rolls back on error); `get_db_direct()` outside.
+- `app/models.py` — schema as SQLAlchemy Core metadata. The single source of truth for columns and types.
+- `app/repo/` — **all article SQL**. Every function takes `user_id`: article rows are shared, read state is not.
 - `app/pipeline.py` — LLM scoring + summarization. Pipeline runs are serialized via a process-wide `_PIPELINE_LOCK`.
 - `app/ollama_client.py` — All Ollama HTTP calls. `generate()` (with retries) and `list_models()`.
 - `app/prompts.py` — The LLM prompts. Edit here to tune behavior.
@@ -34,7 +36,15 @@ See `.env.example`. Copy to `.env` before first run. Required vars:
 - `DB_PATH` / `BACKUP_DIR` / `KEEP` — read by `scripts/backup.py` for the SQLite backup helper.
 
 ## DB schema
-See `app/schema.sql`. Auto-applied on startup via `init_db()`, which also runs idempotent `ALTER TABLE` migrations for newer columns (`thumbnail_url`, `read_at`, `feed_content`).
+See `app/models.py`. `init_db()` creates missing tables on startup.
+
+**`articles.status` is the pipeline lifecycle only** — `new → scored → hidden | summarized`. What a *person* thinks of an article (liked/disliked/dismissed/read/saved) lives in `user_article_state`, keyed by `(user_id, article_id)`. Conflating them is how one user's dismiss removes an article from everyone's list.
+
+`votes` is the durable training record: user-scoped, carrying `title_snapshot`/`summary_snapshot`, with `article_id` nullable `ON DELETE SET NULL`. `regenerate_preferences` reads the snapshots and never joins `articles`, so retention can prune freely without touching the preference profile.
+
+`seen_guids` tombstones every ingested `(feed_id, guid)` so a retention-deleted article is not re-ingested by the next poll — the `UNIQUE(feed_id, guid)` constraint can't do that job, it lives on the row that was deleted.
+
+Search is a generated `tsvector` column with a GIN index (no triggers). Adding a field to the index is one line in `app/models.py`.
 
 Tables: `feeds`, `articles`, `votes`, `preferences` (single row), `settings` (key/value).
 
@@ -91,6 +101,13 @@ new → scored → summarized → liked | disliked | dismissed
 
 ## Tests
 ```
-pytest tests/ --cov=app
+docker compose run --rm web pytest tests/ --cov=app
 ```
-Ollama and feedparser are mocked — no live services needed. Coverage target is 100%.
+Ollama and feedparser are mocked. Postgres is **not** — there is no in-memory mode, so tests create and drop a throwaway database each, which means every run exercises the real DDL. Point `TEST_DATABASE_URL` at a server. Coverage target is 100%.
+
+## Migrating from the old SQLite database
+```
+python scripts/import_sqlite.py --sqlite data/rss.db --dry-run   # counts only
+python scripts/import_sqlite.py --sqlite data/rss.db
+```
+Never writes to the SQLite file — keep it, it is the rollback.

@@ -21,9 +21,24 @@ DEFAULT_SUMMARY_MODEL = os.environ.get("SUMMARY_MODEL", "llama3.2:3b")
 SCORE_THRESHOLD = float(os.environ.get("SCORE_THRESHOLD", "0.35"))
 SCORING_SNIPPET_CHARS = int(os.environ.get("SCORING_SNIPPET_CHARS", "2000"))
 
-# Process-wide lock — prevents concurrent /poll clicks from running the pipeline
-# in parallel and double-summarizing the same scored articles.
+# Process-wide lock — prevents concurrent /poll clicks within one worker.
 _PIPELINE_LOCK = threading.Lock()
+
+# ...and a Postgres advisory lock across workers. A threading.Lock cannot span
+# processes, so the moment gunicorn runs more than one worker (which Postgres
+# now makes viable) it stops serializing anything. Concurrent pipeline runs
+# would double-summarize and contend for the same GPU — see docs/plan.md 598.
+_PIPELINE_LOCK_KEY = 0x7B5EAD01
+
+
+def _try_advisory_lock(db) -> bool:
+    return bool(db.execute(
+        text("SELECT pg_try_advisory_lock(:k)"), {"k": _PIPELINE_LOCK_KEY}
+    ).scalar())
+
+
+def _advisory_unlock(db) -> None:
+    db.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": _PIPELINE_LOCK_KEY})
 
 
 def _scoring_model(db) -> str:
@@ -59,11 +74,15 @@ def run_pipeline(app: flask.Flask) -> bool:
     flight and this call was skipped.
     """
     if not _PIPELINE_LOCK.acquire(blocking=False):
-        log.info("Pipeline already running — skipping this trigger")
+        log.info("Pipeline already running in this process — skipping")
         return False
     try:
         with app.app_context():
             db = get_db_direct()
+            if not _try_advisory_lock(db):
+                log.info("Pipeline already running in another process — skipping")
+                db.close()
+                return False
             try:
                 row = db.execute(text(
                     "SELECT profile_text FROM preferences WHERE id=1"
@@ -78,6 +97,8 @@ def run_pipeline(app: flask.Flask) -> bool:
                 )
                 db.commit()
             finally:
+                _advisory_unlock(db)
+                db.commit()
                 db.close()
         return True
     finally:

@@ -208,6 +208,20 @@ pipeline_runs = Table(
 Index("ix_pipeline_runs_started_at", pipeline_runs.c.started_at.desc())
 
 
+# One cached digest per user. Keyed by a fingerprint of the unread set, so a
+# digest is reused until what you have not read actually changes — otherwise
+# every page load would cost an Ollama call.
+digests = Table(
+    "digests", metadata,
+    Column("user_id", Integer, ForeignKey("users.id", ondelete="CASCADE"),
+           primary_key=True),
+    Column("body", Text, nullable=False),
+    Column("article_count", Integer, nullable=False, server_default="0"),
+    Column("fingerprint", Text, nullable=False),
+    _ts(name="created_at", nullable=False, server_default=func.now()),
+)
+
+
 login_attempts = Table(
     "login_attempts", metadata,
     Column("username", Text, primary_key=True),

@@ -16,6 +16,7 @@
 {% endblock %}
 
 {% block content %}
+<div id="digest-panel" hx-get="/digest" hx-trigger="load" hx-swap="innerHTML"></div>
 <div id="article-list" hx-swap="innerHTML">
   <p class="loading">Loading articles…</p>
 </div>

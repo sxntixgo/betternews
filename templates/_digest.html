@@ -1,0 +1,19 @@
+{% if body %}
+  <section class="digest-card">
+    <div class="digest-head">
+      <h2>What you missed</h2>
+      <span class="digest-meta">
+        {{ count }} unread{% if made_at %} · {{ made_at | dt }}{% endif %}
+      </span>
+      <div class="digest-actions">
+        <button hx-get="/digest?force=1" hx-target="#digest-panel" hx-swap="innerHTML"
+                class="btn-icon" title="Rebuild this briefing">↻</button>
+        <button hx-post="/digest/dismiss" hx-target="#digest-panel" hx-swap="innerHTML"
+                class="btn-icon" title="Hide">✕</button>
+      </div>
+    </div>
+    <div class="digest-body">{{ body | replace('\n', '<br>') | safe }}</div>
+  </section>
+{% elif count is defined and count and count < 2 %}
+  {# One unread article needs no briefing. #}
+{% endif %}

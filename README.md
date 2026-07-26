@@ -15,6 +15,9 @@ Flask + HTMX, no build step, Postgres storage, runs in Docker.
 - **PWA-ready** — manifest + service worker for install-to-homescreen.
 - **Background polling** — APScheduler polls feeds and runs the scoring/summary pipeline on an interval, in its own worker process.
 - **Retention** — old articles are pruned on a schedule; favorites and your voting history are never touched.
+- **"What you missed"** — one briefing that groups everything unread into themes, instead of a wall of headlines.
+- **Offline reading** — articles you've opened stay readable with no network; votes queue and sync on reconnect.
+- **Markdown export** — your saves, likes or everything, as files with YAML front matter.
 - **Padding removal** — related-story rails, newsletter pitches and older-news recaps are folded away in the reader. Collapsed, never deleted.
 - **Clickbait-free headlines** — optional: the summarizer rewrites headlines that withhold their point, and shows the original underneath. Costs no extra LLM calls.
 - **Prompt-injection aware** — article text is wrapped in XML delimiters and scoring is constrained to JSON output.

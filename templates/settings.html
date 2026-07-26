@@ -85,6 +85,17 @@
 <section class="settings-group">
   <h2>Storage</h2>
 
+  <h3>Export</h3>
+  <p class="hint">
+    One Markdown file per article with YAML front matter, as a zip.
+    Scoped to your own reading — saves, likes and read state are per person.
+  </p>
+  <div class="models-actions" style="margin-bottom:16px">
+    <a class="btn-secondary" href="/export/markdown?scope=saved">Saved</a>
+    <a class="btn-secondary" href="/export/markdown?scope=liked">Liked</a>
+    <a class="btn-secondary" href="/export/markdown?scope=all">Everything</a>
+  </div>
+
   <h3>Retention</h3>
   <div id="retention-panel"
        hx-get="/settings/retention"

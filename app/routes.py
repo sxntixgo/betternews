@@ -1,5 +1,6 @@
 import logging
 import re
+from datetime import datetime, timezone
 import xml.etree.ElementTree as ET
 from html import escape
 
@@ -9,7 +10,8 @@ from flask import (Blueprint, current_app, g, redirect, render_template,
 from sqlalchemy import text as sql
 
 from app import content_filter, ollama_client
-from app import auth, extract, health, insights, retention, topics as topics_mod
+from app import (auth, digest as digest_mod, export as export_mod, extract,
+                 health, insights, retention, topics as topics_mod)
 from app.repo import articles as art_repo, users as user_repo
 from app.db import get_db, get_setting, set_setting
 from app.pipeline import DEFAULT_SCORING_MODEL, DEFAULT_SUMMARY_MODEL, ollama_base
@@ -1280,6 +1282,58 @@ def article_content(article_id: int):
         filter_mode=mode,
         aside_count=aside_count,
     )
+
+
+@bp.get("/export/markdown")
+@auth.login_required
+def export_markdown():
+    """Your reading, as Markdown files. Scoped to the calling user."""
+    db = get_db()
+    scope = request.args.get("scope", "saved")
+    if scope not in export_mod.SCOPES:
+        return Response("scope must be saved, liked or all", status=400)
+    data, n = export_mod.build_zip(db, current_user_id(db), scope)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+    log.info("Exported %d articles (scope=%s)", n, scope)
+    return Response(
+        data, mimetype="application/zip",
+        headers={"Content-Disposition":
+                 f'attachment; filename="betterread-{scope}-{stamp}.zip"'},
+    )
+
+
+@bp.get("/digest")
+@auth.login_required
+def digest_fragment():
+    """What you missed: everything unread, grouped into themes.
+
+    Uses the cached copy unless the unread set has changed, so opening the page
+    repeatedly does not cost repeated Ollama calls.
+    """
+    db = get_db()
+    uid = current_user_id(db)
+    from app.pipeline import _summary_model, ollama_base
+    body, count, from_cache = digest_mod.generate(
+        db, uid, model=_summary_model(db), base_url=ollama_base(db),
+        force=request.args.get("force") == "1",
+    )
+    db.commit()
+    known = {r["id"] for r in digest_mod.unread_for(db, uid)}
+    return render_template(
+        "_digest.html",
+        body=digest_mod.linkify(body, known) if body else None,
+        count=count, from_cache=from_cache,
+        made_at=(digest_mod.cached(db, uid) or {}).get("created_at"),
+    )
+
+
+@bp.post("/digest/dismiss")
+@auth.login_required
+def digest_dismiss():
+    db = get_db()
+    digest_mod.clear(db, current_user_id(db))
+    db.commit()
+    return Response("", status=200)
 
 
 @bp.get("/health")

@@ -17,6 +17,12 @@ Flask app in Docker; Ollama on Windows host; **Postgres 16** in the `db` compose
 - `app/auth.py` — accounts, sessions, `@login_required` / `@admin_required`.
 - `app/feeds.py` — feedparser polling. `poll_all_feeds(app)` is the entry point.
 - `app/scheduler.py` — APScheduler wiring. Jobs registered here.
+- `app/digest.py` — the "what you missed" briefing. Per-user (unread is per-user), cached against a fingerprint of the unread set so it only regenerates when that set changes.
+- `app/extract.py` — ordered extraction chain; the winning rung is stored on `articles.extract_source`.
+- `app/export.py` — Markdown/zip export, scoped to the calling user.
+- `app/topics.py` — topic slugs + the mute/boost rules layered over the LLM score.
+- `app/insights.py` — ranking-accuracy queries behind `/insights`.
+- `app/health.py` — feed auto-recovery + the ingestion-aware `/health`.
 - `app/worker.py` — the scheduler **process** (`python -m app.worker`). APScheduler is in-process, so hosting it in gunicorn means one scheduler per worker and every job firing N times. `RUN_SCHEDULER_IN_WEB=1` opts back into the old behaviour.
 - `app/retention.py` — pruning + bulk clear-read. **Touches `articles` and per-user state only** (see the scope test in `tests/test_retention.py`).
 

@@ -461,88 +461,8 @@ def regenerate_preferences(app: flask.Flask) -> None:
             db.close()
 
 
-_OG_IMAGE_RE = re.compile(
-    r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']',
-    re.IGNORECASE,
-)
 
 # Tweet permalink: `https://twitter.com/<user>/status/<id>` or the `x.com`
 # rebrand. Trafilatura strips the surrounding `<blockquote class="twitter-tweet">`
 # down to plain text and drops this anchor entirely, so we have to recover
 # permalinks from the raw HTML before extraction.
-_EMBED_TWITTER_RE = re.compile(
-    r'https?://(?:www\.|mobile\.)?(?:twitter|x)\.com/'
-    r'[A-Za-z0-9_]+/status/\d+',
-    re.IGNORECASE,
-)
-_EMBED_INSTAGRAM_RE = re.compile(
-    r'https?://(?:www\.)?instagram\.com/(?:p|reel|tv)/[A-Za-z0-9_-]+/?',
-    re.IGNORECASE,
-)
-
-
-def _extract_embed_urls(html: str) -> list[str]:
-    """Pull tweet / Instagram permalinks out of raw article HTML in source order.
-
-    Only collects URLs inside ``<blockquote class="twitter-tweet">`` or
-    ``<blockquote class="instagram-media">`` markers — the same wrappers the
-    official embed scripts hydrate. Avoids matching unrelated tweet links in
-    the page chrome (related-articles widgets, footers, sharing buttons).
-    """
-    found: list[str] = []
-    seen: set[str] = set()
-    for m in re.finditer(
-        r'<blockquote\b[^>]*class=["\'][^"\']*'
-        r'(twitter-tweet|instagram-media)[^"\']*["\'][^>]*>(.*?)</blockquote>',
-        html, flags=re.IGNORECASE | re.DOTALL,
-    ):
-        cls, body = m.group(1).lower(), m.group(2)
-        # Instagram stores the permalink on the blockquote itself when present;
-        # fall back to scanning the body for both platforms.
-        outer = m.group(0)
-        candidates: list[str] = []
-        if cls == "instagram-media":
-            candidates.extend(_EMBED_INSTAGRAM_RE.findall(outer))
-            candidates.extend(_EMBED_INSTAGRAM_RE.findall(body))
-        else:
-            candidates.extend(_EMBED_TWITTER_RE.findall(body))
-        for url in candidates:
-            url = url.rstrip('/')
-            if url not in seen:
-                seen.add(url)
-                found.append(url)
-    return found
-
-
-def _merge_embed_urls(text: str, urls: list[str]) -> str:
-    """Append embed permalinks as standalone-line URLs so the reader can detect
-    them. Skip URLs whose tweet/post id already appears in the extracted text
-    (e.g. when trafilatura kept the link)."""
-    if not urls:
-        return text
-    additions = [u for u in urls if u not in text]
-    if not additions:
-        return text
-    suffix = "\n".join(additions)
-    return f"{text}\n\n{suffix}" if text else suffix
-
-
-def fetch_full_text(url: str) -> str:
-    """Backward-compatible wrapper used by tests/older callers."""
-    return fetch_full_text_and_image(url)[0]
-
-
-def fetch_full_text_and_image(url: str) -> tuple[str, str | None]:
-    """Fetch the article URL once and return (extracted_text, og_image_url)."""
-    try:
-        r = httpx.get(url, timeout=10, follow_redirects=True,
-                      headers={"User-Agent": "rss-reader/1.0"})
-        r.raise_for_status()
-        text = trafilatura.extract(r.text) or ""
-        text = _merge_embed_urls(text, _extract_embed_urls(r.text))
-        m = _OG_IMAGE_RE.search(r.text)
-        og = m.group(1) if m else None
-        return text, og
-    except Exception as exc:
-        log.warning("fetch_full_text failed for %s: %s", url, exc)
-        return "", None

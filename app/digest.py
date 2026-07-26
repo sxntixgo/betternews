@@ -12,6 +12,7 @@ that, every page load would cost a call.
 import hashlib
 import logging
 import re
+from html import escape
 
 from sqlalchemy import and_, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -25,13 +26,16 @@ log = logging.getLogger(__name__)
 MAX_ARTICLES = 40
 MIN_ARTICLES = 2
 
-_IDS_RE = re.compile(r"\[ids:\s*([0-9,\s]+)\]")
+# Observed live: llama3.1:8b writes "[id: 26701]" when a theme cites one
+# article, and "[ids: 1, 2]" when it cites several. Matching only the plural
+# left the marker rendering as raw debris and linked nothing.
+_IDS_RE = re.compile(r"[\[(]\s*ids?\s*:\s*([0-9,\s#]+?)\s*[\])]", re.IGNORECASE)
 
 
 def unread_for(db, user_id: int, limit: int = MAX_ARTICLES):
     """Highest-scoring unread articles — what a briefing should cover."""
     stmt = (
-        select(A.c.id, A.c.title, A.c.clean_title, A.c.summary, A.c.score)
+        select(A.c.id, A.c.title, A.c.clean_title, A.c.summary, A.c.score, A.c.url)
         .select_from(A.outerjoin(
             S, and_(S.c.article_id == A.c.id, S.c.user_id == user_id)))
         .where(A.c.status == "summarized")
@@ -66,18 +70,22 @@ def clear(db, user_id: int) -> None:
     db.execute(D.delete().where(D.c.user_id == user_id))
 
 
-def linkify(body: str, known_ids: set[int]) -> str:
-    """Turn the model's `[ids: 1, 2]` markers into links.
+def linkify(body: str, articles) -> str:
+    """Turn the model's `[ids: 1, 2]` markers into links that open the reader.
 
-    Ids it invented are dropped rather than rendered as dead links.
+    `articles` maps id -> url. Ids the model invented are dropped rather than
+    rendered as links that go nowhere. The url is carried on the link because a
+    cited article may not be in the visible list, so there is no row to read it
+    from.
     """
     def _sub(match):
         ids = [int(x) for x in re.findall(r"\d+", match.group(1))]
-        good = [i for i in ids if i in known_ids]
+        good = [i for i in ids if i in articles]
         if not good:
             return ""
         links = ", ".join(
-            f'<a href="#" class="digest-link" data-article-id="{i}">#{i}</a>'
+            f'<a href="#" class="digest-link" data-article-id="{i}" '
+            f'data-url="{escape(articles[i] or "", quote=True)}">#{i}</a>'
             for i in good
         )
         return f'<span class="digest-refs">{links}</span>'

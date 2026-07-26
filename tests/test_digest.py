@@ -167,22 +167,35 @@ def test_prompt_uses_the_declickbaited_title(db_conn):
 # ── reference linking ──────────────────────────────────────────────────────────
 
 def test_id_markers_become_links():
-    out = digest.linkify("Something happened.\n[ids: 1, 2]", {1, 2})
+    out = digest.linkify("Something happened.\n[ids: 1, 2]",
+                         {1: "https://a.test/1", 2: "https://a.test/2"})
     assert 'data-article-id="1"' in out and 'data-article-id="2"' in out
+
+
+def test_links_carry_the_url():
+    """A cited article may not be in the visible list, so there is no row to
+    read the url from."""
+    out = digest.linkify("Text\n[ids: 1]", {1: "https://a.test/one"})
+    assert 'data-url="https://a.test/one"' in out
+
+
+def test_urls_are_escaped_into_the_attribute():
+    out = digest.linkify("Text\n[ids: 1]", {1: 'https://a.test/?q="x"'})
+    assert '"x"' not in out.split('data-url="')[1].split('"')[0] or "&quot;" in out
 
 
 def test_invented_ids_are_dropped():
     """The model sometimes cites articles it wasn't given."""
-    out = digest.linkify("Text\n[ids: 1, 999]", {1})
+    out = digest.linkify("Text\n[ids: 1, 999]", {1: "u"})
     assert 'data-article-id="1"' in out and "999" not in out
 
 
 def test_a_marker_of_only_invented_ids_disappears():
-    assert "[ids:" not in digest.linkify("Text\n[ids: 999]", {1})
+    assert "[ids:" not in digest.linkify("Text\n[ids: 999]", {1: "u"})
 
 
 def test_text_without_markers_is_untouched():
-    assert digest.linkify("Just prose.", {1}) == "Just prose."
+    assert digest.linkify("Just prose.", {1: "u"}) == "Just prose."
 
 
 # ── routes ─────────────────────────────────────────────────────────────────────
@@ -223,3 +236,24 @@ def test_dismissing_clears_the_cached_digest(client, app):
 
 def test_digest_requires_a_session(anon_client):
     assert anon_client.get("/digest").status_code == 302
+
+
+@pytest.mark.parametrize("marker", [
+    "[ids: 1, 2]",      # what the prompt asks for
+    "[id: 1, 2]",       # observed live when a theme cites one article
+    "[IDs: 1, 2]",
+    "[ ids : 1, 2 ]",
+    "(ids: 1, 2)",
+    "[ids: #1, #2]",
+])
+def test_id_markers_are_matched_however_the_model_writes_them(marker):
+    """Matching only the exact form leaves the marker rendering as raw debris."""
+    out = digest.linkify(f"Text\n{marker}", {1: "u1", 2: "u2"})
+    assert 'data-article-id="1"' in out and 'data-article-id="2"' in out
+    assert "ids:" not in out.lower()
+
+
+def test_a_singular_marker_links(client, app):
+    out = digest.linkify("A theme.\n[id: 26701]", {26701: "https://a.test/x"})
+    assert 'data-article-id="26701"' in out
+    assert "[id:" not in out

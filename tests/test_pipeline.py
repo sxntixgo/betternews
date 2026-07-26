@@ -18,7 +18,6 @@ from app.pipeline import (
     summarize_scored_articles,
     run_pipeline,
     regenerate_preferences,
-    fetch_full_text,
     _PIPELINE_LOCK,
 )
 from tests.conftest import add_article, add_feed
@@ -244,27 +243,8 @@ def test_regenerate_preferences_llm_none(mock_gen, app, caplog):
     assert "Preference regeneration failed" in caplog.text
 
 
-# ── fetch_full_text ────────────────────────────────────────────────────────────
-
-@patch("app.pipeline.trafilatura.extract")
-@patch("app.pipeline.httpx.get")
-def test_fetch_full_text_success(mock_get, mock_extract):
-    resp = MagicMock()
-    resp.text = "<html>hi</html>"
-    resp.raise_for_status = MagicMock()
-    mock_get.return_value = resp
-    mock_extract.return_value = "extracted"
-    assert fetch_full_text("https://x.example.com") == "extracted"
 
 
-@patch("app.pipeline.httpx.get")
-def test_fetch_full_text_failure_returns_empty(mock_get, caplog):
-    mock_get.side_effect = RuntimeError("network down")
-    assert fetch_full_text("https://x.example.com") == ""
-    assert "fetch_full_text failed" in caplog.text
-
-
-# ── per-feed score threshold override ──────────────────────────────────────────
 
 @patch("app.pipeline.ollama_client.generate")
 def test_score_uses_per_feed_threshold_override(mock_gen, memory_db):
@@ -295,115 +275,10 @@ def test_score_falls_back_to_global_threshold(mock_gen, memory_db):
 
 # ── OG image fallback ─────────────────────────────────────────────────────────
 
-@patch("app.pipeline.trafilatura.extract")
-@patch("app.pipeline.httpx.get")
-def test_fetch_full_text_and_image_extracts_og(mock_get, mock_extract):
-    from app.pipeline import fetch_full_text_and_image
-    resp = MagicMock()
-    resp.text = '<html><head><meta property="og:image" content="https://x/o.jpg"></head></html>'
-    resp.raise_for_status = MagicMock()
-    mock_get.return_value = resp
-    mock_extract.return_value = "extracted body"
-    text, og = fetch_full_text_and_image("https://x.example.com")
-    assert text == "extracted body"
-    assert og == "https://x/o.jpg"
 
 
-@patch("app.pipeline.httpx.get")
-def test_fetch_full_text_and_image_failure(mock_get):
-    from app.pipeline import fetch_full_text_and_image
-    mock_get.side_effect = RuntimeError("nope")
-    assert fetch_full_text_and_image("https://x.example.com") == ("", None)
 
 
-def test_extract_embed_urls_from_twitter_blockquote():
-    from app.pipeline import _extract_embed_urls
-    html = (
-        '<article><p>Lead.</p>'
-        '<blockquote class="twitter-tweet"><p>Tweet body</p>'
-        '— SportsCenter (@SC_ESPN) '
-        '<a href="https://twitter.com/SC_ESPN/status/1234567890?ref_src=foo">'
-        'April 19, 2026</a></blockquote>'
-        '<p>Closing.</p></article>'
-    )
-    # Query-string is dropped — the embed widget doesn't need it.
-    assert _extract_embed_urls(html) == [
-        "https://twitter.com/SC_ESPN/status/1234567890"
-    ]
-
-
-def test_extract_embed_urls_from_instagram_blockquote():
-    from app.pipeline import _extract_embed_urls
-    html = (
-        '<blockquote class="instagram-media" '
-        'data-instgrm-permalink="https://www.instagram.com/p/AbCd123/?utm=copy">'
-        '<a href="https://www.instagram.com/p/AbCd123/">view</a>'
-        '</blockquote>'
-    )
-    out = _extract_embed_urls(html)
-    assert out == ["https://www.instagram.com/p/AbCd123"]
-
-
-def test_extract_embed_urls_dedupes_across_blockquotes():
-    from app.pipeline import _extract_embed_urls
-    bq = (
-        '<blockquote class="twitter-tweet">'
-        '<a href="https://twitter.com/u/status/1">x</a></blockquote>'
-    )
-    assert _extract_embed_urls(bq + bq) == ["https://twitter.com/u/status/1"]
-
-
-def test_extract_embed_urls_ignores_unrelated_blockquotes():
-    from app.pipeline import _extract_embed_urls
-    html = (
-        '<blockquote><a href="https://twitter.com/u/status/9">tweet</a></blockquote>'
-        '<a href="https://twitter.com/u/status/9">page chrome link</a>'
-    )
-    assert _extract_embed_urls(html) == []
-
-
-@patch("app.pipeline.trafilatura.extract")
-@patch("app.pipeline.httpx.get")
-def test_fetch_full_text_appends_embed_urls(mock_get, mock_extract):
-    from app.pipeline import fetch_full_text_and_image
-    resp = MagicMock()
-    resp.text = (
-        '<html><body><p>Body before tweet.</p>'
-        '<blockquote class="twitter-tweet">'
-        '<p>Tweet body — SportsCenter (@SC_ESPN) </p>'
-        '<a href="https://twitter.com/SC_ESPN/status/42">April 19, 2026</a>'
-        '</blockquote>'
-        '<p>Body after tweet.</p></body></html>'
-    )
-    resp.raise_for_status = MagicMock()
-    mock_get.return_value = resp
-    # Trafilatura strips the permalink — only plain text comes back.
-    mock_extract.return_value = (
-        "Body before tweet.\nTweet body — SportsCenter (@SC_ESPN) April 19, 2026\nBody after tweet."
-    )
-    text, _ = fetch_full_text_and_image("https://example.com/article")
-    # The recovered permalink should be appended on its own line so the reader
-    # turns it into an embed.
-    assert "https://twitter.com/SC_ESPN/status/42" in text
-    lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
-    assert "https://twitter.com/SC_ESPN/status/42" in lines
-
-
-@patch("app.pipeline.trafilatura.extract")
-@patch("app.pipeline.httpx.get")
-def test_fetch_full_text_skips_embed_url_already_in_text(mock_get, mock_extract):
-    from app.pipeline import fetch_full_text_and_image
-    resp = MagicMock()
-    resp.text = (
-        '<blockquote class="twitter-tweet">'
-        '<a href="https://twitter.com/u/status/1">x</a></blockquote>'
-    )
-    resp.raise_for_status = MagicMock()
-    mock_get.return_value = resp
-    mock_extract.return_value = "https://twitter.com/u/status/1"
-    text, _ = fetch_full_text_and_image("https://example.com")
-    # No duplicate appended.
-    assert text.count("https://twitter.com/u/status/1") == 1
 
 
 @patch("app.pipeline.extract.extract")
@@ -434,21 +309,6 @@ def test_summarize_keeps_existing_thumbnail(mock_gen, mock_fetch, memory_db):
     assert row["thumbnail_url"] == "https://orig/thumb.jpg"
 
 
-@patch("app.pipeline.trafilatura.extract")
-@patch("app.pipeline.httpx.get")
-def test_fetch_full_text_and_image_no_og_returns_none(mock_get, mock_extract):
-    from app.pipeline import fetch_full_text_and_image
-    resp = MagicMock()
-    resp.text = "<html><body>no meta tags</body></html>"
-    resp.raise_for_status = MagicMock()
-    mock_get.return_value = resp
-    mock_extract.return_value = "body"
-    text, og = fetch_full_text_and_image("https://x.example.com")
-    assert text == "body"
-    assert og is None
-
-
-# ── ollama_base resolution ─────────────────────────────────────────────────────
 
 def test_ollama_base_falls_back_to_env_when_unset(memory_db):
     from app import ollama_client

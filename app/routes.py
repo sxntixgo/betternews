@@ -1324,7 +1324,7 @@ def digest_fragment():
         force=request.args.get("force") == "1",
     )
     db.commit()
-    known = {r["id"] for r in digest_mod.unread_for(db, uid)}
+    known = {r["id"]: r["url"] for r in digest_mod.unread_for(db, uid)}
     return render_template(
         "_digest.html",
         body=digest_mod.linkify(body, known) if body else None,

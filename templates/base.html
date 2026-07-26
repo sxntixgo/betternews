@@ -281,7 +281,27 @@
         });
     }
 
+    // Open an article the digest cites. It may not be in the visible list, so
+    // fall back to opening it directly rather than doing nothing.
+    function openArticleById(id, url) {
+      var row = document.querySelector('.article-row[data-article-id="' + id + '"]');
+      if (row) { openReader(row); return; }
+      modalOpenLink.href = url || '#';
+      modalBody.innerHTML = '<p style="color:var(--muted);font-size:13px">Loading\u2026</p>';
+      lockBodyScroll();
+      modal.showModal();
+      fetch('/article/' + id + '/content')
+        .then(function(r) { return r.text(); })
+        .then(function(html) { modalBody.innerHTML = html; hydrateEmbeds(modalBody); });
+    }
+
     document.addEventListener('click', function(e) {
+      var ref = e.target.closest('.digest-link');
+      if (ref) {
+        e.preventDefault();
+        openArticleById(ref.dataset.articleId, ref.dataset.url);
+        return;
+      }
       if (e.target.closest('.btn-icon') || e.target.closest('.btn-external')) return;
       var row = e.target.closest('.article-row');
       if (!row) return;

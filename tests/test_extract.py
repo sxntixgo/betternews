@@ -233,3 +233,81 @@ def test_transcript_without_the_library_is_none(monkeypatch):
 
     monkeypatch.setattr(builtins, "__import__", _no_yta)
     assert youtube.transcript("https://youtu.be/dQw4w9WgXcQ") is None
+
+
+# ── embed recovery (moved from pipeline with the extraction chain) ────────────
+
+from app.extract import _extract_embed_urls, _merge_embed_urls  # noqa: E402
+
+def test_extract_embed_urls_from_twitter_blockquote():
+    from app.extract import _extract_embed_urls
+    html = (
+        '<article><p>Lead.</p>'
+        '<blockquote class="twitter-tweet"><p>Tweet body</p>'
+        '— SportsCenter (@SC_ESPN) '
+        '<a href="https://twitter.com/SC_ESPN/status/1234567890?ref_src=foo">'
+        'April 19, 2026</a></blockquote>'
+        '<p>Closing.</p></article>'
+    )
+    # Query-string is dropped — the embed widget doesn't need it.
+    assert _extract_embed_urls(html) == [
+        "https://twitter.com/SC_ESPN/status/1234567890"
+    ]
+
+
+def test_extract_embed_urls_from_instagram_blockquote():
+    from app.extract import _extract_embed_urls
+    html = (
+        '<blockquote class="instagram-media" '
+        'data-instgrm-permalink="https://www.instagram.com/p/AbCd123/?utm=copy">'
+        '<a href="https://www.instagram.com/p/AbCd123/">view</a>'
+        '</blockquote>'
+    )
+    out = _extract_embed_urls(html)
+    assert out == ["https://www.instagram.com/p/AbCd123"]
+
+
+def test_extract_embed_urls_dedupes_across_blockquotes():
+    from app.extract import _extract_embed_urls
+    bq = (
+        '<blockquote class="twitter-tweet">'
+        '<a href="https://twitter.com/u/status/1">x</a></blockquote>'
+    )
+    assert _extract_embed_urls(bq + bq) == ["https://twitter.com/u/status/1"]
+
+
+def test_extract_embed_urls_ignores_unrelated_blockquotes():
+    from app.extract import _extract_embed_urls
+    html = (
+        '<blockquote><a href="https://twitter.com/u/status/9">tweet</a></blockquote>'
+        '<a href="https://twitter.com/u/status/9">page chrome link</a>'
+    )
+    assert _extract_embed_urls(html) == []
+
+
+def test_embeds_are_reattached_to_extracted_text():
+    """trafilatura strips the blockquote and the permalink with it, so the
+    reader loses the embed unless it's recovered from the raw HTML."""
+    tweet = "https://twitter.com/jack/status/20"
+    html = f'<blockquote class="twitter-tweet"><a href="{tweet}">x</a></blockquote>'
+    with patch("app.extract.httpx.get", return_value=_resp(html)), \
+         patch("app.extract.trafilatura.extract", return_value=LONG):
+        text, _, source = extract.extract("https://x.test/a")
+    assert source == extract.SOURCE_HTTP
+    assert tweet in text
+
+
+def test_an_embed_already_in_the_text_is_not_duplicated():
+    tweet = "https://twitter.com/jack/status/20"
+    html = f'<blockquote class="twitter-tweet"><a href="{tweet}">x</a></blockquote>'
+    with patch("app.extract.httpx.get", return_value=_resp(html)), \
+         patch("app.extract.trafilatura.extract", return_value=LONG + " " + tweet):
+        text, _, _ = extract.extract("https://x.test/a")
+    assert text.count(tweet) == 1
+
+
+def test_articles_without_embeds_are_unchanged():
+    with patch("app.extract.httpx.get", return_value=_resp("<html>plain</html>")), \
+         patch("app.extract.trafilatura.extract", return_value=LONG):
+        text, _, _ = extract.extract("https://x.test/a")
+    assert text == LONG.strip()

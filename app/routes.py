@@ -802,16 +802,12 @@ def ollama_test():
 @bp.get("/settings/models")
 @auth.admin_required
 def models_form():
+    """One model per job, with the choices Ollama actually has installed."""
+    from app import llm_config
     db = get_db()
     installed = ollama_client.list_models(ollama_base(db))
-    scoring = get_setting(db, "scoring_model", DEFAULT_SCORING_MODEL) or DEFAULT_SCORING_MODEL
-    summary = get_setting(db, "summary_model", DEFAULT_SUMMARY_MODEL) or DEFAULT_SUMMARY_MODEL
-    return render_template(
-        "_models.html",
-        installed=installed,
-        scoring_model=scoring,
-        summary_model=summary,
-    )
+    return render_template("_models.html", installed=installed,
+                           rows=llm_config.current(db, installed))
 
 
 @bp.get("/settings/titles")
@@ -1063,22 +1059,18 @@ def embeds_save():
 @bp.post("/settings/models")
 @auth.admin_required
 def models_save():
-    scoring = request.form.get("scoring_model", "").strip()
-    summary = request.form.get("summary_model", "").strip()
-    if not scoring or not summary:
-        return Response("both models required", status=400)
+    from app import llm_config
     db = get_db()
-    set_setting(db, "scoring_model", scoring)
-    set_setting(db, "summary_model", summary)
+    action_id = request.form.get("action_id", "").strip()
+    model = request.form.get("model", "").strip()
+    try:
+        llm_config.set_model(db, action_id, model)
+    except ValueError as exc:
+        return Response(str(exc), status=400)
     db.commit()
     installed = ollama_client.list_models(ollama_base(db))
-    return render_template(
-        "_models.html",
-        installed=installed,
-        scoring_model=scoring,
-        summary_model=summary,
-        saved=True,
-    )
+    return render_template("_models.html", installed=installed,
+                           rows=llm_config.current(db, installed), saved=True)
 
 
 @bp.get("/feeds/opml")
@@ -1318,9 +1310,10 @@ def digest_fragment():
     """
     db = get_db()
     uid = current_user_id(db)
-    from app.pipeline import _summary_model, ollama_base
+    from app import llm_config
+    from app.pipeline import ollama_base
     body, count, from_cache = digest_mod.generate(
-        db, uid, model=_summary_model(db), base_url=ollama_base(db),
+        db, uid, model=llm_config.model_for(db, "digest"), base_url=ollama_base(db),
         force=request.args.get("force") == "1",
     )
     db.commit()

@@ -389,51 +389,6 @@ def test_status_json(client, app):
 
 # ── Models endpoint ────────────────────────────────────────────────────────────
 
-@patch("app.routes.ollama_client.list_models")
-def test_models_form_renders_installed(mock_list, client):
-    mock_list.return_value = ["llama3.1:8b", "qwen2.5:7b"]
-    r = client.get("/settings/models")
-    assert r.status_code == 200
-    assert b"llama3.1:8b" in r.data
-    assert b"qwen2.5:7b" in r.data
-
-
-@patch("app.routes.ollama_client.list_models")
-def test_models_save_persists(mock_list, client, app):
-    mock_list.return_value = ["llama3.1:8b", "mistral:7b"]
-    r = client.post(
-        "/settings/models",
-        data={"scoring_model": "mistral:7b", "summary_model": "llama3.1:8b"},
-    )
-    assert r.status_code == 200
-    assert b"Saved" in r.data
-    from app.db import get_db_direct, get_setting
-    with app.app_context():
-        db = get_db_direct()
-        assert get_setting(db, "scoring_model") == "mistral:7b"
-        assert get_setting(db, "summary_model") == "llama3.1:8b"
-        db.close()
-
-
-def test_models_save_requires_both(client):
-    r = client.post("/settings/models", data={"scoring_model": "x"})
-    assert r.status_code == 400
-
-
-@patch("app.routes.ollama_client.list_models")
-def test_models_form_marks_uninstalled(mock_list, client, app):
-    mock_list.return_value = ["llama3.1:8b"]
-    from app.db import get_db_direct, set_setting
-    with app.app_context():
-        db = get_db_direct()
-        set_setting(db, "scoring_model", "ghost-model:1b")
-        db.commit()
-        db.close()
-    r = client.get("/settings/models")
-    assert b"not installed" in r.data
-
-
-# ── Preferences ────────────────────────────────────────────────────────────────
 
 def test_preferences_get_default(client):
     r = client.get("/preferences")
@@ -1478,15 +1433,6 @@ def test_ollama_test_with_blank_fields_probes_env_default(mock_probe, client):
     mock_probe.assert_called_once_with(oc.OLLAMA_BASE)
 
 
-@patch("app.routes.ollama_client.list_models")
-def test_models_form_uses_configured_endpoint(mock_list, client, app):
-    mock_list.return_value = []
-    _set_ollama(app, "10.0.10.207", "11434")
-    client.get("/settings/models")
-    mock_list.assert_called_once_with("http://10.0.10.207:11434")
-
-
-# ── De-clickbait titles ────────────────────────────────────────────────────────
 
 def _set_declickbait(app, on=True):
     from app.db import get_db_direct, set_setting

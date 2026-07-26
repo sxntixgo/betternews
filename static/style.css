@@ -854,3 +854,42 @@ dialog[open] { display: flex; flex-direction: column; }
   text-align: center;
 }
 [data-theme="dark"] .offline-bar { background: #6b5500; }
+
+/* Per-job model selection */
+.action-models { list-style: none; padding: 0; margin: 0; }
+.action-model {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: start;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+}
+.action-model:first-child { border-top: none; }
+.action-model .hint { margin: 3px 0 0; }
+.action-model-form { grid-column: 2; }
+.action-model-form select {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  background: var(--bg);
+  color: var(--fg);
+  min-width: 190px;
+}
+.action-model .ollama-result { grid-column: 1 / -1; }
+.action-tag {
+  font-size: 10px;
+  letter-spacing: .04em;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 4px;
+  vertical-align: 1px;
+}
+.action-model-missing > .action-model-info strong { color: #d14343; }
+[data-theme="dark"] .action-model-missing > .action-model-info strong { color: #ff8080; }
+@media (max-width: 600px) {
+  .action-model { grid-template-columns: 1fr; }
+  .action-model-form { grid-column: 1; }
+}

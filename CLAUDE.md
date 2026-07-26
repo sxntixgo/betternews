@@ -12,6 +12,7 @@ Flask app in Docker; Ollama on Windows host; **Postgres 16** in the `db` compose
 - `app/pipeline.py` — LLM scoring + summarization. Pipeline runs are serialized via a process-wide `_PIPELINE_LOCK`.
 - `app/ollama_client.py` — All Ollama HTTP calls. `generate()` (with retries) and `list_models()`.
 - `app/prompts.py` — The LLM prompts. Edit here to tune behavior.
+- `app/llm_config.py` — **the registry of every Ollama job** and which model runs it. Adding a `generate()` call means adding an Action here; `tests/test_llm_config.py` fails if a prompt builder is not registered.
 - `app/content_filter.py` — Detects article padding (related rails, promos, older-news recaps). Pass 1 is regex at render time; pass 2 is an optional LLM call stored as fingerprints.
 - `app/routes.py` — Flask routes. HTMX-first: most return HTML fragments.
 - `app/auth.py` — accounts, sessions, `@login_required` / `@admin_required`.
@@ -104,11 +105,14 @@ gets swapped into `#article-list`.
 - `GET|POST /settings/titles` — toggle `declickbait_enabled` (headline rewriting)
 - `GET|POST /settings/content` — `content_filter_mode` (`off`/`highlight`/`remove`) + `content_filter_llm`
 - `GET|POST /settings/ollama` — set the Ollama host/port at runtime (overrides `OLLAMA_HOST`)
+- `GET|POST /settings/models` — pick a model per job, from what Ollama reports installed
 - `POST /settings/ollama/test` — probe the host/port **currently in the form**, without saving
 - `GET|POST /feeds/opml` — OPML export (GET) / import (POST file upload)
 - `POST /feeds/<id>/tags` — save comma-separated tags; sidebar groups feeds by tag.
 
 ## LLM notes
+- **Six distinct jobs use Ollama**: relevance scoring (batched, JSON), article summaries (plus the clickbait rewrite — same request), video transcript summaries, padding detection (JSON), preference-profile rebuild, and the "what you missed" digest. Each takes its model from `llm_config.model_for(db, action)`, resolving per-action setting → legacy `scoring_model`/`summary_model` → env default.
+- The Settings panel lists the models Ollama actually reports and **flags a configured model that is not installed** — that exact mismatch (`ministral-3:14b`) made every scoring call fail silently for six weeks.
 - **Endpoint resolution:** `pipeline.ollama_base(db)` is the single source of truth — Settings override, else the `OLLAMA_HOST` env var. It is read *per call*, so a change in Settings applies on the next scheduled job with no restart. `ollama_client` itself stays free of app state: `generate()` / `list_models()` / `probe()` take an optional `base_url` and fall back to the env constant.
 - `ollama_client.compose_base_url(host, port)` validates and builds the URL; it raises `ValueError` with UI-ready messages. `probe()` is `list_models()` that reports *why* it failed instead of returning `[]` — use it for anything user-facing.
 - **De-clickbait rides on the summarization call.** With `declickbait_enabled`, `summarize_scored_articles` swaps `summarization_prompt` for `summarization_with_title_prompt` and asks for `{summary, was_clickbait, clean_title}` in one JSON response — no extra Ollama calls. **Invariant: a malformed response must never cost the summary.** On unusable JSON it retries once with the plain-text prompt and stores `clean_title=NULL`. If you add a fourth field here, keep that fallback: two JSON fields from a 3b model is already the reliability ceiling.

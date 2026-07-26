@@ -100,6 +100,20 @@ extra. The published headline is never overwritten: it stays in the database and
 shown beneath the rewrite, so you can always see what changed. Only headlines the
 model flags are touched, and it applies to articles summarized from then on.
 
+### Choosing a model per job
+
+**Settings → Ollama** has two parts. *Connection* sets the host and port
+(overriding `OLLAMA_HOST`), with a Test-connection button. *Model per job* lists
+the six things the app asks Ollama to do — relevance scoring, article summaries,
+video summaries, padding detection, preference profile, and the digest — and lets
+each use a different model, chosen from what your server reports installed.
+
+The requirements really do differ: scoring runs on every article and needs
+dependable JSON across a batch; summaries need fluent prose in the article's
+language; transcripts are long. A model set here but **not installed on the
+server is flagged in red**, because that mismatch otherwise fails silently on
+every call.
+
 ### Changing the Ollama endpoint without a rebuild
 
 **Settings → Ollama → Connection** sets the host and port at runtime, overriding

@@ -11,7 +11,8 @@ from datetime import datetime, timezone
 
 from sqlalchemy import text
 
-from app import content_filter, extract, prompts, ollama_client, topics as topics_mod, youtube
+from app import (content_filter, extract, llm_config, prompts, ollama_client,
+                 topics as topics_mod, youtube)
 from app.db import get_db_direct, get_setting, set_setting
 
 log = logging.getLogger(__name__)
@@ -42,14 +43,6 @@ def _try_advisory_lock(db) -> bool:
 
 def _advisory_unlock(db) -> None:
     db.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": _PIPELINE_LOCK_KEY})
-
-
-def _scoring_model(db) -> str:
-    return get_setting(db, "scoring_model", DEFAULT_SCORING_MODEL) or DEFAULT_SCORING_MODEL
-
-
-def _summary_model(db) -> str:
-    return get_setting(db, "summary_model", DEFAULT_SUMMARY_MODEL) or DEFAULT_SUMMARY_MODEL
 
 
 def ollama_base(db) -> str:
@@ -130,7 +123,7 @@ def score_new_articles(db, profile_text: str) -> int:
     if not articles:
         return 0
 
-    model = _scoring_model(db)
+    model = llm_config.model_for(db, "scoring")
     base_url = ollama_base(db)
     vocab = topics_mod.vocabulary(db)
     rule_map = topics_mod.rules(db)
@@ -332,7 +325,9 @@ def summarize_scored_articles(db) -> int:
         "SELECT id, url, title, raw_snippet, feed_content, thumbnail_url "
         "FROM articles WHERE status='scored' LIMIT 20"
     )).mappings().all()
-    model = _summary_model(db)
+    model = llm_config.model_for(db, "summary")
+    transcript_model = llm_config.model_for(db, "transcript")
+    aside_model = llm_config.model_for(db, "asides")
     base_url = ollama_base(db)
     declickbait = get_setting(db, "declickbait_enabled", "") == "1"
     filter_llm = get_setting(db, "content_filter_llm", "") == "1"
@@ -348,7 +343,7 @@ def summarize_scored_articles(db) -> int:
             if source == extract.SOURCE_YOUTUBE:
                 # Spoken text summarizes badly under the article prompt.
                 summary = ollama_client.generate(
-                    model=model,
+                    model=transcript_model,
                     prompt=prompts.transcript_summarization_prompt(
                         full_text, article["title"]),
                     expect_json=False, base_url=base_url,
@@ -388,7 +383,7 @@ def summarize_scored_articles(db) -> int:
 
             aside_spans = None
             if filter_llm:
-                aside_spans = _detect_asides(full_text, model, base_url)
+                aside_spans = _detect_asides(full_text, aside_model, base_url)
 
             new_thumb = article["thumbnail_url"] or og_image
             db.execute(
@@ -440,7 +435,8 @@ def regenerate_preferences(app: flask.Flask) -> None:
 
             prompt = prompts.profile_prompt(liked, disliked)
             new_profile = ollama_client.generate(
-                model=_summary_model(db), prompt=prompt, expect_json=False,
+                model=llm_config.model_for(db, "profile"), prompt=prompt,
+                expect_json=False,
                 base_url=ollama_base(db),
             )
             if new_profile is None:

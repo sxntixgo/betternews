@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Users — Better Read{% endblock %}
+{% block content %}
+<section class="settings-group">
+  <h2>Users</h2>
+  <p class="hint">
+    Anyone can register; the first account created was the administrator.
+    Feeds, articles and scores are shared — reading history, saves and votes are
+    per person.
+  </p>
+  <div id="admin-users">
+    {% include "_admin_user_rows.html" with context %}
+  </div>
+</section>
+{% endblock %}

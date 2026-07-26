@@ -52,6 +52,11 @@ def create_app() -> Flask:
 
     app.add_template_filter(_fmt_dt, "dt")
 
+    from app import auth
+    auth.install(app)
+    app.jinja_env.globals["current_user"] = auth.current_user
+    app.jinja_env.globals["is_admin"] = auth.is_admin
+
     from app.routes import bp
     app.register_blueprint(bp)
 

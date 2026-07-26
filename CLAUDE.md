@@ -14,6 +14,7 @@ Flask app in Docker; Ollama on Windows host; **Postgres 16** in the `db` compose
 - `app/prompts.py` — The LLM prompts. Edit here to tune behavior.
 - `app/content_filter.py` — Detects article padding (related rails, promos, older-news recaps). Pass 1 is regex at render time; pass 2 is an optional LLM call stored as fingerprints.
 - `app/routes.py` — Flask routes. HTMX-first: most return HTML fragments.
+- `app/auth.py` — accounts, sessions, `@login_required` / `@admin_required`.
 - `app/feeds.py` — feedparser polling. `poll_all_feeds(app)` is the entry point.
 - `app/scheduler.py` — APScheduler wiring. Jobs registered here.
 - `app/worker.py` — the scheduler **process** (`python -m app.worker`). APScheduler is in-process, so hosting it in gunicorn means one scheduler per worker and every job firing N times. `RUN_SCHEDULER_IN_WEB=1` opts back into the old behaviour.
@@ -62,6 +63,23 @@ new → scored → summarized → liked | disliked | dismissed
 
 `articles.feed_content` stores the feed-provided body (`<content:encoded>` for RSS, `<content>` for Atom — feedparser unifies both into `entry.content[0].value`). Used as a fallback when trafilatura's HTTP fetch returns nothing. `articles.read_at` is set when the user first opens the reader modal.
 
+## Accounts and roles
+Registration is **open**, and the **first account created becomes admin**; the
+rest are plain users. The first registration *claims the bootstrap owner row*
+rather than creating a parallel account, so pre-accounts reading history stays
+attached.
+
+Feeds, articles and scores are shared. Read state, saves and votes are per-user
+(`user_article_state`, `votes.user_id`). The preference profile is shared —
+readable by everyone, writable by admins.
+
+`@admin_required` covers settings, feed management, pipeline triggers and user
+admin. **Hiding a control in a template is not gating a route — do both**;
+`tests/test_auth.py` asserts a plain user gets 403 from every admin route.
+
+HTMX fragments get `401` + `HX-Redirect` rather than a `302`, or the login page
+gets swapped into `#article-list`.
+
 ## Routes
 - `GET /` `GET /settings` — pages
 - `GET /articles` `GET /feeds` `GET /count` — HTML fragments
@@ -74,6 +92,9 @@ new → scored → summarized → liked | disliked | dismissed
 - `GET|POST /preferences` — profile text view/edit
 - `POST /preferences/regenerate` — rebuild profile from votes (background thread)
 - `GET|POST /settings/models` — choose scoring/summary models from `ollama_client.list_models()`
+- `GET|POST /login` `GET|POST /register` `GET|POST /logout` — public
+- `GET /profile` `POST /profile/password` — any user
+- `GET /admin/users` `POST /admin/users/<id>/{role,delete,reset-password}` — **admin**
 - `GET|POST /settings/titles` — toggle `declickbait_enabled` (headline rewriting)
 - `GET|POST /settings/content` — `content_filter_mode` (`off`/`highlight`/`remove`) + `content_filter_llm`
 - `GET|POST /settings/ollama` — set the Ollama host/port at runtime (overrides `OLLAMA_HOST`)

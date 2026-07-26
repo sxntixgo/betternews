@@ -3,12 +3,13 @@ import re
 import xml.etree.ElementTree as ET
 from html import escape
 
-from flask import Blueprint, current_app, render_template, request, Response
+from flask import (Blueprint, current_app, g, redirect, render_template,
+                   request, Response, url_for)
 
 from sqlalchemy import text as sql
 
 from app import content_filter, ollama_client
-from app import retention
+from app import auth, retention
 from app.repo import articles as art_repo, users as user_repo
 from app.db import get_db, get_setting, set_setting
 from app.pipeline import DEFAULT_SCORING_MODEL, DEFAULT_SUMMARY_MODEL, ollama_base
@@ -190,8 +191,15 @@ def _row_to_article(row, declickbait: bool = False) -> dict:
 
 
 def current_user_id(db) -> int:
-    """The acting user. Phase 0 has exactly one; Phase 1 reads it from session."""
-    return user_repo.ensure_bootstrap_user(db)
+    """The acting user, from the session.
+
+    Every route reaching this is behind `login_required`, so a missing session
+    is a programming error rather than an anonymous visitor.
+    """
+    uid = auth.current_user_id()
+    if uid is None:                                   # pragma: no cover - guarded
+        raise RuntimeError("no authenticated user in request context")
+    return uid
 
 
 def _declickbait(db) -> bool:
@@ -213,19 +221,211 @@ def _resolve_title(d: dict, declickbait: bool) -> tuple[str, str | None]:
     return clean, title
 
 
+# ── Accounts ───────────────────────────────────────────────────────────────────
+
+@bp.get("/login")
+def login():
+    if auth.current_user():
+        return redirect(url_for("main.index"))
+    db = get_db()
+    return render_template("login.html", first_run=user_repo.count(db) == 0)
+
+
+@bp.post("/login")
+def login_post():
+    db = get_db()
+    username = request.form.get("username", "").strip()
+    password = request.form.get("password", "")
+
+    if auth.is_locked_out(db, username):
+        return render_template(
+            "login.html", error="Too many failed attempts. Try again shortly.",
+            username=username, first_run=False), 429
+
+    user = user_repo.by_username(db, username)
+    if not user or not auth.verify_password(user["password_hash"], password):
+        auth.record_failure(db, username)
+        db.commit()
+        return render_template(
+            "login.html", error="Wrong username or password.",
+            username=username, first_run=user_repo.count(db) == 0), 401
+
+    auth.clear_failures(db, username)
+    auth.login_user(db, user["id"])
+    db.commit()
+    return redirect(url_for("main.index"))
+
+
+@bp.get("/register")
+def register():
+    if auth.current_user():
+        return redirect(url_for("main.index"))
+    db = get_db()
+    return render_template("register.html", first_run=user_repo.count(db) == 0)
+
+
+@bp.post("/register")
+def register_post():
+    db = get_db()
+    username = request.form.get("username", "").strip()
+    password = request.form.get("password", "")
+    confirm = request.form.get("confirm", "")
+    first_run = user_repo.count(db) == 0
+
+    def fail(msg, code=400):
+        return render_template("register.html", error=msg, username=username,
+                               first_run=first_run), code
+
+    if not username:
+        return fail("Username is required.")
+    if len(username) > 60:
+        return fail("Username is too long.")
+    problem = auth.password_problem(password, confirm)
+    if problem:
+        return fail(problem)
+    if user_repo.by_username(db, username):
+        return fail("That username is taken.", 409)
+
+    uid = auth.register_user(db, username, password)
+    auth.login_user(db, uid)
+    db.commit()
+    log.info("Registered user %r (id=%d)", username, uid)
+    return redirect(url_for("main.index"))
+
+
+@bp.post("/logout")
+@bp.get("/logout")
+def logout():
+    auth.logout_user()
+    return redirect(url_for("main.login"))
+
+
+@bp.get("/profile")
+@auth.login_required
+def profile():
+    db = get_db()
+    user = auth.current_user()
+    return render_template("profile.html", user=user,
+                           stats=user_repo.stats(db, user["id"]))
+
+
+@bp.post("/profile/password")
+@auth.login_required
+def profile_password():
+    db = get_db()
+    user = auth.current_user()
+    current = request.form.get("current_password", "")
+    new = request.form.get("new_password", "")
+    confirm = request.form.get("confirm_password", "")
+
+    def render(error=None, saved=False):
+        return render_template("_profile_password.html", error=error, saved=saved,
+                               must_change=user["must_change_password"])
+
+    # A forced change has no working current password to prove.
+    if not user["must_change_password"] and not auth.verify_password(
+            user["password_hash"], current):
+        return render(error="Current password is wrong.")
+    problem = auth.password_problem(new, confirm)
+    if problem:
+        return render(error=problem)
+
+    db.execute(sql(
+        "UPDATE users SET password_hash=:h, must_change_password=false WHERE id=:id"),
+        {"h": auth.hash_password(new), "id": user["id"]})
+    db.commit()
+    g.pop("current_user", None)
+    return render(saved=True)
+
+
+# ── Admin: user management ─────────────────────────────────────────────────────
+
+@bp.get("/admin/users")
+@auth.admin_required
+def admin_users():
+    db = get_db()
+    return render_template("admin_users.html", users=user_repo.all_with_stats(db),
+                           me=auth.current_user_id())
+
+
+def _users_fragment(db, **kw):
+    return render_template("_admin_user_rows.html", users=user_repo.all_with_stats(db),
+                           me=auth.current_user_id(), **kw)
+
+
+@bp.post("/admin/users/<int:user_id>/reset-password")
+@auth.admin_required
+def admin_reset_password(user_id: int):
+    """Set a temporary password, shown once, and force a change at next login."""
+    db = get_db()
+    target = user_repo.get(db, user_id)
+    if not target:
+        return Response("no such user", status=404)
+    temp = request.form.get("temp_password", "").strip() or user_repo.generate_password()
+    problem = auth.password_problem(temp)
+    if problem:
+        return _users_fragment(db, error=problem)
+    db.execute(sql(
+        "UPDATE users SET password_hash=:h, must_change_password=true WHERE id=:id"),
+        {"h": auth.hash_password(temp), "id": user_id})
+    db.commit()
+    log.info("Admin reset password for user id=%d", user_id)
+    return _users_fragment(db, temp_password=temp, temp_for=target["username"])
+
+
+@bp.post("/admin/users/<int:user_id>/role")
+@auth.admin_required
+def admin_set_role(user_id: int):
+    db = get_db()
+    role = request.form.get("role", "")
+    if role not in ("user", "admin"):
+        return Response("invalid role", status=400)
+    target = user_repo.get(db, user_id)
+    if not target:
+        return Response("no such user", status=404)
+    # Locking the row keeps two simultaneous demotions from leaving zero admins.
+    db.execute(sql("LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE"))
+    if role == "user" and target["role"] == "admin" and auth.count_admins(db) <= 1:
+        return _users_fragment(db, error="That is the last admin — promote someone else first.")
+    db.execute(sql("UPDATE users SET role=:r WHERE id=:id"), {"r": role, "id": user_id})
+    db.commit()
+    return _users_fragment(db)
+
+
+@bp.post("/admin/users/<int:user_id>/delete")
+@auth.admin_required
+def admin_delete_user(user_id: int):
+    db = get_db()
+    target = user_repo.get(db, user_id)
+    if not target:
+        return Response("no such user", status=404)
+    db.execute(sql("LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE"))
+    if target["role"] == "admin" and auth.count_admins(db) <= 1:
+        return _users_fragment(db, error="That is the last admin — promote someone else first.")
+    if user_id == auth.current_user_id():
+        return _users_fragment(db, error="You cannot delete your own account.")
+    db.execute(sql("DELETE FROM users WHERE id=:id"), {"id": user_id})
+    db.commit()
+    log.info("Admin deleted user id=%d (%s)", user_id, target["username"])
+    return _users_fragment(db)
+
+
 # ── Pages ──────────────────────────────────────────────────────────────────────
 
 @bp.get("/")
+@auth.login_required
 def index():
     return render_template("index.html")
 
 
 @bp.get("/settings")
+@auth.admin_required
 def settings():
     return render_template("settings.html")
 
 
 @bp.get("/manage-feeds")
+@auth.admin_required
 def manage_feeds():
     return render_template("manage_feeds.html")
 
@@ -236,6 +436,7 @@ _PAGE_SIZE = 50
 
 
 @bp.get("/articles")
+@auth.login_required
 def articles():
     sort = request.args.get("sort", "date")
     order = "published_at DESC" if sort == "date" else "score DESC, published_at DESC"
@@ -281,6 +482,7 @@ def articles():
 
 
 @bp.get("/search")
+@auth.login_required
 def search():
     """Full-text search over title/summary/full_text using FTS5."""
     q = request.args.get("q", "").strip()
@@ -305,6 +507,7 @@ def search():
 
 
 @bp.post("/article/<int:article_id>/save")
+@auth.login_required
 def article_save(article_id: int):
     """Toggle the saved/read-later flag on an article and return the refreshed card."""
     db = get_db()
@@ -319,6 +522,7 @@ def article_save(article_id: int):
 
 
 @bp.post("/article/<int:article_id>/dismiss")
+@auth.login_required
 def article_dismiss(article_id: int):
     """Mark a single article as dismissed. Used by the swipe-left gesture."""
     db = get_db()
@@ -331,6 +535,7 @@ def article_dismiss(article_id: int):
 
 
 @bp.post("/vote/<int:article_id>/<value>")
+@auth.login_required
 def vote(article_id: int, value: str):
     try:
         value = int(value)
@@ -352,6 +557,7 @@ def vote(article_id: int, value: str):
 # ── Feed management ────────────────────────────────────────────────────────────
 
 @bp.get("/sidebar/feeds")
+@auth.login_required
 def sidebar_feeds():
     """Feed list with per-feed unread + hidden + saved counts for the left sidebar.
     Feeds are grouped by tag; feeds with no tags appear under 'Untagged'."""
@@ -385,12 +591,14 @@ def sidebar_feeds():
 
 
 @bp.get("/feeds")
+@auth.admin_required
 def feeds_list():
     db = get_db()
     return render_template("_feeds.html", feeds=_all_feeds(db))
 
 
 @bp.post("/feeds")
+@auth.admin_required
 def feeds_add():
     url = request.form.get("url", "").strip()
     if not url:
@@ -407,6 +615,7 @@ def feeds_add():
 
 
 @bp.get("/preferences")
+@auth.login_required
 def preferences_get():
     db = get_db()
     row = db.execute(sql(
@@ -420,6 +629,7 @@ def preferences_get():
 
 
 @bp.post("/preferences")
+@auth.admin_required
 def preferences_save():
     text = request.form.get("profile_text", "").strip()
     db = get_db()
@@ -444,6 +654,7 @@ def preferences_save():
 
 
 @bp.post("/preferences/regenerate")
+@auth.admin_required
 def preferences_regenerate():
     import threading
     from app.pipeline import regenerate_preferences
@@ -461,6 +672,7 @@ def preferences_regenerate():
 
 
 @bp.get("/status")
+@auth.login_required
 def status():
     db = get_db()
     counts = {r["status"]: r["n"] for r in art_repo.status_counts(db)}
@@ -503,11 +715,13 @@ def _ollama_form_state(db, **overrides) -> dict:
 
 
 @bp.get("/settings/ollama")
+@auth.admin_required
 def ollama_form():
     return render_template("_ollama_setting.html", **_ollama_form_state(get_db()))
 
 
 @bp.post("/settings/ollama")
+@auth.admin_required
 def ollama_save():
     db = get_db()
     host = request.form.get("ollama_host", "").strip()
@@ -544,6 +758,7 @@ def ollama_save():
 
 
 @bp.post("/settings/ollama/test")
+@auth.admin_required
 def ollama_test():
     """Probe the values currently in the form, without saving them."""
     db = get_db()
@@ -570,6 +785,7 @@ def ollama_test():
 
 
 @bp.get("/settings/models")
+@auth.admin_required
 def models_form():
     db = get_db()
     installed = ollama_client.list_models(ollama_base(db))
@@ -584,12 +800,14 @@ def models_form():
 
 
 @bp.get("/settings/titles")
+@auth.admin_required
 def titles_form():
     db = get_db()
     return render_template("_titles_setting.html", enabled=_declickbait(db))
 
 
 @bp.post("/settings/titles")
+@auth.admin_required
 def titles_save():
     enabled = request.form.get("declickbait_enabled") == "1"
     db = get_db()
@@ -599,6 +817,7 @@ def titles_save():
 
 
 @bp.get("/settings/content")
+@auth.admin_required
 def content_filter_form():
     db = get_db()
     return render_template(
@@ -609,6 +828,7 @@ def content_filter_form():
 
 
 @bp.post("/settings/content")
+@auth.admin_required
 def content_filter_save():
     mode = request.form.get("content_filter_mode", "")
     if mode not in content_filter.MODES:
@@ -624,6 +844,7 @@ def content_filter_save():
 
 
 @bp.get("/settings/retention")
+@auth.admin_required
 def retention_form():
     db = get_db()
     return render_template(
@@ -644,6 +865,7 @@ def _users_for_cleanup(db):
 
 
 @bp.post("/settings/retention")
+@auth.admin_required
 def retention_save():
     raw = request.form.get("retention_days", "").strip()
     try:
@@ -667,6 +889,7 @@ def retention_save():
 
 
 @bp.post("/settings/retention/prune")
+@auth.admin_required
 def retention_prune_now():
     """Run the policy immediately. Requires the confirmation toggle."""
     db = get_db()
@@ -685,6 +908,7 @@ def retention_prune_now():
 
 
 @bp.post("/settings/retention/clear-read")
+@auth.admin_required
 def retention_clear_read():
     """Remove read articles from selected users' lists (or all users)."""
     db = get_db()
@@ -707,6 +931,7 @@ def retention_clear_read():
 
 
 @bp.get("/settings/embeds")
+@auth.admin_required
 def embeds_form():
     db = get_db()
     enabled = get_setting(db, "embeds_enabled", "") == "1"
@@ -714,6 +939,7 @@ def embeds_form():
 
 
 @bp.post("/settings/embeds")
+@auth.admin_required
 def embeds_save():
     enabled = request.form.get("embeds_enabled") == "1"
     db = get_db()
@@ -723,6 +949,7 @@ def embeds_save():
 
 
 @bp.post("/settings/models")
+@auth.admin_required
 def models_save():
     scoring = request.form.get("scoring_model", "").strip()
     summary = request.form.get("summary_model", "").strip()
@@ -743,6 +970,7 @@ def models_save():
 
 
 @bp.get("/feeds/opml")
+@auth.admin_required
 def feeds_export_opml():
     db = get_db()
     rows = db.execute(sql("SELECT url, title FROM feeds ORDER BY id")).mappings().all()
@@ -768,6 +996,7 @@ def feeds_export_opml():
 
 
 @bp.post("/feeds/opml")
+@auth.admin_required
 def feeds_import_opml():
     upload = request.files.get("file")
     if upload is None or not upload.filename:
@@ -796,6 +1025,7 @@ def feeds_import_opml():
 
 
 @bp.delete("/feeds/<int:feed_id>")
+@auth.admin_required
 def feeds_delete(feed_id: int):
     db = get_db()
     db.execute(sql("DELETE FROM feeds WHERE id=:id"), {"id": feed_id})
@@ -834,6 +1064,7 @@ def _split_tags(raw: str | None) -> list[str]:
 
 
 @bp.post("/feeds/<int:feed_id>/pause")
+@auth.admin_required
 def feed_pause(feed_id: int):
     """Pause polling for a feed. Idempotent."""
     db = get_db()
@@ -844,6 +1075,7 @@ def feed_pause(feed_id: int):
 
 
 @bp.post("/feeds/<int:feed_id>/resume")
+@auth.admin_required
 def feed_resume(feed_id: int):
     """Resume polling for a feed and reset its failure counter."""
     db = get_db()
@@ -858,6 +1090,7 @@ def feed_resume(feed_id: int):
 
 
 @bp.post("/feeds/<int:feed_id>/threshold")
+@auth.admin_required
 def feed_set_threshold(feed_id: int):
     """Set per-feed score threshold. Empty string clears the override."""
     raw = request.form.get("score_threshold", "").strip()
@@ -881,6 +1114,7 @@ def feed_set_threshold(feed_id: int):
 
 
 @bp.post("/feeds/<int:feed_id>/tags")
+@auth.admin_required
 def feed_set_tags(feed_id: int):
     """Set comma-separated tags on a feed. Empty string clears all tags."""
     raw = request.form.get("tags", "")
@@ -898,6 +1132,7 @@ def feed_set_tags(feed_id: int):
 # ── Article reader ─────────────────────────────────────────────────────────────
 
 @bp.get("/article/<int:article_id>/content")
+@auth.login_required
 def article_content(article_id: int):
     db = get_db()
     row = db.execute(sql(
@@ -934,6 +1169,7 @@ def article_content(article_id: int):
 
 
 @bp.get("/count")
+@auth.login_required
 def article_count():
     db = get_db()
     return str(art_repo.unread_count(db, current_user_id(db)))
@@ -942,6 +1178,7 @@ def article_count():
 # ── Manual triggers ────────────────────────────────────────────────────────────
 
 @bp.post("/poll")
+@auth.admin_required
 def manual_poll():
     import threading
     from app.feeds import poll_all_feeds
@@ -961,6 +1198,7 @@ def manual_poll():
 
 
 @bp.post("/dismiss-all")
+@auth.login_required
 def dismiss_all():
     """Mark every currently-listed article (summarized/liked/disliked) as
     'dismissed' so they disappear from the main view. Respects the current
@@ -975,6 +1213,7 @@ def dismiss_all():
 
 
 @bp.post("/rescore-hidden")
+@auth.admin_required
 def rescore_hidden():
     """Reset all hidden articles to 'new' so the next pipeline run re-scores them
     against the current preference profile."""

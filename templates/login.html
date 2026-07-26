@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Sign in — Better Read{% endblock %}
+{% block content %}
+<div class="auth-card">
+  <h2>Sign in</h2>
+  {% if first_run %}
+    <p class="hint">No accounts yet — <a href="{{ url_for('main.register') }}">create the first one</a>.
+    It becomes the administrator.</p>
+  {% endif %}
+  <form method="post" action="{{ url_for('main.login') }}" class="models-form">
+    <div class="models-row">
+      <label for="username">Username</label>
+      <input type="text" name="username" id="username" value="{{ username or '' }}"
+             autocomplete="username" autofocus required>
+    </div>
+    <div class="models-row">
+      <label for="password">Password</label>
+      <input type="password" name="password" id="password"
+             autocomplete="current-password" required>
+    </div>
+    {% if error %}<p class="ollama-result ollama-result-bad">{{ error }}</p>{% endif %}
+    <div class="models-actions">
+      <button type="submit">Sign in</button>
+      {% if not first_run %}
+        <a class="hint" href="{{ url_for('main.register') }}">Create an account</a>
+      {% endif %}
+    </div>
+  </form>
+</div>
+{% endblock %}

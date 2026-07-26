@@ -60,8 +60,57 @@ def app(database_url, monkeypatch):
 
 
 @pytest.fixture
-def client(app):
+def anon_client(app):
+    """Signed-out client, for testing the auth boundary itself."""
     return app.test_client()
+
+
+@pytest.fixture
+def admin_user(app):
+    """The account that owns the pre-accounts data (see repo.users)."""
+    from app.db import get_db_direct
+    from app.repo.users import ensure_bootstrap_user
+    with app.app_context():
+        db = get_db_direct()
+        uid = ensure_bootstrap_user(db)
+        db.commit()
+        db.close()
+    return uid
+
+
+@pytest.fixture
+def client(app, admin_user):
+    """Signed in as an admin.
+
+    Almost every route is behind a session now, and the suite predates
+    accounts, so the default client is authenticated. Use `anon_client` to
+    assert the gate, and `login_as` for a non-admin.
+    """
+    c = app.test_client()
+    with c.session_transaction() as sess:
+        sess["user_id"] = admin_user
+    return c
+
+
+@pytest.fixture
+def login_as(app):
+    """Factory: sign a client in as a user with the given role."""
+    def _make(username="member", role="user", must_change_password=False):
+        from app.db import get_db_direct
+        from sqlalchemy import text as _t
+        with app.app_context():
+            db = get_db_direct()
+            uid = add_user(db, username=username, role=role)
+            if must_change_password:
+                db.execute(_t("UPDATE users SET must_change_password=true WHERE id=:i"),
+                           {"i": uid})
+                db.commit()
+            db.close()
+        c = app.test_client()
+        with c.session_transaction() as sess:
+            sess["user_id"] = uid
+        return c, uid
+    return _make
 
 
 @pytest.fixture

@@ -790,3 +790,18 @@ dialog[open] { display: flex; flex-direction: column; }
 .modal-body li:last-child { margin-bottom: 0; }
 .modal-article-title { font-size: 32px; font-weight: 800; line-height: 1.2; margin-bottom: 20px; color: var(--fg); }
 .modal-description { font-size: 22px; line-height: 1.5; color: var(--fg); font-weight: 500; margin-bottom: 24px; }
+
+/* Sign-in / register card */
+.auth-card { max-width: 420px; margin: 48px auto; }
+.auth-card h2 { margin-bottom: 12px; }
+.auth-card .models-row label { width: 90px; }
+.auth-card input[type="text"],
+.auth-card input[type="password"] {
+  flex: 1;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 14px;
+  background: var(--bg);
+  color: var(--fg);
+}

@@ -1,0 +1,37 @@
+<form hx-post="/settings/content" hx-target="#content-filter-panel" hx-swap="innerHTML" class="models-form">
+  <div class="models-row">
+    <label for="content_filter_mode">Padding sections</label>
+    <select name="content_filter_mode" id="content_filter_mode">
+      <option value="remove" {% if mode == 'remove' %}selected{% endif %}>Hide (collapsed, click to show)</option>
+      <option value="highlight" {% if mode == 'highlight' %}selected{% endif %}>Frame and label them</option>
+      <option value="off" {% if mode == 'off' %}selected{% endif %}>Off — show everything</option>
+    </select>
+  </div>
+  <p class="hint" style="margin:6px 0 12px">
+    Publishers pad articles with related-story rails, recaps of older coverage and
+    newsletter pitches. The reader detects these and either folds them away or
+    frames them as asides.
+    <br>
+    <strong>Nothing is ever deleted</strong> — both modes only collapse, so a
+    misjudged paragraph is always one click away.
+  </p>
+
+  <div class="models-row">
+    <label for="content_filter_llm" style="display:flex;align-items:center;gap:8px;cursor:pointer;width:auto">
+      <input type="checkbox" name="content_filter_llm" id="content_filter_llm" value="1"
+             {% if llm_enabled %}checked{% endif %}>
+      Also use the LLM to spot older-news recaps
+    </label>
+  </div>
+  <p class="hint" style="margin:6px 0 12px">
+    Pattern matching catches the formulaic cases for free. A paragraph recapping
+    last month's events reads like the article itself, so finding those needs the
+    model — <strong>one extra Ollama call per article</strong>. Leave off unless
+    the recaps bother you.
+  </p>
+
+  <div class="models-actions">
+    <button type="submit">Save</button>
+    {% if saved %}<span class="models-saved">Saved.</span>{% endif %}
+  </div>
+</form>

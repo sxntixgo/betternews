@@ -5,7 +5,7 @@ from html import escape
 
 from flask import Blueprint, current_app, render_template, request, Response
 
-from app import ollama_client
+from app import content_filter, ollama_client
 from app.db import get_db, get_setting, set_setting
 from app.pipeline import DEFAULT_SCORING_MODEL, DEFAULT_SUMMARY_MODEL, ollama_base
 
@@ -19,17 +19,6 @@ _READ_TIME_RE = re.compile(
     r'|tiempo\s+de\s+lectura\b',
     re.IGNORECASE,
 )
-
-_JUNK_SECTION_RE = re.compile(
-    r'^(related\b|more from\b|see also\b|you might\b|read next\b|'
-    r'recommended\b|advertisement\b|sponsored\b|sign up\b|subscribe\b|'
-    r'newsletter\b|follow us\b|share this\b|también\s+te\s+puede\b|'
-    r'te\s+puede\s+interesar\b|más\s+noticias\b|más\s+información\b|'
-    r'otras\s+noticias\b|noticias\s+relacionadas\b|sigue\s+leyendo\b)',
-    re.IGNORECASE,
-)
-
-_STANDALONE_NUM_RE = re.compile(r'^-?\s*\d{1,2}\s*$')
 
 _BULLET_RE = re.compile(r'^[-*•‣◦∙·–—]\s+(.+)$')
 
@@ -66,8 +55,14 @@ def _extract_reading_time(text: str) -> str | None:
 
 
 def _clean_content(text: str, title: str = "", description: str = "") -> str:
-    cleaned, skip = [], False
-    words_seen = 0
+    """Drop reading-time furniture and a leading line duplicating the title.
+
+    Related-story rails and pagination markers used to be *deleted* here. They
+    are now classified as asides by `content_filter` instead, so the reader can
+    frame them or hide them recoverably rather than silently truncating the
+    body. See `_content_blocks`.
+    """
+    cleaned = []
     title_norm = (title or "").strip().lower()
     desc_norm = (description or "").strip().lower()[:120]
     for line in text.split('\n'):
@@ -82,18 +77,12 @@ def _clean_content(text: str, title: str = "", description: str = "") -> str:
             continue
         if not cleaned and desc_norm and s_norm.startswith(desc_norm[:60]):
             continue
-        if _JUNK_SECTION_RE.match(s):
-            skip = True
-        if _STANDALONE_NUM_RE.match(s) and re.search(r'^-?\s*1\s*$', s) and words_seen > 80:
-            skip = True
-        if skip:
-            continue
-        words_seen += len(s.split())
         cleaned.append(s)
     return '\n'.join(cleaned)
 
 
-def _to_blocks(text: str, embeds_enabled: bool = False) -> list[dict]:
+def _to_blocks(text: str, embeds_enabled: bool = False,
+               aside_kinds: list[str | None] | None = None) -> list[dict]:
     """Group consecutive bullet-prefixed lines into list blocks for rendering.
 
     Lines starting with ``-``, ``*``, ``•`` (and similar marks) followed by a
@@ -103,29 +92,89 @@ def _to_blocks(text: str, embeds_enabled: bool = False) -> list[dict]:
     Instagram permalink becomes an ``embed`` block; the modal turns those into
     proper blockquotes the official scripts can hydrate. When disabled the URL
     falls through as a normal paragraph.
+
+    ``aside_kinds`` carries one entry per non-empty line, tagging blocks that
+    `content_filter` judged to be padding.
     """
     blocks: list[dict] = []
     current: list[str] | None = None
+    idx = -1
     for line in text.split('\n'):
         s = line.strip()
         if not s:
             continue
+        idx += 1
+        kind = aside_kinds[idx] if aside_kinds and idx < len(aside_kinds) else None
         if embeds_enabled:
             em = _embed_match(s)
             if em:
                 current = None
-                blocks.append({"type": "embed", "platform": em[0], "url": em[1]})
+                b = {"type": "embed", "platform": em[0], "url": em[1]}
+                if kind:
+                    b["aside"] = kind
+                blocks.append(b)
                 continue
         m = _BULLET_RE.match(s)
-        if m:
-            if current is None:
-                current = []
-                blocks.append({"type": "ul", "items": current})
+        # A bullet run is only continued while its aside classification matches,
+        # so a rail starting mid-list doesn't drag the real items into the aside.
+        if m and current is not None and blocks[-1].get("aside") == kind:
             current.append(m.group(1).strip())
+        elif m:
+            current = [m.group(1).strip()]
+            b = {"type": "ul", "items": current}
+            if kind:
+                b["aside"] = kind
+            blocks.append(b)
         else:
             current = None
-            blocks.append({"type": "p", "text": s})
+            b = {"type": "p", "text": s}
+            if kind:
+                b["aside"] = kind
+            blocks.append(b)
     return blocks
+
+
+def _group_blocks(blocks: list[dict]) -> list[dict]:
+    """Collapse consecutive aside blocks into one group.
+
+    A related-stories rail becomes a single foldable item rather than one per
+    paragraph. Body blocks pass through in a group of their own.
+    """
+    groups: list[dict] = []
+    for b in blocks:
+        kind = b.get("aside")
+        if groups and groups[-1]["aside"] == kind:
+            groups[-1]["blocks"].append(b)
+        else:
+            groups.append({
+                "aside": kind,
+                "label": content_filter.LABELS.get(kind, "Aside") if kind else None,
+                "blocks": [b],
+            })
+    return groups
+
+
+def _content_blocks(text: str, embeds_enabled: bool, mode: str,
+                    stored_asides: str | None = None) -> tuple[list[dict], int]:
+    """Grouped blocks for the reader, plus how many were classified as padding.
+
+    In ``off`` mode nothing is classified, so the body renders whole.
+    """
+    if mode == content_filter.MODE_OFF:
+        blocks = _to_blocks(text, embeds_enabled=embeds_enabled)
+        return _group_blocks(blocks), 0
+    lines = [ln.strip() for ln in text.split('\n') if ln.strip()]
+    kinds = content_filter.classify_lines(
+        lines, content_filter.load_stored(stored_asides)
+    )
+    blocks = _to_blocks(text, embeds_enabled=embeds_enabled, aside_kinds=kinds)
+    n = sum(1 for b in blocks if b.get("aside"))
+    return _group_blocks(blocks), n
+
+
+def _content_filter_mode(db) -> str:
+    mode = get_setting(db, "content_filter_mode", content_filter.MODE_REMOVE)
+    return mode if mode in content_filter.MODES else content_filter.MODE_REMOVE
 
 
 def _row_to_article(row, declickbait: bool = False) -> dict:
@@ -600,6 +649,31 @@ def titles_save():
     return render_template("_titles_setting.html", enabled=enabled, saved=True)
 
 
+@bp.get("/settings/content")
+def content_filter_form():
+    db = get_db()
+    return render_template(
+        "_content_filter_setting.html",
+        mode=_content_filter_mode(db),
+        llm_enabled=get_setting(db, "content_filter_llm", "") == "1",
+    )
+
+
+@bp.post("/settings/content")
+def content_filter_save():
+    mode = request.form.get("content_filter_mode", "")
+    if mode not in content_filter.MODES:
+        return Response("invalid mode", status=400)
+    llm = request.form.get("content_filter_llm") == "1"
+    db = get_db()
+    set_setting(db, "content_filter_mode", mode)
+    set_setting(db, "content_filter_llm", "1" if llm else "")
+    db.commit()
+    return render_template(
+        "_content_filter_setting.html", mode=mode, llm_enabled=llm, saved=True
+    )
+
+
 @bp.get("/settings/embeds")
 def embeds_form():
     db = get_db()
@@ -794,7 +868,8 @@ def feed_set_tags(feed_id: int):
 def article_content(article_id: int):
     db = get_db()
     row = db.execute(
-        "SELECT title, url, full_text, raw_snippet, feed_content, clean_title, title_was_clickbait "
+        "SELECT title, url, full_text, raw_snippet, feed_content, clean_title, "
+        "title_was_clickbait, aside_spans "
         "FROM articles WHERE id=?",
         (article_id,)
     ).fetchone()
@@ -813,12 +888,19 @@ def article_content(article_id: int):
     content = _clean_content(full_text, title=row["title"], description=description)
     embeds_enabled = get_setting(db, "embeds_enabled", "") == "1"
     title, original_title = _resolve_title(dict(row), _declickbait(db))
+    mode = _content_filter_mode(db)
+    groups, aside_count = _content_blocks(
+        content, embeds_enabled, mode,
+        row["aside_spans"] if "aside_spans" in row.keys() else None,
+    )
     return render_template(
         "_article_content.html",
         title=title,
         original_title=original_title,
         description=description,
-        blocks=_to_blocks(content, embeds_enabled=embeds_enabled),
+        groups=groups,
+        filter_mode=mode,
+        aside_count=aside_count,
     )
 
 

@@ -664,6 +664,32 @@ button:disabled { opacity: 0.4; cursor: default; }
 }
 .modal-article-title + .original-title { margin-bottom: 10px; }
 
+/* Padding sections in the reader. Collapsed by default in both modes — the
+   content is folded, never dropped, so a misclassification is recoverable. */
+.aside-block {
+  margin: 16px 0;
+  border-left: 2px solid var(--border);
+  padding-left: 12px;
+}
+.aside-block > summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--muted);
+  list-style: none;
+  padding: 4px 0;
+}
+.aside-block > summary::-webkit-details-marker { display: none; }
+.aside-block > summary::before { content: "▸ "; }
+.aside-block[open] > summary::before { content: "▾ "; }
+.aside-block > summary:hover { color: var(--fg); }
+.aside-block.aside-highlight {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+.aside-body { opacity: .75; font-size: 95%; }
+.aside-body > *:last-child { margin-bottom: 0; }
+
 /* Settings page: grouped sections, so new toggles have somewhere to land. */
 .settings-group { margin-bottom: 40px; }
 .settings-group > h2 {

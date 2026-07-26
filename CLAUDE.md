@@ -9,7 +9,8 @@ Flask app in Docker; Ollama on Windows host; SQLite in ./data/rss.db.
 - `app/db.py` — DB connection + `get_setting`/`set_setting` helpers. Use `get_db()` inside request context; `get_db_direct()` outside.
 - `app/pipeline.py` — LLM scoring + summarization. Pipeline runs are serialized via a process-wide `_PIPELINE_LOCK`.
 - `app/ollama_client.py` — All Ollama HTTP calls. `generate()` (with retries) and `list_models()`.
-- `app/prompts.py` — The three LLM prompts. Edit here to tune behavior.
+- `app/prompts.py` — The LLM prompts. Edit here to tune behavior.
+- `app/content_filter.py` — Detects article padding (related rails, promos, older-news recaps). Pass 1 is regex at render time; pass 2 is an optional LLM call stored as fingerprints.
 - `app/routes.py` — Flask routes. HTMX-first: most return HTML fragments.
 - `app/feeds.py` — feedparser polling. `poll_all_feeds(app)` is the entry point.
 - `app/scheduler.py` — APScheduler wiring. Jobs registered here.
@@ -61,6 +62,7 @@ new → scored → summarized → liked | disliked | dismissed
 - `POST /preferences/regenerate` — rebuild profile from votes (background thread)
 - `GET|POST /settings/models` — choose scoring/summary models from `ollama_client.list_models()`
 - `GET|POST /settings/titles` — toggle `declickbait_enabled` (headline rewriting)
+- `GET|POST /settings/content` — `content_filter_mode` (`off`/`highlight`/`remove`) + `content_filter_llm`
 - `GET|POST /settings/ollama` — set the Ollama host/port at runtime (overrides `OLLAMA_HOST`)
 - `POST /settings/ollama/test` — probe the host/port **currently in the form**, without saving
 - `GET|POST /feeds/opml` — OPML export (GET) / import (POST file upload)
@@ -70,6 +72,7 @@ new → scored → summarized → liked | disliked | dismissed
 - **Endpoint resolution:** `pipeline.ollama_base(db)` is the single source of truth — Settings override, else the `OLLAMA_HOST` env var. It is read *per call*, so a change in Settings applies on the next scheduled job with no restart. `ollama_client` itself stays free of app state: `generate()` / `list_models()` / `probe()` take an optional `base_url` and fall back to the env constant.
 - `ollama_client.compose_base_url(host, port)` validates and builds the URL; it raises `ValueError` with UI-ready messages. `probe()` is `list_models()` that reports *why* it failed instead of returning `[]` — use it for anything user-facing.
 - **De-clickbait rides on the summarization call.** With `declickbait_enabled`, `summarize_scored_articles` swaps `summarization_prompt` for `summarization_with_title_prompt` and asks for `{summary, was_clickbait, clean_title}` in one JSON response — no extra Ollama calls. **Invariant: a malformed response must never cost the summary.** On unusable JSON it retries once with the plain-text prompt and stores `clean_title=NULL`. If you add a fourth field here, keep that fallback: two JSON fields from a 3b model is already the reliability ceiling.
+- **Aside detection (pass 2) is a separate call**, behind `content_filter_llm`, and best-effort: summarization has already succeeded when it runs, so any failure returns `None` and the reader falls back to the regex pass. Results are stored in `articles.aside_spans` as *content fingerprints*, not character offsets — `full_text` is immutable but the block-splitting between it and the page is render-time logic that may change.
 - `pipeline._clean_title_from()` rejects rewrites that are empty, unflagged, unchanged, or over `MAX_CLEAN_TITLE_CHARS` — every rejection degrades to the original title.
 - **`clean_title` is not in the FTS index.** Adding it means rebuilding `articles_fts` plus all three triggers together; deferred to the Postgres migration where it's one line on a generated column (see `docs/feature-plan.md` §0.3). Search matches the original wording, which is usually what you remember anyway.
 - Scoring uses `format:"json"` Ollama param to constrain output to valid JSON.
@@ -83,6 +86,8 @@ new → scored → summarized → liked | disliked | dismissed
 - Vote uses `hx-post` / `hx-swap` — no page reloads.
 - After clicking Refresh, the index page polls `/status` every 3s and re-fetches `/articles` when `last_pipeline_run_at` advances.
 - Reader modal is a `<dialog>`: title (large) → description (medium) → content (regular). `_clean_content` strips a leading body line that duplicates the title or description.
+- **Article padding** (Settings → Reader → Article padding). `content_filter.classify_lines()` tags lines as `related_links` / `promo` / `older_news`; `routes._group_blocks()` collapses consecutive tagged blocks into one `<details>`. **Both `highlight` and `remove` only fold — nothing is ever dropped**, so a misclassification is one click away. Default is `remove`, which matches what `_clean_content` used to do destructively.
+- Only *section boundaries* (`Related`, `Otras noticias`, …) truncate to end-of-body. Promotional one-liners (`Advertisement`, `Sign up`) are marked individually — they appear mid-article, and treating one as a boundary would discard the reporting after it.
 
 ## Tests
 ```

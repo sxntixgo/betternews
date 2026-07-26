@@ -475,19 +475,18 @@ def test_extract_reading_time_none():
     assert _extract_reading_time("no reading time here") is None
 
 
-def test_clean_content_strips_reading_time_and_junk():
+def test_clean_content_strips_reading_time():
     from app.routes import _clean_content
     text = (
         "Real first paragraph " * 20 + "\n"
         "- 4 minutos de lectura\n"
         "Otras noticias\n"
-        "- 1\n"
-        "more junk\n"
     )
     out = _clean_content(text, title="Real first paragraph")
     assert "lectura" not in out.lower()
-    assert "Otras noticias" not in out
-    assert "- 1" not in out
+    # Junk is no longer deleted here — content_filter classifies it instead, so
+    # the reader can fold it recoverably rather than truncating the body.
+    assert "Otras noticias" in out
 
 
 def test_clean_content_skips_duplicate_title_line():
@@ -503,12 +502,12 @@ def test_clean_content_skips_duplicate_description_line():
     assert out.startswith("Real body line")
 
 
-def test_clean_content_strips_numbered_related_list():
+def test_clean_content_keeps_pagination_for_the_filter_to_classify():
     from app.routes import _clean_content
     body = ("Real first paragraph " * 30).strip() + "\n- 1\nrelated thing"
     out = _clean_content(body)
-    assert "- 1" not in out
-    assert "related thing" not in out
+    assert "- 1" in out
+    assert "related thing" in out
 
 
 def test_to_blocks_groups_consecutive_dash_bullets():
@@ -1592,3 +1591,186 @@ def test_vote_response_card_respects_setting(client, app):
     _set_declickbait(app, True)
     data = client.post(f"/vote/{aid}/1").data
     assert b"Council approves budget" in data
+
+
+# ── Content filter: reader rendering ───────────────────────────────────────────
+
+def _set_filter(app, mode, llm=False):
+    from app.db import get_db_direct, set_setting
+    with app.app_context():
+        db = get_db_direct()
+        set_setting(db, "content_filter_mode", mode)
+        set_setting(db, "content_filter_llm", "1" if llm else "")
+        db.commit()
+        db.close()
+
+
+def _padded_article(app, body=None):
+    from app.db import get_db_direct
+    from tests.conftest import add_article, add_feed
+    body = body or ("The council approved the budget on Tuesday.\n"
+                    "The vote was seven to two.\n"
+                    "Otras noticias\n"
+                    "Some unrelated headline\n"
+                    "Another unrelated headline")
+    with app.app_context():
+        db = get_db_direct()
+        aid = add_article(db, add_feed(db), full_text=body)
+        db.commit()
+        db.close()
+    return aid
+
+
+def test_filter_off_renders_everything_flat(client, app):
+    aid = _padded_article(app)
+    _set_filter(app, "off")
+    data = client.get(f"/article/{aid}/content").get_data(as_text=True)
+    assert "Otras noticias" in data
+    assert "Some unrelated headline" in data
+    assert "aside-block" not in data
+
+
+def test_filter_remove_folds_padding_but_keeps_it(client, app):
+    aid = _padded_article(app)
+    _set_filter(app, "remove")
+    data = client.get(f"/article/{aid}/content").get_data(as_text=True)
+    assert "The council approved the budget" in data
+    assert "aside-remove" in data
+    assert "hidden — show" in data
+    # Folded, never dropped — a misjudgement stays one click away.
+    assert "Some unrelated headline" in data
+
+
+def test_filter_highlight_labels_the_aside(client, app):
+    aid = _padded_article(app)
+    _set_filter(app, "highlight")
+    data = client.get(f"/article/{aid}/content").get_data(as_text=True)
+    assert "aside-highlight" in data
+    assert "Related links" in data
+    assert "Some unrelated headline" in data
+
+
+def test_consecutive_asides_collapse_into_one_group(client, app):
+    aid = _padded_article(app)
+    _set_filter(app, "remove")
+    data = client.get(f"/article/{aid}/content").get_data(as_text=True)
+    assert data.count("<details") == 1
+    assert "3 sections hidden" in data
+
+
+def test_clean_article_has_no_aside_markup(client, app):
+    aid = _padded_article(app, body="First paragraph.\nSecond paragraph.\nThird.")
+    _set_filter(app, "remove")
+    data = client.get(f"/article/{aid}/content").get_data(as_text=True)
+    assert "aside-block" not in data
+    assert "Second paragraph" in data
+
+
+def test_stored_llm_spans_are_applied(client, app):
+    from app import content_filter as cf
+    from app.db import get_db_direct
+    recap = "Last month the mayor resigned in a separate scandal."
+    aid = _padded_article(app, body=f"Today the council met.\n{recap}\nThe vote passed.")
+    with app.app_context():
+        db = get_db_direct()
+        db.execute("UPDATE articles SET aside_spans=? WHERE id=?",
+                   (cf.dump_spans([(cf.fingerprint(recap), cf.KIND_OLDER)]), aid))
+        db.commit()
+        db.close()
+    _set_filter(app, "highlight")
+    data = client.get(f"/article/{aid}/content").get_data(as_text=True)
+    assert "Older coverage" in data
+    assert recap in data
+
+
+def test_corrupt_aside_spans_degrade_to_pattern_pass(client, app):
+    from app.db import get_db_direct
+    aid = _padded_article(app)
+    with app.app_context():
+        db = get_db_direct()
+        db.execute("UPDATE articles SET aside_spans=? WHERE id=?", ("{{bad json", aid))
+        db.commit()
+        db.close()
+    _set_filter(app, "remove")
+    data = client.get(f"/article/{aid}/content").get_data(as_text=True)
+    assert "The council approved the budget" in data   # never a blank reader
+    assert "aside-block" in data                        # pass 1 still ran
+
+
+def test_group_blocks_merges_runs():
+    from app.routes import _group_blocks
+    groups = _group_blocks([
+        {"type": "p", "text": "a"},
+        {"type": "p", "text": "b", "aside": "promo"},
+        {"type": "p", "text": "c", "aside": "promo"},
+        {"type": "p", "text": "d"},
+    ])
+    assert [g["aside"] for g in groups] == [None, "promo", None]
+    assert len(groups[1]["blocks"]) == 2
+    assert groups[1]["label"] == "Related links" or groups[1]["label"] == "Promotion"
+
+
+# ── Content filter: settings ───────────────────────────────────────────────────
+
+def test_content_filter_settings_defaults_to_remove(client):
+    data = client.get("/settings/content").get_data(as_text=True)
+    assert 'value="remove" selected' in data
+
+
+def test_content_filter_settings_save(client, app):
+    r = client.post("/settings/content",
+                    data={"content_filter_mode": "highlight", "content_filter_llm": "1"})
+    assert b"Saved" in r.data
+    from app.db import get_db_direct, get_setting
+    with app.app_context():
+        db = get_db_direct()
+        assert get_setting(db, "content_filter_mode") == "highlight"
+        assert get_setting(db, "content_filter_llm") == "1"
+        db.close()
+
+
+def test_content_filter_rejects_unknown_mode(client):
+    r = client.post("/settings/content", data={"content_filter_mode": "destroy"})
+    assert r.status_code == 400
+
+
+def test_content_filter_mode_falls_back_on_bad_stored_value(client, app):
+    from app.db import get_db_direct, set_setting
+    with app.app_context():
+        db = get_db_direct()
+        set_setting(db, "content_filter_mode", "nonsense")
+        db.commit()
+        db.close()
+    aid = _padded_article(app)
+    data = client.get(f"/article/{aid}/content").get_data(as_text=True)
+    assert "aside-remove" in data   # default, not a crash
+
+
+def test_bullet_list_inside_a_rail_is_marked_aside(client, app):
+    """A related-stories rail is usually a bulleted list of other headlines."""
+    aid = _padded_article(app, body=("The council approved the budget.\n"
+                                     "Related\n"
+                                     "- Other story one\n"
+                                     "- Other story two"))
+    _set_filter(app, "highlight")
+    data = client.get(f"/article/{aid}/content").get_data(as_text=True)
+    assert "aside-highlight" in data
+    assert "<li>Other story one</li>" in data
+    # The real body must sit outside the aside.
+    body_before_aside = data.split("<details")[0]
+    assert "The council approved the budget" in body_before_aside
+
+
+def test_bullet_run_splits_when_a_rail_starts_mid_list():
+    """A rail heading inside a list must not drag the real items in with it."""
+    from app.routes import _to_blocks
+    from app import content_filter as cf
+    lines = ["- real one", "- real two", "Related", "- other story"]
+    kinds = cf.classify_lines(lines)
+    blocks = _to_blocks("\n".join(lines), aside_kinds=kinds)
+    uls = [b for b in blocks if b["type"] == "ul"]
+    assert len(uls) == 2
+    assert uls[0]["items"] == ["real one", "real two"]
+    assert "aside" not in uls[0]
+    assert uls[1]["items"] == ["other story"]
+    assert uls[1]["aside"] == cf.KIND_RELATED

@@ -14,6 +14,7 @@ Flask + HTMX, no build step, SQLite storage, runs in Docker.
 - **Reader mode** — in-app reader modal with full-text extraction ([trafilatura](https://trafilatura.readthedocs.io/)), falling back to feed-provided content.
 - **PWA-ready** — manifest + service worker for install-to-homescreen.
 - **Background polling** — APScheduler polls feeds and runs the scoring/summary pipeline on an interval.
+- **Padding removal** — related-story rails, newsletter pitches and older-news recaps are folded away in the reader. Collapsed, never deleted.
 - **Clickbait-free headlines** — optional: the summarizer rewrites headlines that withhold their point, and shows the original underneath. Costs no extra LLM calls.
 - **Prompt-injection aware** — article text is wrapped in XML delimiters and scoring is constrained to JSON output.
 
@@ -67,6 +68,22 @@ Copy `.env.example` to `.env` and adjust. Key variables:
 | `FLASK_SECRET_KEY` | — | **Set this to a random string** |
 
 Additional tuning vars (`SCORING_SNIPPET_CHARS`, `LOG_FORMAT`, `DB_PATH`/`BACKUP_DIR`/`KEEP`) are documented in `CLAUDE.md`.
+
+### Hiding article padding
+
+**Settings → Reader → Article padding** controls what the reader does with
+related-story rails, newsletter pitches and recaps of older coverage:
+
+| Mode | Behaviour |
+|---|---|
+| `remove` (default) | Folded into a `N sections hidden — show` line |
+| `highlight` | Framed and labelled, collapsed |
+| `off` | Everything rendered inline |
+
+**Nothing is ever deleted** — both active modes only collapse, so a misjudged
+paragraph is always one click away. Pattern matching handles the formulaic cases
+for free. The optional *"use the LLM to spot older-news recaps"* checkbox catches
+the semantic ones at the cost of **one extra Ollama call per article**.
 
 ### Rewriting clickbait headlines
 

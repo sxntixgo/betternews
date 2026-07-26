@@ -619,3 +619,94 @@ def test_declickbait_both_calls_fail_skips_article(mock_gen, mock_fetch, memory_
 def test_clean_title_from_rejects_unusable_rewrites(result, expected):
     from app.pipeline import _clean_title_from
     assert _clean_title_from(result, "Original") == expected
+
+
+# ── Content filter pass 2 (LLM aside detection) ────────────────────────────────
+
+def _enable_filter_llm(db):
+    from app.db import set_setting
+    set_setting(db, "content_filter_llm", "1")
+    db.commit()
+
+
+@patch("app.pipeline.fetch_full_text_and_image")
+@patch("app.pipeline.ollama_client.generate")
+def test_aside_pass_skipped_when_setting_off(mock_gen, mock_fetch, memory_db):
+    mock_fetch.return_value = ("One.\nTwo.\nThree.\nFour.", None)
+    mock_gen.return_value = "A summary."
+    fid = add_feed(memory_db)
+    aid = add_article(memory_db, fid, status="scored")
+
+    summarize_scored_articles(memory_db)
+
+    assert mock_gen.call_count == 1        # summarization only
+    row = memory_db.execute("SELECT aside_spans FROM articles WHERE id=?", (aid,)).fetchone()
+    assert row["aside_spans"] is None
+
+
+@patch("app.pipeline.fetch_full_text_and_image")
+@patch("app.pipeline.ollama_client.generate")
+def test_aside_pass_stores_fingerprints(mock_gen, mock_fetch, memory_db):
+    from app import content_filter as cf
+    body = "Today's news.\nLast month's recap.\nMore today.\nEnd."
+    mock_fetch.return_value = (body, None)
+    mock_gen.side_effect = ["A summary.", {"asides": [{"index": 1, "kind": "older_news"}]}]
+    _enable_filter_llm(memory_db)
+    fid = add_feed(memory_db)
+    aid = add_article(memory_db, fid, status="scored")
+
+    summarize_scored_articles(memory_db)
+
+    row = memory_db.execute("SELECT aside_spans FROM articles WHERE id=?", (aid,)).fetchone()
+    assert cf.load_stored(row["aside_spans"]) == {
+        cf.fingerprint("Last month's recap."): cf.KIND_OLDER
+    }
+
+
+@patch("app.pipeline.fetch_full_text_and_image")
+@patch("app.pipeline.ollama_client.generate")
+def test_aside_pass_failure_does_not_lose_the_summary(mock_gen, mock_fetch, memory_db):
+    """Pass 2 is best-effort: summarization has already succeeded by then."""
+    mock_fetch.return_value = ("One.\nTwo.\nThree.\nFour.", None)
+    mock_gen.side_effect = ["A summary.", None]
+    _enable_filter_llm(memory_db)
+    fid = add_feed(memory_db)
+    aid = add_article(memory_db, fid, status="scored")
+
+    summarize_scored_articles(memory_db)
+
+    row = memory_db.execute(
+        "SELECT status, summary, aside_spans FROM articles WHERE id=?", (aid,)).fetchone()
+    assert row["status"] == "summarized"
+    assert row["summary"] == "A summary."
+    assert row["aside_spans"] is None
+
+
+@patch("app.pipeline.fetch_full_text_and_image")
+@patch("app.pipeline.ollama_client.generate")
+def test_aside_pass_exception_is_swallowed(mock_gen, mock_fetch, memory_db, caplog):
+    mock_fetch.return_value = ("One.\nTwo.\nThree.\nFour.", None)
+    mock_gen.side_effect = ["A summary.", RuntimeError("boom")]
+    _enable_filter_llm(memory_db)
+    fid = add_feed(memory_db)
+    aid = add_article(memory_db, fid, status="scored")
+
+    summarize_scored_articles(memory_db)
+
+    row = memory_db.execute("SELECT status FROM articles WHERE id=?", (aid,)).fetchone()
+    assert row["status"] == "summarized"
+    assert "Aside detection failed" in caplog.text
+
+
+@patch("app.pipeline.fetch_full_text_and_image")
+@patch("app.pipeline.ollama_client.generate")
+def test_aside_pass_skips_very_short_bodies(mock_gen, mock_fetch, memory_db):
+    mock_fetch.return_value = ("Only one line.", None)
+    mock_gen.return_value = "A summary."
+    _enable_filter_llm(memory_db)
+    fid = add_feed(memory_db)
+    add_article(memory_db, fid, status="scored")
+
+    summarize_scored_articles(memory_db)
+
+    assert mock_gen.call_count == 1   # not worth a call

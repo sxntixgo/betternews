@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS articles (
     summary        TEXT,                          -- LLM 2-3 sentence summary
     clean_title    TEXT,                          -- de-clickbaited title; NULL = never processed. `title` is never overwritten.
     title_was_clickbait INTEGER,                   -- 1 when the LLM judged the original clickbait; only then is clean_title shown
+    aside_spans    TEXT,                          -- JSON [{h,kind}] fingerprints of LLM-flagged padding paragraphs
     score          REAL,                          -- 0.0-1.0 from LLM
     score_reason   TEXT,                          -- one-sentence reason from LLM
     thumbnail_url  TEXT,                          -- image extracted from feed entry

@@ -9,7 +9,7 @@ import flask
 
 from datetime import datetime, timezone
 
-from app import prompts, ollama_client
+from app import content_filter, prompts, ollama_client
 from app.db import get_db_direct, get_setting, set_setting
 
 log = logging.getLogger(__name__)
@@ -144,6 +144,34 @@ def _clean_title_from(result: dict, original: str) -> tuple[str | None, int]:
     return candidate, 1
 
 
+def _detect_asides(full_text: str, model: str, base_url: str) -> str | None:
+    """Pass 2 of the content filter: ask the LLM which paragraphs are padding.
+
+    Best-effort by design — a failure returns None and the reader falls back to
+    the deterministic pass alone. It must never interrupt summarization, which
+    has already succeeded by the time this runs.
+    """
+    paragraphs = [ln.strip() for ln in (full_text or "").split("\n") if ln.strip()]
+    if len(paragraphs) < 3:
+        return None
+    try:
+        result = ollama_client.generate(
+            model=model,
+            prompt=prompts.aside_prompt(paragraphs),
+            expect_json=True,
+            base_url=base_url,
+        )
+        if not isinstance(result, dict):
+            log.warning("Aside detection returned no usable JSON")
+            return None
+        return content_filter.dump_spans(
+            content_filter.spans_from_llm(result, paragraphs)
+        )
+    except Exception as exc:
+        log.warning("Aside detection failed: %s", exc)
+        return None
+
+
 def summarize_scored_articles(db) -> None:
     articles = db.execute(
         "SELECT id, url, title, raw_snippet, feed_content, thumbnail_url "
@@ -152,6 +180,7 @@ def summarize_scored_articles(db) -> None:
     model = _summary_model(db)
     base_url = ollama_base(db)
     declickbait = get_setting(db, "declickbait_enabled", "") == "1"
+    filter_llm = get_setting(db, "content_filter_llm", "") == "1"
 
     for article in articles:
         try:
@@ -199,13 +228,17 @@ def summarize_scored_articles(db) -> None:
                 log.warning("Summarization skipped for article id=%d", article["id"])
                 continue
 
+            aside_spans = None
+            if filter_llm:
+                aside_spans = _detect_asides(full_text, model, base_url)
+
             new_thumb = article["thumbnail_url"] or og_image
             db.execute(
                 "UPDATE articles SET full_text=?, summary=?, thumbnail_url=?, "
-                "clean_title=?, title_was_clickbait=?, status='summarized' "
-                "WHERE id=?",
+                "clean_title=?, title_was_clickbait=?, aside_spans=?, "
+                "status='summarized' WHERE id=?",
                 (full_text, summary.strip(), new_thumb,
-                 clean_title, was_clickbait, article["id"]),
+                 clean_title, was_clickbait, aside_spans, article["id"]),
             )
             db.commit()
             log.info("Summarized article id=%d%s", article["id"],

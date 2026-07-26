@@ -36,21 +36,36 @@ def test_close_db_handles_no_connection(app):
         close_db()  # no connection on g — should be a no-op
 
 
-def test_init_db_tolerates_fts_creation_failure(monkeypatch, tmp_path):
-    """If FTS5 isn't compiled into SQLite, init_db should still complete."""
-    import sqlite3
-    monkeypatch.setenv("DB_PATH", str(tmp_path / "no-fts.db"))
-    from app import db as db_module
-    real_open = db_module._open_connection
 
-    class _ConnWrapper:
-        def __init__(self, real): self._real = real
-        def __getattr__(self, name): return getattr(self._real, name)
-        def executescript(self, script):
-            if "VIRTUAL TABLE" in script:
-                raise sqlite3.OperationalError("no such module: fts5")
-            return self._real.executescript(script)
 
-    monkeypatch.setattr(db_module, "_open_connection",
-                        lambda: _ConnWrapper(real_open()))
-    db_module.init_db()  # should not raise
+def test_close_db_rolls_back_on_exception(app):
+    """A failed request must not commit half its work."""
+    from app.db import get_db, close_db
+    from sqlalchemy import text
+    with app.test_request_context():
+        db = get_db()
+        db.execute(text("INSERT INTO feeds (url) VALUES ('https://rollback.test/f')"))
+        close_db(RuntimeError("request blew up"))
+
+    from app.db import get_db_direct
+    with app.app_context():
+        conn = get_db_direct()
+        n = conn.execute(text(
+            "SELECT COUNT(*) FROM feeds WHERE url='https://rollback.test/f'")).scalar()
+        conn.close()
+    assert n == 0
+
+
+def test_close_db_commits_on_success(app):
+    from app.db import get_db, close_db, get_db_direct
+    from sqlalchemy import text
+    with app.test_request_context():
+        db = get_db()
+        db.execute(text("INSERT INTO feeds (url) VALUES ('https://commit.test/f')"))
+        close_db(None)
+    with app.app_context():
+        conn = get_db_direct()
+        n = conn.execute(text(
+            "SELECT COUNT(*) FROM feeds WHERE url='https://commit.test/f'")).scalar()
+        conn.close()
+    assert n == 1

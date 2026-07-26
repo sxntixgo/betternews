@@ -2,7 +2,7 @@
 <div class="status-panel">
   <dl class="status-grid">
     <dt>Feeds</dt><dd>{{ feed_count }}</dd>
-    <dt>Last poll</dt><dd>{{ last_poll or '—' }}</dd>
+    <dt>Last poll</dt><dd>{{ (last_poll | dt) or '—' }}</dd>
     <dt>Last pipeline run</dt><dd>{{ last_pipeline or '—' }}</dd>
   </dl>
   <h3 class="status-subhead">Articles by status</h3>

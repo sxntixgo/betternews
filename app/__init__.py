@@ -50,14 +50,46 @@ def create_app() -> Flask:
     with app.app_context():
         init_db()
 
+    app.add_template_filter(_fmt_dt, "dt")
+
+    from app import auth
+    auth.install(app)
+    app.jinja_env.globals["current_user"] = auth.current_user
+    app.jinja_env.globals["is_admin"] = auth.is_admin
+
     from app.routes import bp
     app.register_blueprint(bp)
 
-    # Only start scheduler when running under gunicorn (single worker) or flask dev server.
-    # Guard avoids double-start when the module is imported by pytest.
-    if os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not app.debug:
+    # The scheduler normally runs as its own process (`python -m app.worker`),
+    # because one APScheduler per gunicorn worker means every job fires N times.
+    # RUN_SCHEDULER_IN_WEB=1 restores the old in-process behaviour for a
+    # single-worker or dev setup.
+    if _should_run_scheduler(app):
         from app.scheduler import init_scheduler
         scheduler = init_scheduler(app)
         scheduler.start()
 
     return app
+
+
+def _fmt_dt(value, fmt: str = "%Y-%m-%d %H:%M") -> str:
+    """Render a timestamp for display.
+
+    Columns are TIMESTAMPTZ since the Postgres migration, so templates get
+    datetimes where they used to get ISO strings. Tolerates both rather than
+    letting a stray string slice raise in a template.
+    """
+    if not value:
+        return ""
+    if isinstance(value, str):
+        return value[:16].replace("T", " ")
+    try:
+        return value.strftime(fmt)
+    except AttributeError:
+        return str(value)
+
+
+def _should_run_scheduler(app: Flask) -> bool:
+    if os.environ.get("RUN_SCHEDULER_IN_WEB", "") != "1":
+        return False
+    return os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not app.debug

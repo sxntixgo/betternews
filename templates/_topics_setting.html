@@ -1,0 +1,44 @@
+{% if error %}<p class="ollama-result ollama-result-bad">{{ error }}</p>{% endif %}
+{% if renormalized is defined and renormalized is not none %}
+  <p class="ollama-result ollama-result-ok">Tidied topics on {{ renormalized }} articles.</p>
+{% elif saved %}<p class="ollama-result ollama-result-ok">Saved. Applies to articles scored from now on.</p>{% endif %}
+<p class="hint" style="margin:6px 0 12px">
+  The score is the model's judgement. These are the hard rules on top:
+  <strong>mute</strong> hides a topic whatever it scores, boost/demote nudges it
+  by ±0.20. Rules apply at scoring time, so they affect new articles — use
+  <em>Re-score hidden articles</em> to apply them retroactively.
+</p>
+<form hx-post="/settings/topics" hx-target="#topics-panel" hx-swap="innerHTML"
+      style="margin-bottom:12px">
+  <input type="hidden" name="topic" value="-">
+  <input type="hidden" name="action" value="renormalize">
+  <button type="submit" class="btn-secondary">Tidy existing topics</button>
+  <span class="hint">Merges variants like <code>futbol</code> into <code>football</code>.</span>
+</form>
+{% if not topics %}
+  <p class="hint">No topics yet. They are assigned when articles are scored.</p>
+{% endif %}
+<ul class="feed-list">
+  {% for t in topics %}
+    <li class="feed-item">
+      <div class="feed-main">
+        <a href="/?topic={{ t.topic }}"><strong>{{ t.topic }}</strong></a>
+        <span class="feed-meta">
+          {{ t.n }} article{{ 's' if t.n != 1 else '' }}
+          {%- if t.muted %} · <strong>muted</strong>
+          {%- elif t.adjustment %} · {{ '%+.2f'|format(t.adjustment) }}{% endif %}
+        </span>
+      </div>
+      <div class="feed-actions">
+        {% for act, label in [('boost','↑'), ('demote','↓'), ('mute','mute'), ('clear','clear')] %}
+          <form hx-post="/settings/topics" hx-target="#topics-panel" hx-swap="innerHTML"
+                style="display:inline">
+            <input type="hidden" name="topic" value="{{ t.topic }}">
+            <input type="hidden" name="action" value="{{ act }}">
+            <button type="submit" class="btn-icon" title="{{ act }}">{{ label }}</button>
+          </form>
+        {% endfor %}
+      </div>
+    </li>
+  {% endfor %}
+</ul>

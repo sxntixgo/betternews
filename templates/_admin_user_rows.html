@@ -1,0 +1,44 @@
+{% if error %}<p class="ollama-result ollama-result-bad">{{ error }}</p>{% endif %}
+{% if temp_password %}
+  <p class="ollama-result ollama-result-ok">
+    Temporary password for <strong>{{ temp_for }}</strong>:
+    <code>{{ temp_password }}</code><br>
+    Shown once — copy it now. They must change it at next sign-in.
+  </p>
+{% endif %}
+<ul class="feed-list">
+  {% for u in users %}
+    <li class="feed-item">
+      <div class="feed-main">
+        <strong>{{ u.username }}</strong>
+        <span class="feed-meta">
+          {{ u.role }}{% if u.id == me %} · you{% endif %}
+          {% if u.must_change_password %} · must change password{% endif %}
+          · joined {{ u.created_at | dt }}
+          · {{ u.read_count }} read, {{ u.votes }} votes
+          {% if u.last_login_at %} · last seen {{ u.last_login_at | dt }}{% endif %}
+        </span>
+      </div>
+      <div class="feed-actions">
+        <form hx-post="/admin/users/{{ u.id }}/role" hx-target="#admin-users" hx-swap="innerHTML"
+              style="display:inline">
+          <input type="hidden" name="role" value="{{ 'user' if u.role == 'admin' else 'admin' }}">
+          <button type="submit" class="btn-icon"
+                  title="{{ 'Demote to user' if u.role == 'admin' else 'Promote to admin' }}">
+            {{ '↓ user' if u.role == 'admin' else '↑ admin' }}
+          </button>
+        </form>
+        <form hx-post="/admin/users/{{ u.id }}/reset-password" hx-target="#admin-users"
+              hx-swap="innerHTML" style="display:inline"
+              hx-confirm="Reset {{ u.username }}'s password? They will need the new one to sign in.">
+          <button type="submit" class="btn-icon" title="Reset password">Reset</button>
+        </form>
+        <form hx-post="/admin/users/{{ u.id }}/delete" hx-target="#admin-users"
+              hx-swap="innerHTML" style="display:inline"
+              hx-confirm="Delete {{ u.username }}? Their votes and reading history go too.">
+          <button type="submit" class="btn-remove">Remove</button>
+        </form>
+      </div>
+    </li>
+  {% endfor %}
+</ul>

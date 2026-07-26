@@ -1,0 +1,69 @@
+<form hx-post="/settings/retention" hx-target="#retention-panel" hx-swap="innerHTML" class="models-form">
+  <div class="models-row">
+    <label for="retention_days">Keep articles for</label>
+    <input type="text" name="retention_days" id="retention_days" value="{{ days }}"
+           inputmode="numeric" autocomplete="off" style="max-width:90px"> days
+  </div>
+  <div class="models-row">
+    <label for="retention_confirmed" style="display:flex;align-items:center;gap:8px;cursor:pointer;width:auto">
+      <input type="checkbox" name="retention_confirmed" id="retention_confirmed" value="1"
+             {% if confirmed %}checked{% endif %}>
+      Enable automatic pruning
+    </label>
+  </div>
+  <p class="hint" style="margin:6px 0 12px">
+    Deletes articles older than the window. <strong>Favorites are never deleted</strong>,
+    and your votes keep a copy of the title and summary, so pruning never costs
+    the preference profile anything.
+    <br>
+    Feeds, settings and preferences are untouched — only articles are removed.
+    Set to <code>0</code> to disable.
+  </p>
+
+  <p class="ollama-result {{ 'ollama-result-bad' if preview.articles else 'ollama-result-ok' }}">
+    {% if preview.days == 0 %}
+      Pruning disabled. {{ preview.total }} articles stored.
+    {% else %}
+      Would delete <strong>{{ preview.articles }}</strong> of {{ preview.total }} articles
+      right now ({{ preview.saved }} favorited and protected).
+    {% endif %}
+  </p>
+
+  <div class="models-actions">
+    <button type="submit">Save</button>
+    <button type="submit" hx-post="/settings/retention/prune" class="btn-secondary"
+            hx-confirm="Delete {{ preview.articles }} articles now? This cannot be undone.">
+      Prune now
+    </button>
+    {% if saved %}<span class="models-saved">Saved.</span>{% endif %}
+    {% if pruned is not none %}<span class="models-saved">Pruned {{ pruned }}.</span>{% endif %}
+  </div>
+</form>
+
+<form hx-post="/settings/retention/clear-read" hx-target="#retention-panel" hx-swap="innerHTML"
+      class="models-form" style="margin-top:24px;border-top:1px solid var(--border);padding-top:16px">
+  <div class="models-row">
+    <label>Remove read articles</label>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      {% for u in users %}
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+          <input type="checkbox" name="user_id" value="{{ u.id }}"> {{ u.username }}
+        </label>
+      {% endfor %}
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input type="checkbox" name="all_users" value="1"> <strong>All users</strong>
+      </label>
+    </div>
+  </div>
+  <p class="hint" style="margin:6px 0 12px">
+    Clears read articles from the selected reading lists. Favorites are kept.
+    Article rows stay until nobody references them and they fall outside the
+    retention window, so this cannot remove anything from another user's list.
+  </p>
+  <div class="models-actions">
+    <button type="submit" hx-confirm="Remove read articles from the selected users?">
+      Remove read
+    </button>
+    {% if cleared is not none %}<span class="models-saved">Removed {{ cleared }}.</span>{% endif %}
+  </div>
+</form>

@@ -1,5 +1,10 @@
 .env
 data/*.db
+# `data/*.db` does not match subdirectories — a 116 MB pre-migration
+# snapshot under data/backups/ was committed and rejected by GitHub.
+data/backups/
+data/**/*.db
+data/**/*.dump
 data/*.db-wal
 data/*.db-shm
 data/*.db.bak

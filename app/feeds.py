@@ -6,6 +6,9 @@ from html.parser import HTMLParser
 import feedparser
 import flask
 
+from sqlalchemy import text
+
+from app import dedupe
 from app.db import get_db_direct
 
 log = logging.getLogger(__name__)
@@ -37,9 +40,9 @@ def poll_all_feeds(app: flask.Flask) -> None:
     with app.app_context():
         db = get_db_direct()
         try:
-            feeds = db.execute(
-                "SELECT id, url, etag, last_modified FROM feeds WHERE paused=0"
-            ).fetchall()
+            feeds = db.execute(text(
+                "SELECT id, url, etag, last_modified FROM feeds WHERE NOT paused"
+            )).mappings().all()
             for feed in feeds:
                 _poll_feed(db, feed["id"], feed["url"],
                            feed["etag"], feed["last_modified"])
@@ -61,9 +64,9 @@ def _poll_feed(db, feed_id: int, url: str,
         # Conditional GET hit — server says "nothing changed".
         if getattr(parsed, "status", None) == 304:
             db.execute(
-                "UPDATE feeds SET last_polled_at=?, last_success_at=?, "
-                "last_error=NULL, consecutive_failures=0 WHERE id=?",
-                (_utcnow(), _utcnow(), feed_id),
+                text("UPDATE feeds SET last_polled_at=:now, last_success_at=:now, "
+                     "last_error=NULL, consecutive_failures=0 WHERE id=:id"),
+                {"now": _utcnow(), "id": feed_id},
             )
             db.commit()
             log.info("Feed %s: 304 not modified", url)
@@ -79,10 +82,11 @@ def _poll_feed(db, feed_id: int, url: str,
         feed_title = parsed.feed.get("title", url)
         now = _utcnow()
         db.execute(
-            "UPDATE feeds SET title=?, last_polled_at=?, last_success_at=?, "
-            "last_error=NULL, consecutive_failures=0, etag=?, last_modified=? "
-            "WHERE id=?",
-            (feed_title, now, now, new_etag, new_modified, feed_id),
+            text("UPDATE feeds SET title=:title, last_polled_at=:now, "
+                 "last_success_at=:now, last_error=NULL, consecutive_failures=0, "
+                 "etag=:etag, last_modified=:modified WHERE id=:id"),
+            {"title": feed_title, "now": now, "etag": new_etag,
+             "modified": new_modified, "id": feed_id},
         )
 
         new_count = 0
@@ -95,16 +99,27 @@ def _poll_feed(db, feed_id: int, url: str,
             published = _parse_date(entry)
             thumbnail = _extract_thumbnail(entry)
 
-            cursor = db.execute(
-                """INSERT OR IGNORE INTO articles
+            cluster = dedupe.cluster_for(db, link, title)
+            params = {"feed_id": feed_id, "guid": guid, "url": link,
+                      "cluster": cluster,
+                      "title": title, "published": published,
+                      "snippet": snippet, "feed_content": feed_content,
+                      "thumbnail": thumbnail}
+            cursor = db.execute(text(
+                """INSERT INTO articles
                    (feed_id, guid, url, title, published_at,
-                    raw_snippet, feed_content, thumbnail_url)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (feed_id, guid, link, title, published,
-                 snippet, feed_content, thumbnail),
-            )
+                    raw_snippet, feed_content, thumbnail_url, cluster_id)
+                   SELECT :feed_id, :guid, :url, :title, :published,
+                          :snippet, :feed_content, :thumbnail, :cluster
+                   WHERE NOT EXISTS (
+                       SELECT 1 FROM seen_guids
+                       WHERE feed_id = :feed_id AND guid = :guid)
+                   ON CONFLICT (feed_id, guid) DO NOTHING"""), params)
             if cursor.rowcount:
                 new_count += 1
+                db.execute(text(
+                    "INSERT INTO seen_guids (feed_id, guid) VALUES (:feed_id, :guid) "
+                    "ON CONFLICT DO NOTHING"), params)
 
         db.commit()
         log.info("Feed %s: %d new articles", url, new_count)
@@ -117,15 +132,16 @@ def _record_failure(db, feed_id: int, error: str) -> None:
     """Bump consecutive_failures, store error, auto-pause if over threshold."""
     short = (error or "")[:300]
     db.execute(
-        "UPDATE feeds SET last_polled_at=?, last_error=?, "
-        "consecutive_failures=consecutive_failures+1 WHERE id=?",
-        (_utcnow(), short, feed_id),
+        text("UPDATE feeds SET last_polled_at=:now, last_error=:err, "
+             "consecutive_failures=consecutive_failures+1 WHERE id=:id"),
+        {"now": _utcnow(), "err": short, "id": feed_id},
     )
     row = db.execute(
-        "SELECT consecutive_failures FROM feeds WHERE id=?", (feed_id,)
-    ).fetchone()
+        text("SELECT consecutive_failures FROM feeds WHERE id=:id"),
+        {"id": feed_id},
+    ).mappings().first()
     if row and row["consecutive_failures"] >= AUTO_PAUSE_AFTER_FAILURES:
-        db.execute("UPDATE feeds SET paused=1 WHERE id=?", (feed_id,))
+        db.execute(text("UPDATE feeds SET paused=true WHERE id=:id"), {"id": feed_id})
         log.warning(
             "Feed id=%d auto-paused after %d consecutive failures",
             feed_id, row["consecutive_failures"],
@@ -186,17 +202,15 @@ def _extract_thumbnail(entry) -> str | None:
     return None
 
 
-def _parse_date(entry) -> str | None:
+def _parse_date(entry) -> datetime | None:
     published = entry.get("published_parsed") or entry.get("updated_parsed")
     if published:
         try:
-            return datetime(*published[:6], tzinfo=timezone.utc).strftime(
-                "%Y-%m-%dT%H:%M:%SZ"
-            )
+            return datetime(*published[:6], tzinfo=timezone.utc)
         except Exception:
             pass
     return None
 
 
-def _utcnow() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)

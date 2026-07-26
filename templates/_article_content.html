@@ -1,26 +1,53 @@
 {% if title %}
   <h1 class="modal-article-title">{{ title }}</h1>
 {% endif %}
+{% if original_title %}
+  <p class="original-title" title="Headline as published">
+    Originally: {{ original_title }}
+  </p>
+{% endif %}
 {% if description %}
   <p class="modal-description">{{ description }}</p>
 {% endif %}
-{% if blocks %}
-  {% for b in blocks %}
-    {% if b['type'] == 'ul' %}
-      <ul>
-        {% for item in b['items'] %}<li>{{ item }}</li>{% endfor %}
-      </ul>
-    {% elif b['type'] == 'embed' and b['platform'] == 'twitter' %}
-      <blockquote class="twitter-tweet" data-embed-platform="twitter">
-        <a href="{{ b['url'] }}">{{ b['url'] }}</a>
-      </blockquote>
-    {% elif b['type'] == 'embed' and b['platform'] == 'instagram' %}
-      <blockquote class="instagram-media" data-embed-platform="instagram"
-                  data-instgrm-permalink="{{ b['url'] }}" data-instgrm-version="14">
-        <a href="{{ b['url'] }}">{{ b['url'] }}</a>
-      </blockquote>
+
+{% macro render_block(b) -%}
+  {% if b['type'] == 'ul' %}
+    <ul>
+      {% for item in b['items'] %}<li>{{ item }}</li>{% endfor %}
+    </ul>
+  {% elif b['type'] == 'embed' and b['platform'] == 'twitter' %}
+    <blockquote class="twitter-tweet" data-embed-platform="twitter">
+      <a href="{{ b['url'] }}">{{ b['url'] }}</a>
+    </blockquote>
+  {% elif b['type'] == 'embed' and b['platform'] == 'instagram' %}
+    <blockquote class="instagram-media" data-embed-platform="instagram"
+                data-instgrm-permalink="{{ b['url'] }}" data-instgrm-version="14">
+      <a href="{{ b['url'] }}">{{ b['url'] }}</a>
+    </blockquote>
+  {% else %}
+    <p>{{ b['text'] }}</p>
+  {% endif %}
+{%- endmacro %}
+
+{% if groups %}
+  {% for g in groups %}
+    {% if not g['aside'] %}
+      {% for b in g['blocks'] %}{{ render_block(b) }}{% endfor %}
     {% else %}
-      <p>{{ b['text'] }}</p>
+      {# Nothing is ever dropped — even 'remove' only folds, so a misclassified
+         paragraph is always one click away rather than silently gone. #}
+      <details class="aside-block aside-{{ filter_mode }}">
+        <summary>
+          {%- if filter_mode == 'remove' -%}
+            {{ g['blocks'] | length }} section{{ 's' if g['blocks'] | length != 1 else '' }} hidden — show
+          {%- else -%}
+            {{ g['label'] }} — {{ g['blocks'] | length }} block{{ 's' if g['blocks'] | length != 1 else '' }}
+          {%- endif -%}
+        </summary>
+        <div class="aside-body">
+          {% for b in g['blocks'] %}{{ render_block(b) }}{% endfor %}
+        </div>
+      </details>
     {% endif %}
   {% endfor %}
 {% elif not description %}

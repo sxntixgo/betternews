@@ -2,6 +2,21 @@ import io
 from unittest.mock import MagicMock, patch
 
 import pytest
+from sqlalchemy import text
+
+
+def _mark_read(db, article_id):
+    from app.repo.articles import mark_read
+    from app.repo.users import ensure_bootstrap_user
+    mark_read(db, ensure_bootstrap_user(db), article_id)
+    db.commit()
+
+
+def _mark_saved(db, article_id):
+    from app.repo.articles import toggle_saved
+    from app.repo.users import ensure_bootstrap_user
+    toggle_saved(db, ensure_bootstrap_user(db), article_id)
+    db.commit()
 
 from tests.conftest import add_article, add_feed
 
@@ -17,7 +32,7 @@ def test_index_returns_200(client):
 def test_settings_page_renders(client):
     r = client.get("/settings")
     assert r.status_code == 200
-    assert b"Preference Profile" in r.data
+    assert b"Preference profile" in r.data
     assert b"Re-score hidden articles" in r.data
     # Manage-feeds widgets should NOT appear on the settings page anymore
     assert b"Add Feed" not in r.data
@@ -83,10 +98,7 @@ def test_articles_marks_read_class(client, app):
         db = get_db_direct()
         feed_id = add_feed(db)
         article_id = add_article(db, feed_id, title="ReadOne")
-        db.execute(
-            "UPDATE articles SET read_at='2026-01-01T00:00:00Z' WHERE id=?",
-            (article_id,),
-        )
+        _mark_read(db, article_id)
         db.commit()
         db.close()
     r = client.get("/articles")
@@ -126,9 +138,11 @@ def test_vote_like(client, app):
 
     with app.app_context():
         db = get_db_direct()
-        row = db.execute("SELECT status FROM articles WHERE id=?", (article_id,)).fetchone()
-        assert row["status"] == "liked"
-        vote = db.execute("SELECT value FROM votes WHERE article_id=?", (article_id,)).fetchone()
+        row = db.execute(text(
+            "SELECT opinion FROM user_article_state WHERE article_id=:p0"),
+            {"p0": article_id}).mappings().first()
+        assert row["opinion"] == "liked"
+        vote = db.execute(text("SELECT value FROM votes WHERE article_id=:p0"), {"p0": article_id}).mappings().first()
         assert vote["value"] == 1
         db.close()
 
@@ -185,7 +199,7 @@ def test_article_content_marks_read(client, app):
     assert r.status_code == 200
     with app.app_context():
         db = get_db_direct()
-        row = db.execute("SELECT read_at FROM articles WHERE id=?", (article_id,)).fetchone()
+        row = db.execute(text("SELECT s.read_at FROM user_article_state s JOIN articles a ON a.id = s.article_id WHERE a.id=:p0"), {"p0": article_id}).mappings().first()
         assert row["read_at"] is not None
         db.close()
 
@@ -205,7 +219,7 @@ def test_article_content_uses_feed_content_fallback(client, app):
             full_text=None,
             feed_content="Body from RSS feed_content tag.",
         )
-        article_id = db.execute("SELECT id FROM articles").fetchone()["id"]
+        article_id = db.execute(text("SELECT id FROM articles")).mappings().first()["id"]
         db.close()
     r = client.get(f"/article/{article_id}/content")
     assert b"feed_content" in r.data
@@ -259,7 +273,7 @@ def test_feeds_delete(client, app):
     from app.db import get_db_direct
     with app.app_context():
         db = get_db_direct()
-        feed_id = db.execute("SELECT id FROM feeds").fetchone()["id"]
+        feed_id = db.execute(text("SELECT id FROM feeds")).mappings().first()["id"]
         db.close()
     r = client.delete(f"/feeds/{feed_id}")
     assert r.status_code == 200
@@ -296,7 +310,7 @@ def test_feeds_import_opml_inserts_new(client, app):
     from app.db import get_db_direct
     with app.app_context():
         db = get_db_direct()
-        urls = {row["url"] for row in db.execute("SELECT url FROM feeds").fetchall()}
+        urls = {row["url"] for row in db.execute(text("SELECT url FROM feeds")).mappings().all()}
         assert urls == {"https://a.example.com/rss", "https://b.example.com/atom"}
         db.close()
 
@@ -375,51 +389,6 @@ def test_status_json(client, app):
 
 # ── Models endpoint ────────────────────────────────────────────────────────────
 
-@patch("app.routes.ollama_client.list_models")
-def test_models_form_renders_installed(mock_list, client):
-    mock_list.return_value = ["llama3.1:8b", "qwen2.5:7b"]
-    r = client.get("/settings/models")
-    assert r.status_code == 200
-    assert b"llama3.1:8b" in r.data
-    assert b"qwen2.5:7b" in r.data
-
-
-@patch("app.routes.ollama_client.list_models")
-def test_models_save_persists(mock_list, client, app):
-    mock_list.return_value = ["llama3.1:8b", "mistral:7b"]
-    r = client.post(
-        "/settings/models",
-        data={"scoring_model": "mistral:7b", "summary_model": "llama3.1:8b"},
-    )
-    assert r.status_code == 200
-    assert b"Saved" in r.data
-    from app.db import get_db_direct, get_setting
-    with app.app_context():
-        db = get_db_direct()
-        assert get_setting(db, "scoring_model") == "mistral:7b"
-        assert get_setting(db, "summary_model") == "llama3.1:8b"
-        db.close()
-
-
-def test_models_save_requires_both(client):
-    r = client.post("/settings/models", data={"scoring_model": "x"})
-    assert r.status_code == 400
-
-
-@patch("app.routes.ollama_client.list_models")
-def test_models_form_marks_uninstalled(mock_list, client, app):
-    mock_list.return_value = ["llama3.1:8b"]
-    from app.db import get_db_direct, set_setting
-    with app.app_context():
-        db = get_db_direct()
-        set_setting(db, "scoring_model", "ghost-model:1b")
-        db.commit()
-        db.close()
-    r = client.get("/settings/models")
-    assert b"not installed" in r.data
-
-
-# ── Preferences ────────────────────────────────────────────────────────────────
 
 def test_preferences_get_default(client):
     r = client.get("/preferences")
@@ -435,7 +404,7 @@ def test_preferences_save(client, app):
     from app.db import get_db_direct
     with app.app_context():
         db = get_db_direct()
-        row = db.execute("SELECT profile_text FROM preferences WHERE id=1").fetchone()
+        row = db.execute(text("SELECT profile_text FROM preferences WHERE id=1")).mappings().first()
         assert row["profile_text"] == "Loves Rust news."
         db.close()
 
@@ -475,19 +444,18 @@ def test_extract_reading_time_none():
     assert _extract_reading_time("no reading time here") is None
 
 
-def test_clean_content_strips_reading_time_and_junk():
+def test_clean_content_strips_reading_time():
     from app.routes import _clean_content
     text = (
         "Real first paragraph " * 20 + "\n"
         "- 4 minutos de lectura\n"
         "Otras noticias\n"
-        "- 1\n"
-        "more junk\n"
     )
     out = _clean_content(text, title="Real first paragraph")
     assert "lectura" not in out.lower()
-    assert "Otras noticias" not in out
-    assert "- 1" not in out
+    # Junk is no longer deleted here — content_filter classifies it instead, so
+    # the reader can fold it recoverably rather than truncating the body.
+    assert "Otras noticias" in out
 
 
 def test_clean_content_skips_duplicate_title_line():
@@ -503,12 +471,12 @@ def test_clean_content_skips_duplicate_description_line():
     assert out.startswith("Real body line")
 
 
-def test_clean_content_strips_numbered_related_list():
+def test_clean_content_keeps_pagination_for_the_filter_to_classify():
     from app.routes import _clean_content
     body = ("Real first paragraph " * 30).strip() + "\n- 1\nrelated thing"
     out = _clean_content(body)
-    assert "- 1" not in out
-    assert "related thing" not in out
+    assert "- 1" in out
+    assert "related thing" in out
 
 
 def test_to_blocks_groups_consecutive_dash_bullets():
@@ -596,7 +564,7 @@ def test_article_content_renders_twitter_embed_when_enabled(client, app):
         set_setting(db, "embeds_enabled", "1")
         feed_id = add_feed(db)
         add_article(db, feed_id, full_text=body)
-        article_id = db.execute("SELECT id FROM articles").fetchone()["id"]
+        article_id = db.execute(text("SELECT id FROM articles")).mappings().first()["id"]
         db.commit()
         db.close()
     r = client.get(f"/article/{article_id}/content")
@@ -613,7 +581,7 @@ def test_article_content_skips_embed_when_setting_off(client, app):
         db = get_db_direct()
         feed_id = add_feed(db)
         add_article(db, feed_id, full_text=body)
-        article_id = db.execute("SELECT id FROM articles").fetchone()["id"]
+        article_id = db.execute(text("SELECT id FROM articles")).mappings().first()["id"]
         db.close()
     r = client.get(f"/article/{article_id}/content")
     html = r.data.decode()
@@ -669,7 +637,7 @@ def test_article_content_renders_bulleted_list(client, app):
         db = get_db_direct()
         feed_id = add_feed(db)
         add_article(db, feed_id, full_text=body)
-        article_id = db.execute("SELECT id FROM articles").fetchone()["id"]
+        article_id = db.execute(text("SELECT id FROM articles")).mappings().first()["id"]
         db.close()
     r = client.get(f"/article/{article_id}/content")
     body_html = r.data.decode()
@@ -695,7 +663,7 @@ def test_article_content_skips_description_when_full_text_repeats_it(client, app
             raw_snippet=desc,
             full_text=body,
         )
-        article_id = db.execute("SELECT id FROM articles").fetchone()["id"]
+        article_id = db.execute(text("SELECT id FROM articles")).mappings().first()["id"]
         db.close()
     r = client.get(f"/article/{article_id}/content")
     assert r.data.count(b"Short unique preamble") == 1
@@ -932,7 +900,7 @@ def test_rescore_hidden_requeues_and_runs_pipeline(client, app):
     mock_pipeline.assert_called_once()
     with app.app_context():
         db = get_db_direct()
-        rows = {r["guid"]: r["status"] for r in db.execute("SELECT guid, status FROM articles")}
+        rows = {r["guid"]: r["status"] for r in db.execute(text("SELECT guid, status FROM articles")).mappings()}
         db.close()
     assert rows["h1"] == "new"
     assert rows["h2"] == "new"
@@ -954,12 +922,16 @@ def test_dismiss_all_marks_summarized_liked_disliked(client, app):
     assert b"dismissed 3" in r.data
     with app.app_context():
         db = get_db_direct()
-        rows = {row["guid"]: row["status"] for row in db.execute("SELECT guid, status FROM articles")}
+        rows = {r["guid"]: r["dismissed"] for r in db.execute(text(
+            """SELECT a.guid, (s.dismissed_at IS NOT NULL) AS dismissed
+               FROM articles a
+               LEFT JOIN user_article_state s ON s.article_id = a.id"""
+        )).mappings()}
         db.close()
-    assert rows["s"] == "dismissed"
-    assert rows["l"] == "dismissed"
-    assert rows["d"] == "dismissed"
-    assert rows["h"] == "hidden"
+    assert rows["s"] is True
+    assert rows["l"] is True
+    assert rows["d"] is True
+    assert rows["h"] is False        # hidden articles are not in the list
 
 
 def test_dismiss_all_respects_feed_filter(client, app):
@@ -976,10 +948,14 @@ def test_dismiss_all_respects_feed_filter(client, app):
     assert b"dismissed 1" in r.data
     with app.app_context():
         db = get_db_direct()
-        rows = {row["guid"]: row["status"] for row in db.execute("SELECT guid, status FROM articles")}
+        rows = {r["guid"]: r["dismissed"] for r in db.execute(text(
+            """SELECT a.guid, (s.dismissed_at IS NOT NULL) AS dismissed
+               FROM articles a
+               LEFT JOIN user_article_state s ON s.article_id = a.id"""
+        )).mappings()}
         db.close()
-    assert rows["k"] == "summarized"
-    assert rows["d"] == "dismissed"
+    assert rows["k"] is False
+    assert rows["d"] is True
 
 
 def test_dismiss_all_ignores_non_numeric_feed_arg(client, app):
@@ -1004,7 +980,7 @@ def test_feed_pause_marks_paused(client, app):
     assert r.status_code == 200
     with app.app_context():
         db = get_db_direct()
-        row = db.execute("SELECT paused FROM feeds WHERE id=?", (feed_id,)).fetchone()
+        row = db.execute(text("SELECT paused FROM feeds WHERE id=:p0"), {"p0": feed_id}).mappings().first()
         db.close()
     assert row["paused"] == 1
 
@@ -1014,20 +990,14 @@ def test_feed_resume_clears_paused_and_failures(client, app):
     with app.app_context():
         db = get_db_direct()
         feed_id = add_feed(db)
-        db.execute(
-            "UPDATE feeds SET paused=1, consecutive_failures=7, last_error='boom' WHERE id=?",
-            (feed_id,),
-        )
+        db.execute(text("UPDATE feeds SET paused=true, consecutive_failures=7, last_error='boom' WHERE id=:p0"), {"p0": feed_id})
         db.commit()
         db.close()
     r = client.post(f"/feeds/{feed_id}/resume")
     assert r.status_code == 200
     with app.app_context():
         db = get_db_direct()
-        row = db.execute(
-            "SELECT paused, consecutive_failures, last_error FROM feeds WHERE id=?",
-            (feed_id,),
-        ).fetchone()
+        row = db.execute(text("SELECT paused, consecutive_failures, last_error FROM feeds WHERE id=:p0"), {"p0": feed_id}).mappings().first()
         db.close()
     assert row["paused"] == 0
     assert row["consecutive_failures"] == 0
@@ -1044,7 +1014,7 @@ def test_feed_set_threshold_with_value(client, app):
     assert r.status_code == 200
     with app.app_context():
         db = get_db_direct()
-        row = db.execute("SELECT score_threshold FROM feeds WHERE id=?", (feed_id,)).fetchone()
+        row = db.execute(text("SELECT score_threshold FROM feeds WHERE id=:p0"), {"p0": feed_id}).mappings().first()
         db.close()
     assert abs(row["score_threshold"] - 0.55) < 1e-6
 
@@ -1054,14 +1024,14 @@ def test_feed_set_threshold_clears_when_empty(client, app):
     with app.app_context():
         db = get_db_direct()
         feed_id = add_feed(db)
-        db.execute("UPDATE feeds SET score_threshold=0.7 WHERE id=?", (feed_id,))
+        db.execute(text("UPDATE feeds SET score_threshold=0.7 WHERE id=:p0"), {"p0": feed_id})
         db.commit()
         db.close()
     r = client.post(f"/feeds/{feed_id}/threshold", data={"score_threshold": ""})
     assert r.status_code == 200
     with app.app_context():
         db = get_db_direct()
-        row = db.execute("SELECT score_threshold FROM feeds WHERE id=?", (feed_id,)).fetchone()
+        row = db.execute(text("SELECT score_threshold FROM feeds WHERE id=:p0"), {"p0": feed_id}).mappings().first()
         db.close()
     assert row["score_threshold"] is None
 
@@ -1102,9 +1072,11 @@ def test_article_save_toggles_on_and_off(client, app):
     assert r2.status_code == 200
     with app.app_context():
         db = get_db_direct()
-        row = db.execute("SELECT saved_at FROM articles WHERE id=?", (article_id,)).fetchone()
+        row = db.execute(text(
+            "SELECT saved_at FROM user_article_state WHERE article_id=:p0"),
+            {"p0": article_id}).mappings().first()
         db.close()
-    assert row["saved_at"] is None
+    assert row is None or row["saved_at"] is None
 
 
 def test_article_save_404(client):
@@ -1119,10 +1091,7 @@ def test_articles_saved_filter_returns_only_saved(client, app):
         feed_id = add_feed(db)
         a_saved = add_article(db, feed_id, seq=1, guid="s", status="summarized", title="SavedOne")
         add_article(db, feed_id, seq=2, guid="u", status="summarized", title="UnsavedOne")
-        db.execute(
-            "UPDATE articles SET saved_at='2026-04-19T00:00:00Z' WHERE id=?",
-            (a_saved,),
-        )
+        _mark_saved(db, a_saved)
         db.commit()
         db.close()
     r = client.get("/articles?saved=1")
@@ -1141,7 +1110,7 @@ def test_articles_saved_filter_pagination_qs(client, app):
                 db, feed_id, seq=i, guid=f"g{i}", status="summarized",
                 title=f"S{i}",
             )
-            db.execute("UPDATE articles SET saved_at='2026-04-19T00:00:00Z' WHERE id=?", (aid,))
+            _mark_saved(db, aid)
         db.commit()
         db.close()
     r = client.get("/articles?saved=1")
@@ -1173,26 +1142,10 @@ def test_search_returns_matching_articles(client, app):
     assert b"Cooking with cast iron" not in r.data
 
 
-def test_search_handles_fts_table_missing(client, app, caplog):
-    """If the FTS5 table is gone, /search logs a warning and returns 200 with no rows."""
-    import logging
-    caplog.set_level(logging.WARNING, logger="app.routes")
-    from app.db import get_db_direct
-    with app.app_context():
-        db = get_db_direct()
-        db.executescript(
-            "DROP TRIGGER IF EXISTS articles_ai;"
-            "DROP TRIGGER IF EXISTS articles_au;"
-            "DROP TRIGGER IF EXISTS articles_ad;"
-            "DROP TABLE IF EXISTS articles_fts;"
-        )
-        db.commit()
-        db.close()
-    r = client.get("/search?q=anything")
+def test_search_handles_bad_query_gracefully(client, app):
+    """websearch_to_tsquery tolerates junk that FTS5 MATCH would reject."""
+    r = client.get('/search?q=")((&^%$')
     assert r.status_code == 200
-    assert b"article-row" not in r.data
-    assert "FTS search failed" in caplog.text
-
 
 def test_search_quotes_escape_double_quotes(client, app):
     """A user query with embedded quotes is safely doubled inside the FTS phrase."""
@@ -1213,10 +1166,7 @@ def test_sidebar_feeds_includes_saved_count(client, app):
         db = get_db_direct()
         feed_id = add_feed(db, title="MyFeed")
         aid = add_article(db, feed_id, status="summarized")
-        db.execute(
-            "UPDATE articles SET saved_at='2026-04-19T00:00:00Z' WHERE id=?",
-            (aid,),
-        )
+        _mark_saved(db, aid)
         db.commit()
         db.close()
     r = client.get("/sidebar/feeds")
@@ -1270,7 +1220,7 @@ def test_feed_set_tags_stores_normalized_value(client, app):
     assert r.status_code == 200
     with app.app_context():
         db = get_db_direct()
-        row = db.execute("SELECT tags FROM feeds WHERE id=?", (feed_id,)).fetchone()
+        row = db.execute(text("SELECT tags FROM feeds WHERE id=:p0"), {"p0": feed_id}).mappings().first()
         db.close()
     assert row["tags"] == "news,tech"
 
@@ -1280,14 +1230,14 @@ def test_feed_set_tags_empty_clears_to_null(client, app):
     with app.app_context():
         db = get_db_direct()
         feed_id = add_feed(db)
-        db.execute("UPDATE feeds SET tags=? WHERE id=?", ("tech", feed_id))
+        db.execute(text("UPDATE feeds SET tags=:p0 WHERE id=:p1"), {"p0": "tech", "p1": feed_id})
         db.commit()
         db.close()
     r = client.post(f"/feeds/{feed_id}/tags", data={"tags": ""})
     assert r.status_code == 200
     with app.app_context():
         db = get_db_direct()
-        row = db.execute("SELECT tags FROM feeds WHERE id=?", (feed_id,)).fetchone()
+        row = db.execute(text("SELECT tags FROM feeds WHERE id=:p0"), {"p0": feed_id}).mappings().first()
         db.close()
     assert row["tags"] is None
 
@@ -1299,8 +1249,8 @@ def test_sidebar_feeds_groups_by_tag(client, app):
         tech_id = add_feed(db, url="https://t.example.com/rss", title="TechFeed")
         news_id = add_feed(db, url="https://n.example.com/rss", title="NewsFeed")
         untagged_id = add_feed(db, url="https://u.example.com/rss", title="LonelyFeed")
-        db.execute("UPDATE feeds SET tags='tech' WHERE id=?", (tech_id,))
-        db.execute("UPDATE feeds SET tags='news' WHERE id=?", (news_id,))
+        db.execute(text("UPDATE feeds SET tags='tech' WHERE id=:p0"), {"p0": tech_id})
+        db.execute(text("UPDATE feeds SET tags='news' WHERE id=:p0"), {"p0": news_id})
         db.commit()
         db.close()
     r = client.get("/sidebar/feeds")
@@ -1334,7 +1284,7 @@ def test_sidebar_feeds_feed_in_multiple_tags(client, app):
     with app.app_context():
         db = get_db_direct()
         fid = add_feed(db, title="Multi")
-        db.execute("UPDATE feeds SET tags='news,tech' WHERE id=?", (fid,))
+        db.execute(text("UPDATE feeds SET tags='news,tech' WHERE id=:p0"), {"p0": fid})
         db.commit()
         db.close()
     r = client.get("/sidebar/feeds")
@@ -1357,9 +1307,11 @@ def test_article_dismiss_marks_dismissed(client, app):
     assert r.status_code == 200
     with app.app_context():
         db = get_db_direct()
-        row = db.execute("SELECT status FROM articles WHERE id=?", (aid,)).fetchone()
+        row = db.execute(text(
+            "SELECT dismissed_at FROM user_article_state WHERE article_id=:p0"),
+            {"p0": aid}).mappings().first()
         db.close()
-    assert row["status"] == "dismissed"
+    assert row is not None and row["dismissed_at"] is not None
 
 
 def test_article_dismiss_unknown_returns_404(client):
@@ -1380,3 +1332,405 @@ def test_favicon_link_present_on_index(client):
 def test_favicon_link_present_on_settings(client):
     r = client.get("/settings")
     assert b'id="favicon"' in r.data
+
+
+# ── Ollama connection settings ─────────────────────────────────────────────────
+
+def _set_ollama(app, host, port):
+    from app.db import get_db_direct, set_setting
+    with app.app_context():
+        db = get_db_direct()
+        set_setting(db, "ollama_host", host)
+        set_setting(db, "ollama_port", port)
+        db.commit()
+        db.close()
+
+
+def test_ollama_form_shows_env_default_when_unset(client):
+    r = client.get("/settings/ollama")
+    assert r.status_code == 200
+    assert b"OLLAMA_HOST" in r.data
+
+
+def test_ollama_save_persists_and_reports(client, app):
+    r = client.post("/settings/ollama",
+                    data={"ollama_host": "10.0.10.207", "ollama_port": "11434"})
+    assert r.status_code == 200
+    assert b"Saved" in r.data
+    from app.db import get_db_direct, get_setting
+    with app.app_context():
+        db = get_db_direct()
+        assert get_setting(db, "ollama_host") == "10.0.10.207"
+        assert get_setting(db, "ollama_port") == "11434"
+        db.close()
+
+
+def test_ollama_save_rejects_bad_port(client, app):
+    r = client.post("/settings/ollama",
+                    data={"ollama_host": "10.0.10.207", "ollama_port": "70000"})
+    assert r.status_code == 200
+    assert b"between 1 and 65535" in r.data
+    from app.db import get_db_direct, get_setting
+    with app.app_context():
+        db = get_db_direct()
+        assert get_setting(db, "ollama_host") == ""   # nothing persisted
+        db.close()
+
+
+def test_ollama_save_rejects_host_with_port(client):
+    r = client.post("/settings/ollama",
+                    data={"ollama_host": "10.0.10.207:11434", "ollama_port": "11434"})
+    assert b"without a port" in r.data
+
+
+def test_ollama_save_blank_reverts_to_env(client, app):
+    _set_ollama(app, "10.0.10.207", "11434")
+    r = client.post("/settings/ollama", data={"ollama_host": "", "ollama_port": ""})
+    assert b"environment variable" in r.data
+    from app.db import get_db_direct, get_setting
+    with app.app_context():
+        db = get_db_direct()
+        assert get_setting(db, "ollama_host") == ""
+        db.close()
+
+
+@patch("app.routes.ollama_client.probe")
+def test_ollama_test_uses_entered_values_without_saving(mock_probe, client, app):
+    mock_probe.return_value = (True, "Connected to http://9.9.9.9:1234 — 1 model(s) installed.", ["a:1"])
+    r = client.post("/settings/ollama/test",
+                    data={"ollama_host": "9.9.9.9", "ollama_port": "1234"})
+    assert r.status_code == 200
+    assert b"1 model(s) installed" in r.data
+    assert b"a:1" in r.data
+    mock_probe.assert_called_once_with("http://9.9.9.9:1234")
+    from app.db import get_db_direct, get_setting
+    with app.app_context():
+        db = get_db_direct()
+        assert get_setting(db, "ollama_host") == ""   # probe must not persist
+        db.close()
+
+
+@patch("app.routes.ollama_client.probe")
+def test_ollama_test_reports_failure(mock_probe, client):
+    mock_probe.return_value = (False, "Connection refused — nothing listening on http://9.9.9.9:1234.", [])
+    r = client.post("/settings/ollama/test",
+                    data={"ollama_host": "9.9.9.9", "ollama_port": "1234"})
+    assert b"Connection refused" in r.data
+    assert b"ollama-result-bad" in r.data
+
+
+def test_ollama_test_validates_before_probing(client):
+    r = client.post("/settings/ollama/test",
+                    data={"ollama_host": "bad host", "ollama_port": "1234"})
+    assert b"not a valid hostname" in r.data
+
+
+@patch("app.routes.ollama_client.probe")
+def test_ollama_test_with_blank_fields_probes_env_default(mock_probe, client):
+    mock_probe.return_value = (True, "ok", [])
+    client.post("/settings/ollama/test", data={"ollama_host": "", "ollama_port": ""})
+    from app import ollama_client as oc
+    mock_probe.assert_called_once_with(oc.OLLAMA_BASE)
+
+
+
+def _set_declickbait(app, on=True):
+    from app.db import get_db_direct, set_setting
+    with app.app_context():
+        db = get_db_direct()
+        set_setting(db, "declickbait_enabled", "1" if on else "")
+        db.commit()
+        db.close()
+
+
+def _clickbait_article(app):
+    from app.db import get_db_direct
+    from tests.conftest import add_article, add_feed
+    with app.app_context():
+        db = get_db_direct()
+        fid = add_feed(db)
+        aid = add_article(db, fid, title="You won't believe what happened")
+        db.execute(text("UPDATE articles SET clean_title=:p0, title_was_clickbait=true WHERE id=:p1"), {"p0": "Council approves budget", "p1": aid})
+        db.commit()
+        db.close()
+    return aid
+
+
+def test_titles_setting_toggles(client, app):
+    assert b"Rewrite clickbait headlines" in client.get("/settings/titles").data
+    r = client.post("/settings/titles", data={"declickbait_enabled": "1"})
+    assert b"Saved" in r.data
+    from app.db import get_db_direct, get_setting
+    with app.app_context():
+        db = get_db_direct()
+        assert get_setting(db, "declickbait_enabled") == "1"
+        db.close()
+    client.post("/settings/titles", data={})
+    with app.app_context():
+        db = get_db_direct()
+        assert get_setting(db, "declickbait_enabled") == ""
+        db.close()
+
+
+def test_card_shows_rewrite_and_original_when_enabled(client, app):
+    _clickbait_article(app)
+    _set_declickbait(app, True)
+    data = client.get("/articles").data
+    assert b"Council approves budget" in data
+    assert b"Originally:" in data
+    assert b"You won&#39;t believe what happened" in data
+
+
+def test_card_shows_original_only_when_disabled(client, app):
+    _clickbait_article(app)
+    _set_declickbait(app, False)
+    data = client.get("/articles").data
+    assert b"You won&#39;t believe what happened" in data
+    assert b"Council approves budget" not in data
+    assert b"Originally:" not in data
+
+
+def test_card_unaffected_for_articles_without_rewrite(client, app):
+    """Articles summarized before the feature existed must render unchanged."""
+    from app.db import get_db_direct
+    from tests.conftest import add_article, add_feed
+    with app.app_context():
+        db = get_db_direct()
+        add_article(db, add_feed(db), title="Plain Headline")
+        db.close()
+    _set_declickbait(app, True)
+    data = client.get("/articles").data
+    assert b"Plain Headline" in data
+    assert b"Originally:" not in data
+
+
+def test_reader_modal_shows_rewrite_and_original(client, app):
+    aid = _clickbait_article(app)
+    _set_declickbait(app, True)
+    data = client.get(f"/article/{aid}/content").data
+    assert b"Council approves budget" in data
+    assert b"Originally:" in data
+
+
+def test_reader_modal_uses_original_when_disabled(client, app):
+    aid = _clickbait_article(app)
+    _set_declickbait(app, False)
+    data = client.get(f"/article/{aid}/content").data
+    assert b"You won&#39;t believe what happened" in data
+    assert b"Originally:" not in data
+
+
+def test_search_matches_original_title_while_showing_rewrite(client, app):
+    """FTS indexes the stored title, so the published wording stays findable."""
+    _clickbait_article(app)
+    _set_declickbait(app, True)
+    data = client.get("/search?q=believe").data
+    assert b"Council approves budget" in data
+    assert b"Originally:" in data
+
+
+def test_vote_response_card_respects_setting(client, app):
+    aid = _clickbait_article(app)
+    _set_declickbait(app, True)
+    data = client.post(f"/vote/{aid}/1").data
+    assert b"Council approves budget" in data
+
+
+# ── Content filter: reader rendering ───────────────────────────────────────────
+
+def _set_filter(app, mode, llm=False):
+    from app.db import get_db_direct, set_setting
+    with app.app_context():
+        db = get_db_direct()
+        set_setting(db, "content_filter_mode", mode)
+        set_setting(db, "content_filter_llm", "1" if llm else "")
+        db.commit()
+        db.close()
+
+
+def _padded_article(app, body=None):
+    from app.db import get_db_direct
+    from tests.conftest import add_article, add_feed
+    body = body or ("The council approved the budget on Tuesday.\n"
+                    "The vote was seven to two.\n"
+                    "Otras noticias\n"
+                    "Some unrelated headline\n"
+                    "Another unrelated headline")
+    with app.app_context():
+        db = get_db_direct()
+        aid = add_article(db, add_feed(db), full_text=body)
+        db.commit()
+        db.close()
+    return aid
+
+
+def test_filter_off_renders_everything_flat(client, app):
+    aid = _padded_article(app)
+    _set_filter(app, "off")
+    data = client.get(f"/article/{aid}/content").get_data(as_text=True)
+    assert "Otras noticias" in data
+    assert "Some unrelated headline" in data
+    assert "aside-block" not in data
+
+
+def test_filter_remove_folds_padding_but_keeps_it(client, app):
+    aid = _padded_article(app)
+    _set_filter(app, "remove")
+    data = client.get(f"/article/{aid}/content").get_data(as_text=True)
+    assert "The council approved the budget" in data
+    assert "aside-remove" in data
+    assert "hidden — show" in data
+    # Folded, never dropped — a misjudgement stays one click away.
+    assert "Some unrelated headline" in data
+
+
+def test_filter_highlight_labels_the_aside(client, app):
+    aid = _padded_article(app)
+    _set_filter(app, "highlight")
+    data = client.get(f"/article/{aid}/content").get_data(as_text=True)
+    assert "aside-highlight" in data
+    assert "Related links" in data
+    assert "Some unrelated headline" in data
+
+
+def test_consecutive_asides_collapse_into_one_group(client, app):
+    aid = _padded_article(app)
+    _set_filter(app, "remove")
+    data = client.get(f"/article/{aid}/content").get_data(as_text=True)
+    assert data.count("<details") == 1
+    assert "3 sections hidden" in data
+
+
+def test_clean_article_has_no_aside_markup(client, app):
+    aid = _padded_article(app, body="First paragraph.\nSecond paragraph.\nThird.")
+    _set_filter(app, "remove")
+    data = client.get(f"/article/{aid}/content").get_data(as_text=True)
+    assert "aside-block" not in data
+    assert "Second paragraph" in data
+
+
+def test_stored_llm_spans_are_applied(client, app):
+    from app import content_filter as cf
+    from app.db import get_db_direct
+    recap = "Last month the mayor resigned in a separate scandal."
+    aid = _padded_article(app, body=f"Today the council met.\n{recap}\nThe vote passed.")
+    with app.app_context():
+        db = get_db_direct()
+        db.execute(text("UPDATE articles SET aside_spans=CAST(:s AS jsonb) WHERE id=:id"),
+                   {"s": cf.dump_spans([(cf.fingerprint(recap), cf.KIND_OLDER)]), "id": aid})
+        db.commit()
+        db.close()
+    _set_filter(app, "highlight")
+    data = client.get(f"/article/{aid}/content").get_data(as_text=True)
+    assert "Older coverage" in data
+    assert recap in data
+
+
+def test_corrupt_aside_spans_degrade_to_pattern_pass(client, app):
+    from app.db import get_db_direct
+    aid = _padded_article(app)
+    with app.app_context():
+        db = get_db_direct()
+        db.execute(text("UPDATE articles SET aside_spans=CAST(:s AS jsonb) WHERE id=:id"),
+                   {"s": '"not-a-list"', "id": aid})
+        db.commit()
+        db.close()
+    _set_filter(app, "remove")
+    data = client.get(f"/article/{aid}/content").get_data(as_text=True)
+    assert "The council approved the budget" in data   # never a blank reader
+    assert "aside-block" in data                        # pass 1 still ran
+
+
+def test_group_blocks_merges_runs():
+    from app.routes import _group_blocks
+    groups = _group_blocks([
+        {"type": "p", "text": "a"},
+        {"type": "p", "text": "b", "aside": "promo"},
+        {"type": "p", "text": "c", "aside": "promo"},
+        {"type": "p", "text": "d"},
+    ])
+    assert [g["aside"] for g in groups] == [None, "promo", None]
+    assert len(groups[1]["blocks"]) == 2
+    assert groups[1]["label"] == "Related links" or groups[1]["label"] == "Promotion"
+
+
+# ── Content filter: settings ───────────────────────────────────────────────────
+
+def test_content_filter_settings_defaults_to_remove(client):
+    data = client.get("/settings/content").get_data(as_text=True)
+    assert 'value="remove" selected' in data
+
+
+def test_content_filter_settings_save(client, app):
+    r = client.post("/settings/content",
+                    data={"content_filter_mode": "highlight", "content_filter_llm": "1"})
+    assert b"Saved" in r.data
+    from app.db import get_db_direct, get_setting
+    with app.app_context():
+        db = get_db_direct()
+        assert get_setting(db, "content_filter_mode") == "highlight"
+        assert get_setting(db, "content_filter_llm") == "1"
+        db.close()
+
+
+def test_content_filter_rejects_unknown_mode(client):
+    r = client.post("/settings/content", data={"content_filter_mode": "destroy"})
+    assert r.status_code == 400
+
+
+def test_content_filter_mode_falls_back_on_bad_stored_value(client, app):
+    from app.db import get_db_direct, set_setting
+    with app.app_context():
+        db = get_db_direct()
+        set_setting(db, "content_filter_mode", "nonsense")
+        db.commit()
+        db.close()
+    aid = _padded_article(app)
+    data = client.get(f"/article/{aid}/content").get_data(as_text=True)
+    assert "aside-remove" in data   # default, not a crash
+
+
+def test_bullet_list_inside_a_rail_is_marked_aside(client, app):
+    """A related-stories rail is usually a bulleted list of other headlines."""
+    aid = _padded_article(app, body=("The council approved the budget.\n"
+                                     "Related\n"
+                                     "- Other story one\n"
+                                     "- Other story two"))
+    _set_filter(app, "highlight")
+    data = client.get(f"/article/{aid}/content").get_data(as_text=True)
+    assert "aside-highlight" in data
+    assert "<li>Other story one</li>" in data
+    # The real body must sit outside the aside.
+    body_before_aside = data.split("<details")[0]
+    assert "The council approved the budget" in body_before_aside
+
+
+def test_bullet_run_splits_when_a_rail_starts_mid_list():
+    """A rail heading inside a list must not drag the real items in with it."""
+    from app.routes import _to_blocks
+    from app import content_filter as cf
+    lines = ["- real one", "- real two", "Related", "- other story"]
+    kinds = cf.classify_lines(lines)
+    blocks = _to_blocks("\n".join(lines), aside_kinds=kinds)
+    uls = [b for b in blocks if b["type"] == "ul"]
+    assert len(uls) == 2
+    assert uls[0]["items"] == ["real one", "real two"]
+    assert "aside" not in uls[0]
+    assert uls[1]["items"] == ["other story"]
+    assert uls[1]["aside"] == cf.KIND_RELATED
+
+
+def test_search_survives_backend_failure(client, app, monkeypatch, caplog):
+    """A search backend error returns an empty list, not a 500."""
+    import logging
+    caplog.set_level(logging.WARNING, logger="app.routes")
+    from app.repo import articles as art_repo
+    monkeypatch.setattr(art_repo, "search",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    r = client.get("/search?q=anything")
+    assert r.status_code == 200
+    assert "Search failed" in caplog.text
+
+
+def test_vote_on_unknown_article_returns_404(client):
+    assert client.post("/vote/999999/1").status_code == 404

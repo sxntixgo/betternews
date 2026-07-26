@@ -627,7 +627,8 @@ button:disabled { opacity: 0.4; cursor: default; }
 .models-form { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
 .models-row { display: flex; align-items: center; gap: 12px; }
 .models-row label { width: 130px; font-size: 14px; color: var(--muted); }
-.models-row select {
+.models-row select,
+.models-row input[type="text"] {
   flex: 1;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -639,6 +640,69 @@ button:disabled { opacity: 0.4; cursor: default; }
 .models-actions { display: flex; align-items: center; gap: 12px; }
 .models-saved { font-size: 13px; color: var(--accent); }
 .models-warn { font-size: 13px; color: var(--muted); }
+
+/* Result line under the Ollama connection form (save / validation / probe). */
+.ollama-result {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.ollama-result-ok  { color: var(--accent); border-color: var(--accent); }
+.ollama-result-bad { color: #d14343; border-color: #d14343; }
+[data-theme="dark"] .ollama-result-bad { color: #ff8080; border-color: #ff8080; }
+
+/* Original headline shown beneath a de-clickbaited rewrite, so the model's
+   edit is always visible and checkable rather than silently replacing it. */
+.original-title {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+  font-style: italic;
+}
+.modal-article-title + .original-title { margin-bottom: 10px; }
+
+/* Padding sections in the reader. Collapsed by default in both modes — the
+   content is folded, never dropped, so a misclassification is recoverable. */
+.aside-block {
+  margin: 16px 0;
+  border-left: 2px solid var(--border);
+  padding-left: 12px;
+}
+.aside-block > summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--muted);
+  list-style: none;
+  padding: 4px 0;
+}
+.aside-block > summary::-webkit-details-marker { display: none; }
+.aside-block > summary::before { content: "▸ "; }
+.aside-block[open] > summary::before { content: "▾ "; }
+.aside-block > summary:hover { color: var(--fg); }
+.aside-block.aside-highlight {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+.aside-body { opacity: .75; font-size: 95%; }
+.aside-body > *:last-child { margin-bottom: 0; }
+
+/* Settings page: grouped sections, so new toggles have somewhere to land. */
+.settings-group { margin-bottom: 40px; }
+.settings-group > h2 {
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.settings-group > h3 {
+  margin: 24px 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.settings-group > h3:first-of-type { margin-top: 16px; }
 
 h2 { margin-bottom: 16px; font-size: 18px; }
 
@@ -726,3 +790,113 @@ dialog[open] { display: flex; flex-direction: column; }
 .modal-body li:last-child { margin-bottom: 0; }
 .modal-article-title { font-size: 32px; font-weight: 800; line-height: 1.2; margin-bottom: 20px; color: var(--fg); }
 .modal-description { font-size: 22px; line-height: 1.5; color: var(--fg); font-weight: 500; margin-bottom: 24px; }
+
+/* Sign-in / register card */
+.auth-card { max-width: 420px; margin: 48px auto; }
+.auth-card h2 { margin-bottom: 12px; }
+.auth-card .models-row label { width: 90px; }
+.auth-card input[type="text"],
+.auth-card input[type="password"] {
+  flex: 1;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 14px;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+/* Topic chips */
+.topic-chips { margin: 4px 0 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.topic-chip {
+  font-size: 11px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 8px;
+  text-decoration: none;
+}
+.topic-chip:hover { color: var(--fg); border-color: var(--fg); }
+
+.dup-note { margin: 2px 0 0; font-size: 11px; color: var(--muted); }
+
+/* Insights */
+.insight-headline { font-size: 15px; margin: 8px 0; }
+.histogram { width: 100%; max-width: 460px; height: auto; margin: 8px 0; }
+.hist-bar { fill: var(--accent); opacity: .75; }
+.hist-bar:hover { opacity: 1; }
+.hist-threshold { stroke: #d14343; stroke-width: 2; stroke-dasharray: 4 3; }
+[data-theme="dark"] .hist-threshold { stroke: #ff8080; }
+
+/* "What you missed" briefing */
+.digest-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin: 0 0 16px;
+  background: var(--bg);
+}
+.digest-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.digest-head h2 { margin: 0; font-size: 15px; }
+.digest-meta { font-size: 12px; color: var(--muted); }
+.digest-actions { margin-left: auto; display: flex; gap: 4px; }
+.digest-body { font-size: 14px; line-height: 1.6; }
+.digest-body strong { display: inline-block; margin-top: 6px; }
+.digest-refs { font-size: 11px; color: var(--muted); margin-left: 4px; }
+.digest-link { color: var(--muted); text-decoration: none; }
+.digest-link:hover { color: var(--accent); }
+
+.offline-bar {
+  background: #8a6d00;
+  color: #fff;
+  font-size: 13px;
+  padding: 6px 12px;
+  text-align: center;
+}
+[data-theme="dark"] .offline-bar { background: #6b5500; }
+
+/* Per-job model selection */
+.action-models { list-style: none; padding: 0; margin: 0; }
+.action-model {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: start;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+}
+.action-model:first-child { border-top: none; }
+.action-model .hint { margin: 3px 0 0; }
+.action-model-form { grid-column: 2; }
+.action-model-form select {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  background: var(--bg);
+  color: var(--fg);
+  min-width: 190px;
+}
+.action-model .ollama-result { grid-column: 1 / -1; }
+.action-tag {
+  font-size: 10px;
+  letter-spacing: .04em;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 4px;
+  vertical-align: 1px;
+}
+.action-model-missing > .action-model-info strong { color: #d14343; }
+[data-theme="dark"] .action-model-missing > .action-model-info strong { color: #ff8080; }
+@media (max-width: 600px) {
+  .action-model { grid-template-columns: 1fr; }
+  .action-model-form { grid-column: 1; }
+}
+
+/* Per-user topic stances on the profile */
+.btn-icon.stance-on {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}

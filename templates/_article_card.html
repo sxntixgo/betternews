@@ -1,4 +1,4 @@
-<div class="article-row {{ article.status }}{% if article.read_at %} read{% endif %}{% if article.saved_at %} saved{% endif %}" id="card-{{ article.id }}"
+<div class="article-row {{ article.opinion or article.status }}{% if article.read_at %} read{% endif %}{% if article.saved_at %} saved{% endif %}" id="card-{{ article.id }}"
      data-article-id="{{ article.id }}"
      data-url="{{ article.url }}"
      data-title="{{ article.title | e }}">
@@ -21,7 +21,7 @@
           {{ "%.0f"|format(article.score * 100) }}%
         </span>
       {% endif %}
-      <span class="article-title">{{ article.title }}</span>
+      <span class="article-title">{{ article.display_title or article.title }}</span>
       <div class="article-actions-inline">
         <button
           hx-post="/article/{{ article.id }}/save"
@@ -34,16 +34,31 @@
           hx-post="/vote/{{ article.id }}/1"
           hx-target="#card-{{ article.id }}"
           hx-swap="outerHTML"
-          {% if article.status == 'liked' %}disabled aria-pressed="true"{% endif %}
+          {% if article.opinion == 'liked' %}disabled aria-pressed="true"{% endif %}
           class="btn-icon btn-like" title="Like (l)">👍</button>
         <button
           hx-post="/vote/{{ article.id }}/-1"
           hx-target="#card-{{ article.id }}"
           hx-swap="outerHTML"
-          {% if article.status == 'disliked' %}disabled aria-pressed="true"{% endif %}
+          {% if article.opinion == 'disliked' %}disabled aria-pressed="true"{% endif %}
           class="btn-icon btn-dislike" title="Dislike">👎</button>
       </div>
     </div>
+    {% if article.original_title %}
+      <p class="original-title" title="Headline as published">
+        Originally: {{ article.original_title }}
+      </p>
+    {% endif %}
+    {% if article.duplicate_count %}
+      <p class="dup-note" title="Also carried by other feeds">
+        + {{ article.duplicate_count }} other feed{{ 's' if article.duplicate_count != 1 else '' }}
+      </p>
+    {% endif %}
+    {% if article.topics %}
+      <p class="topic-chips">
+        {% for t in article.topics %}<a class="topic-chip" href="/?topic={{ t }}">{{ t }}</a>{% endfor %}
+      </p>
+    {% endif %}
     {% if article.summary %}
       <p class="article-summary">{{ article.summary }}</p>
     {% endif %}

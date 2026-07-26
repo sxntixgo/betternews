@@ -1,108 +1,109 @@
+"""Database plumbing: engine, request-scoped connections, settings helpers.
+
+No business logic — that lives in `app/repo/`.
+
+The engine is created lazily on first use rather than at import, so tests can
+point `DATABASE_URL` at a throwaway database before anything connects.
+"""
+
 import os
-import sqlite3
 from pathlib import Path
 
 import flask
+from sqlalchemy import create_engine, delete, insert, select, text, update
+from sqlalchemy.engine import Connection, Engine
 
-SCHEMA_PATH = Path(__file__).parent / "schema.sql"
+from app.models import settings as settings_t
+
+DEFAULT_URL = "postgresql+psycopg://betterread:betterread@db:5432/betterread"
+
+_engine: Engine | None = None
 
 
-def _db_path() -> Path:
-    return Path(os.environ.get("DB_PATH", "/app/data/rss.db"))
+def database_url() -> str:
+    return os.environ.get("DATABASE_URL", DEFAULT_URL)
 
 
-def get_db() -> sqlite3.Connection:
-    """Return request-scoped DB connection. Use inside Flask request context."""
+def get_engine() -> Engine:
+    global _engine
+    if _engine is None:
+        _engine = create_engine(
+            database_url(),
+            pool_pre_ping=True,   # a Postgres restart shouldn't poison the pool
+            pool_size=5,
+            max_overflow=5,
+            future=True,
+        )
+    return _engine
+
+
+def dispose_engine() -> None:
+    """Drop the pooled engine. Used by tests between databases."""
+    global _engine
+    if _engine is not None:
+        _engine.dispose()
+        _engine = None
+
+
+def get_db() -> Connection:
+    """Request-scoped connection. Committed by `close_db` on a clean response."""
     if "db" not in flask.g:
-        flask.g.db = _open_connection()
+        flask.g.db = get_engine().connect()
     return flask.g.db
 
 
-def get_db_direct() -> sqlite3.Connection:
-    """Open a standalone connection. Caller is responsible for closing it."""
-    return _open_connection()
+def get_db_direct() -> Connection:
+    """Standalone connection for background jobs. Caller must close it."""
+    return get_engine().connect()
 
 
 def close_db(e: BaseException | None = None) -> None:
     db = flask.g.pop("db", None)
     if db is not None:
-        db.close()
-
-
-_ARTICLE_MIGRATIONS = (
-    "ALTER TABLE articles ADD COLUMN thumbnail_url TEXT",
-    "ALTER TABLE articles ADD COLUMN read_at TEXT",
-    "ALTER TABLE articles ADD COLUMN feed_content TEXT",
-    "ALTER TABLE articles ADD COLUMN saved_at TEXT",
-)
-_FEED_MIGRATIONS = (
-    "ALTER TABLE feeds ADD COLUMN last_success_at TEXT",
-    "ALTER TABLE feeds ADD COLUMN last_error TEXT",
-    "ALTER TABLE feeds ADD COLUMN consecutive_failures INTEGER NOT NULL DEFAULT 0",
-    "ALTER TABLE feeds ADD COLUMN paused INTEGER NOT NULL DEFAULT 0",
-    "ALTER TABLE feeds ADD COLUMN score_threshold REAL",
-    "ALTER TABLE feeds ADD COLUMN etag TEXT",
-    "ALTER TABLE feeds ADD COLUMN last_modified TEXT",
-    "ALTER TABLE feeds ADD COLUMN tags TEXT",
-)
+        try:
+            if e is None:
+                db.commit()
+            else:
+                db.rollback()
+        finally:
+            db.close()
 
 
 def init_db() -> None:
-    db = get_db_direct()
-    db.executescript(SCHEMA_PATH.read_text())
-    for stmt in _ARTICLE_MIGRATIONS + _FEED_MIGRATIONS:
-        try:
-            db.execute(stmt)
-        except Exception:
-            pass
-    # FTS5 virtual table mirrors articles for full-text search.
-    try:
-        db.executescript(
-            """
-            CREATE VIRTUAL TABLE IF NOT EXISTS articles_fts USING fts5(
-                title, summary, full_text,
-                content='articles', content_rowid='id', tokenize='porter unicode61'
-            );
-            CREATE TRIGGER IF NOT EXISTS articles_ai AFTER INSERT ON articles BEGIN
-                INSERT INTO articles_fts(rowid, title, summary, full_text)
-                VALUES (new.id, new.title, new.summary, new.full_text);
-            END;
-            CREATE TRIGGER IF NOT EXISTS articles_ad AFTER DELETE ON articles BEGIN
-                INSERT INTO articles_fts(articles_fts, rowid, title, summary, full_text)
-                VALUES('delete', old.id, old.title, old.summary, old.full_text);
-            END;
-            CREATE TRIGGER IF NOT EXISTS articles_au AFTER UPDATE ON articles BEGIN
-                INSERT INTO articles_fts(articles_fts, rowid, title, summary, full_text)
-                VALUES('delete', old.id, old.title, old.summary, old.full_text);
-                INSERT INTO articles_fts(rowid, title, summary, full_text)
-                VALUES (new.id, new.title, new.summary, new.full_text);
-            END;
-            """
-        )
-    except Exception:
-        pass
-    db.commit()
-    db.close()
+    """Bring the schema up to date by running Alembic to head.
+
+    Deliberately not `metadata.create_all`: using the migrations as the only
+    path means every startup and every test run exercises them, so a broken
+    migration is caught immediately rather than the first time it meets real
+    data.
+    """
+    from alembic import command
+    from alembic.config import Config
+
+    root = Path(__file__).resolve().parent.parent
+    cfg = Config(str(root / "alembic.ini"))
+    cfg.set_main_option("script_location", str(root / "migrations"))
+    cfg.set_main_option("sqlalchemy.url", database_url())
+    command.upgrade(cfg, "head")
 
 
-def get_setting(db, key: str, default: str = "") -> str:
-    row = db.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
-    return row["value"] if row else default
+def get_setting(db: Connection, key: str, default: str = "") -> str:
+    row = db.execute(
+        select(settings_t.c.value).where(settings_t.c.key == key)
+    ).first()
+    return row[0] if row else default
 
 
-def set_setting(db, key: str, value: str) -> None:
-    db.execute(
-        "INSERT INTO settings(key, value) VALUES(?, ?) "
-        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-        (key, value),
-    )
+def set_setting(db: Connection, key: str, value: str) -> None:
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+    stmt = pg_insert(settings_t).values(key=key, value=value)
+    db.execute(stmt.on_conflict_do_update(
+        index_elements=[settings_t.c.key], set_={"value": stmt.excluded.value}
+    ))
 
 
-def _open_connection() -> sqlite3.Connection:
-    db_path = _db_path()
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(db_path))
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    return conn
+__all__ = [
+    "database_url", "get_engine", "dispose_engine", "get_db", "get_db_direct",
+    "close_db", "init_db", "get_setting", "set_setting",
+    "select", "insert", "update", "delete", "text",
+]

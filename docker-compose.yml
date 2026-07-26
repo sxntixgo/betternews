@@ -1,18 +1,66 @@
 services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-betterread}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-betterread}
+      POSTGRES_DB: ${POSTGRES_DB:-betterread}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Old SQLite file stays mounted read-only so the one-shot import can
+      # reach it. Safe to drop once the migration is done and verified.
+      - ./data:/legacy:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-betterread} -d ${POSTGRES_DB:-betterread}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
   web:
     build: .
+    # Bound to localhost: Tailscale reaches it from there, the rest of the LAN
+    # does not. Matches what docs/plan.md specified originally.
     ports:
-      - "5001:5000"  # Tailscale on Windows host exposes this to your Tailnet
+      - "127.0.0.1:5001:5000"
     volumes:
-      - ./data:/app/data        # SQLite DB persists across rebuilds
+      - ./data:/app/data
     env_file:
       - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://betterread:betterread@db:5432/betterread}
+    depends_on:
+      db:
+        condition: service_healthy
     extra_hosts:
       - "host.docker.internal:host-gateway"  # Required for Linux containers to reach Windows host
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/')"]
+      # /health is 503 when feeds are all paused or nothing has been ingested
+      # for hours — a container that answers HTTP but ingests nothing is not healthy.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
       interval: 60s
       timeout: 10s
       retries: 3
       start_period: 15s
+
+  # APScheduler lives here, not in a gunicorn worker: one scheduler per worker
+  # means every job fires once per worker.
+  worker:
+    build: .
+    command: ["python", "-m", "app.worker"]
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://betterread:betterread@db:5432/betterread}
+    depends_on:
+      db:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+volumes:
+  pgdata:

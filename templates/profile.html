@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Profile — Better Read{% endblock %}
+{% block content %}
+<section class="settings-group">
+  <h2>{{ user.username }}</h2>
+  {% if user.must_change_password %}
+    <p class="ollama-result ollama-result-bad">
+      Your password was reset by an administrator. Choose a new one to continue.
+    </p>
+  {% endif %}
+
+  <h3>Account</h3>
+  <dl class="status-list">
+    <dt>Role</dt><dd>{{ user.role }}</dd>
+    <dt>Member since</dt><dd>{{ user.created_at | dt }}</dd>
+    <dt>Last sign-in</dt><dd>{{ (user.last_login_at | dt) or '—' }}</dd>
+  </dl>
+
+  <h3>Activity</h3>
+  <dl class="status-list">
+    <dt>Articles read</dt><dd>{{ stats.read_count }}</dd>
+    <dt>Saved</dt><dd>{{ stats.saved_count }}</dd>
+    <dt>Votes cast</dt><dd>{{ stats.votes }}</dd>
+    <dt>Liked</dt>
+    <dd>{% if stats.like_rate is not none %}{{ stats.like_rate }}%{% else %}—{% endif %}</dd>
+  </dl>
+
+  <h3>Topics you care about</h3>
+  <div id="user-topics" hx-get="/profile/topics" hx-trigger="load" hx-swap="innerHTML">
+    <p class="loading">Loading topics…</p>
+  </div>
+
+  <h3>Password</h3>
+  <div id="password-panel">
+    {% include "_profile_password.html" with context %}
+  </div>
+</section>
+{% endblock %}

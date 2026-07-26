@@ -1,0 +1,19 @@
+<form hx-post="/settings/notifications" hx-target="#notifications-panel" hx-swap="innerHTML" class="models-form">
+  <div class="models-row">
+    <label for="notify_high_score" style="display:flex;align-items:center;gap:8px;cursor:pointer;width:auto">
+      <input type="checkbox" name="notify_high_score" id="notify_high_score" value="1"
+             {% if enabled %}checked{% endif %}>
+      Notify when an article scores {{ '%.2f'|format(threshold) }} or higher
+    </label>
+  </div>
+  <p class="hint" style="margin:6px 0 12px">
+    Uses the browser's notification permission, which you'll be asked for once.
+    Each person is notified once per article.
+    <br>
+    On iOS, notifications only work when the app is installed to the home screen.
+  </p>
+  <div class="models-actions">
+    <button type="submit">Save</button>
+    {% if saved %}<span class="models-saved">Saved.</span>{% endif %}
+  </div>
+</form>

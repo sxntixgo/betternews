@@ -121,3 +121,133 @@ def test_list_models_skips_blank_names(mock_get):
     resp.json.return_value = {"models": [{"name": ""}, {"name": "ok:1"}, {}]}
     mock_get.return_value = resp
     assert ollama_client.list_models() == ["ok:1"]
+
+
+# ── compose_base_url ───────────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("host,port,expected", [
+    ("10.0.10.207", "11434", "http://10.0.10.207:11434"),
+    ("  10.0.10.207  ", " 11434 ", "http://10.0.10.207:11434"),
+    ("host.docker.internal", 11434, "http://host.docker.internal:11434"),
+    ("http://10.0.10.207", "11434", "http://10.0.10.207:11434"),
+    ("https://ollama.example.com", "443", "https://ollama.example.com:443"),
+    ("http://10.0.10.207/", "11434", "http://10.0.10.207:11434"),
+    ("http://10.0.10.207/api", "11434", "http://10.0.10.207:11434"),
+])
+def test_compose_base_url_accepts(host, port, expected):
+    assert ollama_client.compose_base_url(host, port) == expected
+
+
+@pytest.mark.parametrize("host,port,fragment", [
+    ("", "11434", "Host is required"),
+    ("   ", "11434", "Host is required"),
+    ("10.0.10.207:11434", "11434", "without a port"),
+    ("has space", "11434", "not a valid hostname"),
+    ("ftp://10.0.10.207", "11434", "Unsupported scheme"),
+    ("10.0.10.207", "", "Port must be a number"),
+    ("10.0.10.207", "abc", "Port must be a number"),
+    ("10.0.10.207", "0", "between 1 and 65535"),
+    ("10.0.10.207", "70000", "between 1 and 65535"),
+    ("10.0.10.207", "-1", "between 1 and 65535"),
+])
+def test_compose_base_url_rejects(host, port, fragment):
+    with pytest.raises(ValueError) as exc:
+        ollama_client.compose_base_url(host, port)
+    assert fragment in str(exc.value)
+
+
+# ── base_url override ──────────────────────────────────────────────────────────
+
+@patch("app.ollama_client.httpx.post")
+def test_generate_uses_base_url_override(mock_post):
+    mock_post.return_value = _mock_response("ok")
+    ollama_client.generate("m", "p", base_url="http://1.2.3.4:9999")
+    assert mock_post.call_args[0][0] == "http://1.2.3.4:9999/api/generate"
+
+
+@patch("app.ollama_client.httpx.post")
+def test_generate_falls_back_to_env_base(mock_post):
+    mock_post.return_value = _mock_response("ok")
+    ollama_client.generate("m", "p")
+    assert mock_post.call_args[0][0] == f"{ollama_client.OLLAMA_BASE}/api/generate"
+
+
+@patch("app.ollama_client.httpx.post")
+def test_generate_strips_trailing_slash_from_base(mock_post):
+    mock_post.return_value = _mock_response("ok")
+    ollama_client.generate("m", "p", base_url="http://1.2.3.4:9999/")
+    assert mock_post.call_args[0][0] == "http://1.2.3.4:9999/api/generate"
+
+
+@patch("app.ollama_client.httpx.get")
+def test_list_models_uses_base_url_override(mock_get):
+    resp = MagicMock()
+    resp.raise_for_status = MagicMock()
+    resp.json.return_value = {"models": [{"name": "a:1"}]}
+    mock_get.return_value = resp
+    assert ollama_client.list_models("http://1.2.3.4:9999") == ["a:1"]
+    assert mock_get.call_args[0][0] == "http://1.2.3.4:9999/api/tags"
+
+
+# ── probe ──────────────────────────────────────────────────────────────────────
+
+@patch("app.ollama_client.httpx.get")
+def test_probe_success_reports_model_count(mock_get):
+    resp = MagicMock()
+    resp.raise_for_status = MagicMock()
+    resp.json.return_value = {"models": [{"name": "a:1"}, {"name": "b:2"}]}
+    mock_get.return_value = resp
+    ok, message, models = ollama_client.probe("http://1.2.3.4:9999")
+    assert ok is True
+    assert "2 model(s)" in message
+    assert models == ["a:1", "b:2"]
+
+
+@patch("app.ollama_client.httpx.get")
+def test_probe_reachable_but_no_models(mock_get):
+    resp = MagicMock()
+    resp.raise_for_status = MagicMock()
+    resp.json.return_value = {"models": []}
+    mock_get.return_value = resp
+    ok, message, models = ollama_client.probe("http://1.2.3.4:9999")
+    assert ok is True
+    assert "no models are installed" in message
+    assert models == []
+
+
+@patch("app.ollama_client.httpx.get")
+def test_probe_connection_refused(mock_get):
+    mock_get.side_effect = httpx.ConnectError("refused")
+    ok, message, models = ollama_client.probe("http://1.2.3.4:9999")
+    assert ok is False
+    assert "Connection refused" in message
+    assert "http://1.2.3.4:9999" in message
+
+
+@patch("app.ollama_client.httpx.get")
+def test_probe_timeout(mock_get):
+    mock_get.side_effect = httpx.TimeoutException("slow")
+    ok, message, _ = ollama_client.probe("http://1.2.3.4:9999")
+    assert ok is False
+    assert "Timed out" in message
+
+
+@patch("app.ollama_client.httpx.get")
+def test_probe_http_error(mock_get):
+    resp = MagicMock()
+    resp.status_code = 404
+    resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "nope", request=MagicMock(), response=resp
+    )
+    mock_get.return_value = resp
+    ok, message, _ = ollama_client.probe("http://1.2.3.4:9999")
+    assert ok is False
+    assert "HTTP 404" in message
+
+
+@patch("app.ollama_client.httpx.get")
+def test_probe_unexpected_error(mock_get):
+    mock_get.side_effect = RuntimeError("boom")
+    ok, message, _ = ollama_client.probe("http://1.2.3.4:9999")
+    assert ok is False
+    assert "RuntimeError" in message

@@ -1,58 +1,98 @@
 #!/usr/bin/env python3
-"""Online SQLite backup using the `.backup` API (safe with WAL + open writers).
+"""Timestamped Postgres backups with rotation.
 
 Env vars:
-  DB_PATH     source database (default /app/data/rss.db)
-  BACKUP_DIR  destination directory (default <DB_PATH dir>/backups)
-  KEEP        retention count, oldest files deleted beyond this (default 7)
+  DATABASE_URL  source database (default: the app's)
+  BACKUP_DIR    destination directory (default ./data/backups)
+  KEEP          how many dumps to retain, oldest deleted beyond this (default 7)
 
-Exit code 0 on success, non-zero on error. Writes the final path to stdout.
-Recommended: wire into cron, e.g.
+Uses `pg_dump -Fc` — compressed, and restorable selectively with `pg_restore`.
+Replaces the SQLite `.backup` API this used before the Postgres migration.
+
+Exit code 0 on success. Recommended cron entry:
     0 4 * * * /usr/bin/python3 /app/scripts/backup.py
 """
 from __future__ import annotations
 
 import os
-import sqlite3
+import subprocess
 import sys
-import time
+from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import unquote, urlparse
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from app.db import database_url  # noqa: E402
+
+PREFIX = "betterread-"
+SUFFIX = ".dump"
 
 
-def backup(src: Path, dst_dir: Path, keep: int) -> Path:
-    dst_dir.mkdir(parents=True, exist_ok=True)
-    ts = time.strftime("%Y%m%d-%H%M%SZ", time.gmtime())
-    dst = dst_dir / f"rss-{ts}.db"
-    src_conn = sqlite3.connect(str(src))
-    dst_conn = sqlite3.connect(str(dst))
-    try:
-        src_conn.backup(dst_conn)
-    finally:
-        dst_conn.close()
-        src_conn.close()
-    # Retention: keep newest `keep`, delete older rss-*.db files only.
-    existing = sorted(dst_dir.glob("rss-*.db"))
-    for old in existing[:-keep] if keep > 0 else []:
+def pg_env_and_target(url: str) -> tuple[dict, str]:
+    """Split a SQLAlchemy URL into libpq env vars plus the database name.
+
+    The password goes in the environment, never on the command line where it
+    would show up in `ps`.
+    """
+    parsed = urlparse(url.replace("postgresql+psycopg://", "postgresql://"))
+    env = os.environ.copy()
+    if parsed.hostname:
+        env["PGHOST"] = parsed.hostname
+    if parsed.port:
+        env["PGPORT"] = str(parsed.port)
+    if parsed.username:
+        env["PGUSER"] = unquote(parsed.username)
+    if parsed.password:
+        env["PGPASSWORD"] = unquote(parsed.password)
+    return env, (parsed.path or "/").lstrip("/") or "betterread"
+
+
+def rotate(backup_dir: Path, keep: int) -> list[Path]:
+    """Delete all but the newest `keep` dumps. Only ever touches our own files."""
+    dumps = sorted(
+        (p for p in backup_dir.glob(f"{PREFIX}*{SUFFIX}") if p.is_file()),
+        key=lambda p: p.name,
+    )
+    removed = []
+    for old in dumps[:-keep] if keep > 0 else []:
         old.unlink()
-    return dst
+        removed.append(old)
+    return removed
 
 
-def main(argv: list[str]) -> int:
-    src = Path(os.environ.get("DB_PATH", "/app/data/rss.db"))
-    if not src.exists():
-        print(f"ERROR: source DB not found: {src}", file=sys.stderr)
-        return 1
-    dst_dir = Path(os.environ.get("BACKUP_DIR", str(src.parent / "backups")))
+def main(argv: list[str] | None = None) -> int:
+    env, dbname = pg_env_and_target(database_url())
+
+    backup_dir = Path(os.environ.get("BACKUP_DIR", "./data/backups"))
+    backup_dir.mkdir(parents=True, exist_ok=True)
     try:
         keep = int(os.environ.get("KEEP", "7"))
     except ValueError:
         keep = 7
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    target = backup_dir / f"{PREFIX}{stamp}{SUFFIX}"
+
     try:
-        dst = backup(src, dst_dir, keep)
-    except sqlite3.Error as exc:
-        print(f"ERROR: backup failed: {exc}", file=sys.stderr)
+        subprocess.run(
+            ["pg_dump", "--format=custom", "--no-owner", "--no-acl",
+             "--file", str(target), dbname],
+            env=env, check=True, capture_output=True,
+        )
+    except FileNotFoundError:
+        print("ERROR: pg_dump not found on PATH", file=sys.stderr)
         return 2
-    print(dst)
+    except subprocess.CalledProcessError as exc:
+        # Never leave a truncated file lying around looking like a usable backup.
+        target.unlink(missing_ok=True)
+        detail = (exc.stderr or b"").decode(errors="replace").strip()
+        print(f"ERROR: pg_dump failed: {detail}", file=sys.stderr)
+        return 1
+
+    print(target)
+    for old in rotate(backup_dir, keep):
+        print(f"removed {old}", file=sys.stderr)
     return 0
 
 

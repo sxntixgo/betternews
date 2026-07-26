@@ -8,6 +8,7 @@ import flask
 
 from sqlalchemy import text
 
+from app import dedupe
 from app.db import get_db_direct
 
 log = logging.getLogger(__name__)
@@ -98,16 +99,18 @@ def _poll_feed(db, feed_id: int, url: str,
             published = _parse_date(entry)
             thumbnail = _extract_thumbnail(entry)
 
+            cluster = dedupe.cluster_for(db, link, title)
             params = {"feed_id": feed_id, "guid": guid, "url": link,
+                      "cluster": cluster,
                       "title": title, "published": published,
                       "snippet": snippet, "feed_content": feed_content,
                       "thumbnail": thumbnail}
             cursor = db.execute(text(
                 """INSERT INTO articles
                    (feed_id, guid, url, title, published_at,
-                    raw_snippet, feed_content, thumbnail_url)
+                    raw_snippet, feed_content, thumbnail_url, cluster_id)
                    SELECT :feed_id, :guid, :url, :title, :published,
-                          :snippet, :feed_content, :thumbnail
+                          :snippet, :feed_content, :thumbnail, :cluster
                    WHERE NOT EXISTS (
                        SELECT 1 FROM seen_guids
                        WHERE feed_id = :feed_id AND guid = :guid)

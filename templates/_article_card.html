@@ -49,6 +49,16 @@
         Originally: {{ article.original_title }}
       </p>
     {% endif %}
+    {% if article.duplicate_count %}
+      <p class="dup-note" title="Also carried by other feeds">
+        + {{ article.duplicate_count }} other feed{{ 's' if article.duplicate_count != 1 else '' }}
+      </p>
+    {% endif %}
+    {% if article.topics %}
+      <p class="topic-chips">
+        {% for t in article.topics %}<a class="topic-chip" href="/?topic={{ t }}">{{ t }}</a>{% endfor %}
+      </p>
+    {% endif %}
     {% if article.summary %}
       <p class="article-summary">{{ article.summary }}</p>
     {% endif %}

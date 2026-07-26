@@ -9,7 +9,7 @@ from flask import (Blueprint, current_app, g, redirect, render_template,
 from sqlalchemy import text as sql
 
 from app import content_filter, ollama_client
-from app import auth, health, retention
+from app import auth, health, insights, retention, topics as topics_mod
 from app.repo import articles as art_repo, users as user_repo
 from app.db import get_db, get_setting, set_setting
 from app.pipeline import DEFAULT_SCORING_MODEL, DEFAULT_SUMMARY_MODEL, ollama_base
@@ -460,7 +460,8 @@ def articles():
     declickbait = _declickbait(db)
     rows = art_repo.list_for_user(
         db, uid, hidden=show_hidden, saved=show_saved, feed_id=feed_id,
-        sort=sort, limit=_PAGE_SIZE, offset=offset,
+        sort=sort, topic=request.args.get("topic", "").strip() or None,
+        limit=_PAGE_SIZE, offset=offset,
     )
     next_offset = offset + _PAGE_SIZE if len(rows) == _PAGE_SIZE else None
     next_qs = ""
@@ -928,6 +929,74 @@ def retention_clear_read():
         users=_users_for_cleanup(db),
         cleared=n,
     )
+
+
+@bp.get("/insights")
+@auth.admin_required
+def insights_page():
+    """Is the ranking any good? Measured against your votes."""
+    db = get_db()
+    from app.pipeline import SCORE_THRESHOLD
+    current = float(get_setting(db, "score_threshold", str(SCORE_THRESHOLD))
+                    or SCORE_THRESHOLD)
+    return render_template(
+        "insights.html",
+        histogram=insights.score_histogram(db),
+        threshold=current,
+        agreement=insights.agreement(db, current),
+        suggestion=insights.suggest_threshold(db),
+        per_feed=insights.per_feed(db),
+        per_topic=insights.per_topic(db),
+        pipeline=insights.pipeline_health(db),
+    )
+
+
+@bp.post("/insights/threshold")
+@auth.admin_required
+def insights_apply_threshold():
+    """A4: adopt the swept threshold in one click."""
+    db = get_db()
+    raw = request.form.get("threshold", "").strip()
+    try:
+        value = float(raw)
+    except ValueError:
+        return Response("threshold must be a number", status=400)
+    if not 0.0 <= value <= 1.0:
+        return Response("threshold must be between 0.0 and 1.0", status=400)
+    set_setting(db, "score_threshold", str(value))
+    db.commit()
+    return Response(f"threshold set to {value}", status=200)
+
+
+@bp.get("/settings/topics")
+@auth.admin_required
+def topics_form():
+    db = get_db()
+    return render_template("_topics_setting.html", topics=topics_mod.counts(db))
+
+
+@bp.post("/settings/topics")
+@auth.admin_required
+def topics_save():
+    db = get_db()
+    topic = request.form.get("topic", "").strip()
+    action = request.form.get("action", "")
+    try:
+        if action == "clear":
+            topics_mod.delete_rule(db, topic)
+        elif action == "mute":
+            topics_mod.set_rule(db, topic, muted=True)
+        elif action in ("boost", "demote"):
+            delta = 0.2 if action == "boost" else -0.2
+            topics_mod.set_rule(db, topic, adjustment=delta)
+        else:
+            return Response("unknown action", status=400)
+    except ValueError as exc:
+        return render_template("_topics_setting.html", topics=topics_mod.counts(db),
+                               error=str(exc))
+    db.commit()
+    return render_template("_topics_setting.html", topics=topics_mod.counts(db),
+                           saved=True)
 
 
 @bp.get("/settings/embeds")

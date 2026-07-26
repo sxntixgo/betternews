@@ -26,7 +26,7 @@ def _card_select(user_id: int):
         select(
             A.c.id, A.c.url, A.c.title, A.c.summary, A.c.score, A.c.score_reason,
             A.c.status, A.c.thumbnail_url, A.c.raw_snippet, A.c.clean_title,
-            A.c.title_was_clickbait, A.c.feed_id,
+            A.c.title_was_clickbait, A.c.feed_id, A.c.topics, A.c.cluster_id,
             S.c.read_at, S.c.saved_at, S.c.opinion,
             _FULL_TEXT_HEAD,
         )
@@ -43,17 +43,45 @@ def _visible(stmt):
 
 def list_for_user(db, user_id: int, *, hidden: bool = False, saved: bool = False,
                   feed_id: int | None = None, sort: str = "date",
-                  limit: int = 50, offset: int = 0):
+                  topic: str | None = None, limit: int = 50, offset: int = 0):
     stmt = _visible(_card_select(user_id))
     stmt = stmt.where(A.c.status.in_(HIDDEN_STATUSES if hidden else VISIBLE_STATUSES))
+    if topic:
+        stmt = stmt.where(A.c.topics.any(topic))
     if saved:
         stmt = stmt.where(S.c.saved_at.isnot(None))
     if feed_id is not None:
         stmt = stmt.where(A.c.feed_id == feed_id)
     order = ([A.c.published_at.desc().nullslast()] if sort == "date"
              else [A.c.score.desc().nullslast(), A.c.published_at.desc().nullslast()])
-    stmt = stmt.order_by(*order).limit(limit).offset(offset)
-    return db.execute(stmt).mappings().all()
+    rows = db.execute(
+        stmt.order_by(*order).limit(limit * 3).offset(offset)
+    ).mappings().all()
+    return _collapse_clusters(db, rows, limit)
+
+
+def _collapse_clusters(db, rows, limit: int):
+    """Keep the best-scoring member of each cluster, noting the others.
+
+    Over-fetches so collapsing does not leave a short page.
+    """
+    seen: dict[str, dict] = {}
+    out: list[dict] = []
+    for row in rows:
+        key = row["cluster_id"]
+        if not key:
+            out.append(dict(row))
+            continue
+        if key in seen:
+            seen[key]["duplicate_count"] = seen[key].get("duplicate_count", 0) + 1
+            continue
+        d = dict(row)
+        d["duplicate_count"] = 0
+        seen[key] = d
+        out.append(d)
+        if len(out) >= limit:
+            break
+    return out[:limit]
 
 
 def get_card(db, user_id: int, article_id: int):

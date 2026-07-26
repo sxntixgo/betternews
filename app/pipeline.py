@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import text
 
-from app import content_filter, prompts, ollama_client
+from app import content_filter, prompts, ollama_client, topics as topics_mod
 from app.db import get_db_direct, get_setting, set_setting
 
 log = logging.getLogger(__name__)
@@ -113,12 +113,19 @@ def score_new_articles(db, profile_text: str) -> None:
     )).mappings().all()
     model = _scoring_model(db)
     base_url = ollama_base(db)
+    vocab = topics_mod.vocabulary(db)
+    rule_map = topics_mod.rules(db)
+    # Settings override the env default, so /insights can retune it live.
+    try:
+        global_threshold = float(get_setting(db, "score_threshold", "") or SCORE_THRESHOLD)
+    except ValueError:
+        global_threshold = SCORE_THRESHOLD
 
     for article in articles:
         try:
             snippet = (article["raw_snippet"] or "")[:SCORING_SNIPPET_CHARS]
             prompt = prompts.scoring_prompt(
-                profile_text, article["title"], snippet
+                profile_text, article["title"], snippet, vocabulary=vocab
             )
             result = ollama_client.generate(
                 model=model, prompt=prompt, expect_json=True, base_url=base_url
@@ -129,18 +136,25 @@ def score_new_articles(db, profile_text: str) -> None:
 
             score = max(0.0, min(1.0, float(result.get("score", 0.5))))
             reason = str(result.get("reason", ""))
+            article_topics = topics_mod.normalize(result.get("topics"))
+
+            # Rules are the deterministic layer over the model's judgement.
+            score, muted, note = topics_mod.apply_rules(score, article_topics, rule_map)
+            if note:
+                reason = f"{note}. {reason}".strip()
+
             threshold = (
                 article["score_threshold"]
                 if article["score_threshold"] is not None
-                else SCORE_THRESHOLD
+                else global_threshold
             )
-            status = "hidden" if score < threshold else "scored"
+            status = "hidden" if (muted or score < threshold) else "scored"
 
             db.execute(
                 text("UPDATE articles SET score=:score, score_reason=:reason, "
-                     "status=:status WHERE id=:id"),
+                     "status=:status, topics=:topics WHERE id=:id"),
                 {"score": score, "reason": reason, "status": status,
-                 "id": article["id"]},
+                 "topics": article_topics or None, "id": article["id"]},
             )
             db.commit()
             log.info("Scored article id=%d score=%.2f status=%s", article["id"], score, status)

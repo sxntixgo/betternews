@@ -23,7 +23,7 @@ from sqlalchemy import (
     Boolean, CheckConstraint, Column, Computed, Float, ForeignKey, Index,
     Integer, MetaData, Table, Text, UniqueConstraint, func,
 )
-from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, TSVECTOR
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TIMESTAMP, TSVECTOR
 
 # Explicit naming convention so Alembic autogenerate produces stable, readable
 # constraint names instead of database-assigned ones.
@@ -87,6 +87,8 @@ articles = Table(
     Column("clean_title", Text),
     Column("title_was_clickbait", Boolean),
     Column("aside_spans", JSONB),
+    Column("topics", ARRAY(Text)),
+    Column("cluster_id", Text),
     Column("score", Float),
     Column("score_reason", Text),
     Column("thumbnail_url", Text),
@@ -113,6 +115,19 @@ Index("ix_articles_score", articles.c.score.desc())
 Index("ix_articles_feed_id", articles.c.feed_id)
 Index("ix_articles_created_at", articles.c.created_at)
 Index("ix_articles_search", articles.c.search_vector, postgresql_using="gin")
+Index("ix_articles_topics", articles.c.topics, postgresql_using="gin")
+Index("ix_articles_cluster_id", articles.c.cluster_id)
+
+
+# Deterministic control on top of the soft LLM score: an adjustment nudges,
+# `muted` hides outright.
+topic_rules = Table(
+    "topic_rules", metadata,
+    Column("topic", Text, primary_key=True),
+    Column("adjustment", Float, nullable=False, server_default="0"),
+    Column("muted", Boolean, nullable=False, server_default="false"),
+    _ts(name="created_at", nullable=False, server_default=func.now()),
+)
 
 
 # Per-user view state. Prunable with its article; the durable record of a vote

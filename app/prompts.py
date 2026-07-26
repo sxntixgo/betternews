@@ -4,7 +4,14 @@ Edit this file to tune scoring, summarization, or profile regeneration behavior.
 """
 
 
-def scoring_prompt(profile_text: str, title: str, snippet: str) -> str:
+def scoring_prompt(profile_text: str, title: str, snippet: str,
+                   vocabulary: list[str] | None = None) -> str:
+    """Score an article, and tag it.
+
+    Topics come back on this call rather than a separate one — the model has
+    already read the snippet, so tagging is free.
+    """
+    vocab_block = ", ".join(sorted(vocabulary or [])[:20]) or "(none yet)"
     profile_section = (
         profile_text.strip()
         or "No preference profile yet — score neutrally at 0.5."
@@ -28,8 +35,13 @@ INSTRUCTIONS:
 - score 1.0 = highly relevant to this reader. 0.0 = completely irrelevant.
 - If you cannot determine relevance, use 0.5.
 
+- topics: 2-4 short lowercase slugs naming the subject matter (e.g. "ai", "formula-1", "local-politics"). Prefer a slug from the vocabulary below when one fits; invent one only when none does. No spaces — use hyphens.
+
+KNOWN TOPICS:
+{vocab_block}
+
 Required JSON format:
-{{"score": 0.0, "reason": "one sentence explaining the score"}}"""
+{{"score": 0.0, "reason": "one sentence explaining the score", "topics": ["slug"]}}"""
 
 
 def summarization_prompt(full_text: str) -> str:

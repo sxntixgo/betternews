@@ -32,6 +32,11 @@
     <p class="loading">Loading profile…</p>
   </div>
 
+  <h3>Topics</h3>
+  <div id="topics-panel" hx-get="/settings/topics" hx-trigger="load" hx-swap="innerHTML">
+    <p class="loading">Loading…</p>
+  </div>
+
   <h3>Hidden articles</h3>
   <p class="hint">
     Re-score every article currently marked as hidden against your current preference profile.

@@ -9,7 +9,7 @@ from flask import (Blueprint, current_app, g, redirect, render_template,
 from sqlalchemy import text as sql
 
 from app import content_filter, ollama_client
-from app import auth, health, insights, retention, topics as topics_mod
+from app import auth, extract, health, insights, retention, topics as topics_mod
 from app.repo import articles as art_repo, users as user_repo
 from app.db import get_db, get_setting, set_setting
 from app.pipeline import DEFAULT_SCORING_MODEL, DEFAULT_SUMMARY_MODEL, ollama_base
@@ -595,7 +595,8 @@ def sidebar_feeds():
 @auth.admin_required
 def feeds_list():
     db = get_db()
-    return render_template("_feeds.html", feeds=_all_feeds(db))
+    return render_template("_feeds.html", feeds=_all_feeds(db),
+                           extraction=_feed_extract_health(db))
 
 
 @bp.post("/feeds")
@@ -1124,7 +1125,8 @@ def feeds_import_opml():
         )
         added += res.rowcount
     db.commit()
-    return render_template("_feeds.html", feeds=_all_feeds(db), opml_added=added)
+    return render_template("_feeds.html", feeds=_all_feeds(db), opml_added=added,
+                           extraction=_feed_extract_health(db))
 
 
 @bp.delete("/feeds/<int:feed_id>")
@@ -1134,7 +1136,12 @@ def feeds_delete(feed_id: int):
     db.execute(sql("DELETE FROM feeds WHERE id=:id"), {"id": feed_id})
     db.commit()
     rows = _all_feeds(db)
-    return render_template("_feeds.html", feeds=rows)
+    return render_template("_feeds.html", feeds=rows,
+                           extraction=_feed_extract_health(db))
+
+
+def _feed_extract_health(db) -> dict:
+    return {r["id"]: r for r in extract.health_by_feed(db)}
 
 
 def _all_feeds(db):
@@ -1174,7 +1181,8 @@ def feed_pause(feed_id: int):
     db.execute(sql("UPDATE feeds SET paused=true WHERE id=:id"), {"id": feed_id})
     db.commit()
     rows = _all_feeds(db)
-    return render_template("_feeds.html", feeds=rows)
+    return render_template("_feeds.html", feeds=rows,
+                           extraction=_feed_extract_health(db))
 
 
 @bp.post("/feeds/<int:feed_id>/resume")
@@ -1189,7 +1197,8 @@ def feed_resume(feed_id: int):
     )
     db.commit()
     rows = _all_feeds(db)
-    return render_template("_feeds.html", feeds=rows)
+    return render_template("_feeds.html", feeds=rows,
+                           extraction=_feed_extract_health(db))
 
 
 @bp.post("/feeds/<int:feed_id>/threshold")
@@ -1213,7 +1222,8 @@ def feed_set_threshold(feed_id: int):
         )
     db.commit()
     rows = _all_feeds(db)
-    return render_template("_feeds.html", feeds=rows)
+    return render_template("_feeds.html", feeds=rows,
+                           extraction=_feed_extract_health(db))
 
 
 @bp.post("/feeds/<int:feed_id>/tags")
@@ -1229,7 +1239,8 @@ def feed_set_tags(feed_id: int):
     )
     db.commit()
     rows = _all_feeds(db)
-    return render_template("_feeds.html", feeds=rows)
+    return render_template("_feeds.html", feeds=rows,
+                           extraction=_feed_extract_health(db))
 
 
 # ── Article reader ─────────────────────────────────────────────────────────────

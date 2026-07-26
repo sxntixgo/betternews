@@ -92,6 +92,7 @@ articles = Table(
     Column("score", Float),
     Column("score_reason", Text),
     Column("thumbnail_url", Text),
+    Column("extract_source", Text),
     # status is now the pipeline lifecycle ONLY. User opinion lives in
     # user_article_state — see the Phase 1 migration.
     Column("status", Text, nullable=False, server_default="new"),

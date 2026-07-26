@@ -112,10 +112,10 @@ def test_score_uses_dynamic_model(mock_gen, memory_db):
 
 # ── summarize_scored_articles ──────────────────────────────────────────────────
 
-@patch("app.pipeline.fetch_full_text_and_image")
+@patch("app.pipeline.extract.extract")
 @patch("app.pipeline.ollama_client.generate")
 def test_summarize_sets_status_summarized(mock_gen, mock_fetch, memory_db):
-    mock_fetch.return_value = ("Full article text here.", None)
+    mock_fetch.return_value = ("Full article text here.", None, "http")
     mock_gen.return_value = "This is the summary."
     feed_id = add_feed(memory_db)
     article_id = add_article(memory_db, feed_id, status="scored")
@@ -127,44 +127,38 @@ def test_summarize_sets_status_summarized(mock_gen, mock_fetch, memory_db):
     assert row["summary"] == "This is the summary."
 
 
-@patch("app.pipeline.fetch_full_text_and_image")
 @patch("app.pipeline.ollama_client.generate")
-def test_summarize_falls_back_to_feed_content(mock_gen, mock_fetch, memory_db):
-    mock_fetch.return_value = ("", None)
+def test_summarize_uses_the_feed_body_when_the_site_is_unreachable(mock_gen, memory_db):
+    """The fallback chain lives in app.extract now; this checks the pipeline
+    actually summarizes whatever it hands back."""
     mock_gen.return_value = "OK"
     feed_id = add_feed(memory_db)
-    add_article(
-        memory_db, feed_id,
-        status="scored",
-        feed_content="Body from feed XML",
-        raw_snippet="snippet",
-    )
-    summarize_scored_articles(memory_db)
+    add_article(memory_db, feed_id, status="scored",
+                feed_content="Body from feed XML", raw_snippet="snippet")
+    with patch("app.extract.httpx.get", side_effect=OSError("unreachable")):
+        summarize_scored_articles(memory_db)
     call_prompt = mock_gen.call_args.kwargs.get("prompt") or mock_gen.call_args.args[1]
     assert "Body from feed XML" in call_prompt
 
 
-@patch("app.pipeline.fetch_full_text_and_image")
 @patch("app.pipeline.ollama_client.generate")
-def test_summarize_falls_back_to_snippet(mock_gen, mock_fetch, memory_db):
-    mock_fetch.return_value = ("", None)
+def test_summarize_records_the_strategy_that_won(mock_gen, memory_db):
     mock_gen.return_value = "OK"
     feed_id = add_feed(memory_db)
-    add_article(
-        memory_db, feed_id,
-        status="scored",
-        feed_content=None,
-        raw_snippet="snippet only",
-    )
-    summarize_scored_articles(memory_db)
+    aid = add_article(memory_db, feed_id, status="scored",
+                      feed_content=None, raw_snippet="snippet only")
+    with patch("app.extract.httpx.get", side_effect=OSError("unreachable")):
+        summarize_scored_articles(memory_db)
     call_prompt = mock_gen.call_args.kwargs.get("prompt") or mock_gen.call_args.args[1]
     assert "snippet only" in call_prompt
+    assert memory_db.execute(text(
+        "SELECT extract_source FROM articles WHERE id=:i"), {"i": aid}).scalar() == "snippet"
 
 
-@patch("app.pipeline.fetch_full_text_and_image")
+@patch("app.pipeline.extract.extract")
 @patch("app.pipeline.ollama_client.generate")
 def test_summarize_llm_none_skips(mock_gen, mock_fetch, memory_db):
-    mock_fetch.return_value = ("text", None)
+    mock_fetch.return_value = ("text", None, "http")
     mock_gen.return_value = None
     feed_id = add_feed(memory_db)
     article_id = add_article(memory_db, feed_id, status="scored")
@@ -175,7 +169,7 @@ def test_summarize_llm_none_skips(mock_gen, mock_fetch, memory_db):
     assert row["status"] == "scored"
 
 
-@patch("app.pipeline.fetch_full_text_and_image")
+@patch("app.pipeline.extract.extract")
 @patch("app.pipeline.ollama_client.generate")
 def test_summarize_handles_exception(mock_gen, mock_fetch, memory_db, caplog):
     mock_fetch.side_effect = RuntimeError("boom")
@@ -412,10 +406,10 @@ def test_fetch_full_text_skips_embed_url_already_in_text(mock_get, mock_extract)
     assert text.count("https://twitter.com/u/status/1") == 1
 
 
-@patch("app.pipeline.fetch_full_text_and_image")
+@patch("app.pipeline.extract.extract")
 @patch("app.pipeline.ollama_client.generate")
 def test_summarize_writes_og_image_when_thumbnail_missing(mock_gen, mock_fetch, memory_db):
-    mock_fetch.return_value = ("body text", "https://x/og.jpg")
+    mock_fetch.return_value = ("body text", "https://x/og.jpg", "http")
     mock_gen.return_value = "Summary."
     feed_id = add_feed(memory_db)
     add_article(memory_db, feed_id, status="scored", thumbnail_url=None)
@@ -426,10 +420,10 @@ def test_summarize_writes_og_image_when_thumbnail_missing(mock_gen, mock_fetch, 
     assert row["thumbnail_url"] == "https://x/og.jpg"
 
 
-@patch("app.pipeline.fetch_full_text_and_image")
+@patch("app.pipeline.extract.extract")
 @patch("app.pipeline.ollama_client.generate")
 def test_summarize_keeps_existing_thumbnail(mock_gen, mock_fetch, memory_db):
-    mock_fetch.return_value = ("body", "https://og/replacement.jpg")
+    mock_fetch.return_value = ("body", "https://og/replacement.jpg", "http")
     mock_gen.return_value = "Summary."
     feed_id = add_feed(memory_db)
     add_article(memory_db, feed_id, status="scored", thumbnail_url="https://orig/thumb.jpg")
@@ -492,12 +486,12 @@ def _enable_declickbait(db):
     db.commit()
 
 
-@patch("app.pipeline.fetch_full_text_and_image")
+@patch("app.pipeline.extract.extract")
 @patch("app.pipeline.ollama_client.generate")
 def test_declickbait_off_uses_plain_prompt_and_leaves_columns_null(
     mock_gen, mock_fetch, memory_db
 ):
-    mock_fetch.return_value = ("Full body.", None)
+    mock_fetch.return_value = ("Full body.", None, "http")
     mock_gen.return_value = "A summary."
     fid = add_feed(memory_db)
     aid = add_article(memory_db, fid, status="scored", title="Real Headline")
@@ -511,10 +505,10 @@ def test_declickbait_off_uses_plain_prompt_and_leaves_columns_null(
     assert row["clean_title"] is None
 
 
-@patch("app.pipeline.fetch_full_text_and_image")
+@patch("app.pipeline.extract.extract")
 @patch("app.pipeline.ollama_client.generate")
 def test_declickbait_stores_rewrite_without_touching_title(mock_gen, mock_fetch, memory_db):
-    mock_fetch.return_value = ("Full body.", None)
+    mock_fetch.return_value = ("Full body.", None, "http")
     mock_gen.return_value = {
         "summary": "The CEO announced layoffs.",
         "was_clickbait": True,
@@ -536,10 +530,10 @@ def test_declickbait_stores_rewrite_without_touching_title(mock_gen, mock_fetch,
     assert row["summary"] == "The CEO announced layoffs."
 
 
-@patch("app.pipeline.fetch_full_text_and_image")
+@patch("app.pipeline.extract.extract")
 @patch("app.pipeline.ollama_client.generate")
 def test_declickbait_false_leaves_clean_title_null(mock_gen, mock_fetch, memory_db):
-    mock_fetch.return_value = ("Full body.", None)
+    mock_fetch.return_value = ("Full body.", None, "http")
     mock_gen.return_value = {
         "summary": "A summary.",
         "was_clickbait": False,
@@ -556,11 +550,11 @@ def test_declickbait_false_leaves_clean_title_null(mock_gen, mock_fetch, memory_
     assert row["title_was_clickbait"] == 0
 
 
-@patch("app.pipeline.fetch_full_text_and_image")
+@patch("app.pipeline.extract.extract")
 @patch("app.pipeline.ollama_client.generate")
 def test_declickbait_malformed_json_still_produces_summary(mock_gen, mock_fetch, memory_db, caplog):
     """The invariant: losing the rewrite is acceptable, losing the summary is not."""
-    mock_fetch.return_value = ("Full body.", None)
+    mock_fetch.return_value = ("Full body.", None, "http")
     mock_gen.side_effect = [None, "Fallback summary."]   # JSON parse fails, then plain text
     _enable_declickbait(memory_db)
     fid = add_feed(memory_db)
@@ -575,10 +569,10 @@ def test_declickbait_malformed_json_still_produces_summary(mock_gen, mock_fetch,
     assert "retrying with plain summarization" in caplog.text
 
 
-@patch("app.pipeline.fetch_full_text_and_image")
+@patch("app.pipeline.extract.extract")
 @patch("app.pipeline.ollama_client.generate")
 def test_declickbait_json_missing_summary_falls_back(mock_gen, mock_fetch, memory_db):
-    mock_fetch.return_value = ("Full body.", None)
+    mock_fetch.return_value = ("Full body.", None, "http")
     mock_gen.side_effect = [{"was_clickbait": True, "clean_title": "X"}, "Fallback."]
     _enable_declickbait(memory_db)
     fid = add_feed(memory_db)
@@ -591,10 +585,10 @@ def test_declickbait_json_missing_summary_falls_back(mock_gen, mock_fetch, memor
     assert row["clean_title"] is None
 
 
-@patch("app.pipeline.fetch_full_text_and_image")
+@patch("app.pipeline.extract.extract")
 @patch("app.pipeline.ollama_client.generate")
 def test_declickbait_both_calls_fail_skips_article(mock_gen, mock_fetch, memory_db):
-    mock_fetch.return_value = ("Full body.", None)
+    mock_fetch.return_value = ("Full body.", None, "http")
     mock_gen.side_effect = [None, None]
     _enable_declickbait(memory_db)
     fid = add_feed(memory_db)
@@ -629,10 +623,10 @@ def _enable_filter_llm(db):
     db.commit()
 
 
-@patch("app.pipeline.fetch_full_text_and_image")
+@patch("app.pipeline.extract.extract")
 @patch("app.pipeline.ollama_client.generate")
 def test_aside_pass_skipped_when_setting_off(mock_gen, mock_fetch, memory_db):
-    mock_fetch.return_value = ("One.\nTwo.\nThree.\nFour.", None)
+    mock_fetch.return_value = ("One.\nTwo.\nThree.\nFour.", None, "http")
     mock_gen.return_value = "A summary."
     fid = add_feed(memory_db)
     aid = add_article(memory_db, fid, status="scored")
@@ -644,12 +638,12 @@ def test_aside_pass_skipped_when_setting_off(mock_gen, mock_fetch, memory_db):
     assert row["aside_spans"] is None
 
 
-@patch("app.pipeline.fetch_full_text_and_image")
+@patch("app.pipeline.extract.extract")
 @patch("app.pipeline.ollama_client.generate")
 def test_aside_pass_stores_fingerprints(mock_gen, mock_fetch, memory_db):
     from app import content_filter as cf
     body = "Today's news.\nLast month's recap.\nMore today.\nEnd."
-    mock_fetch.return_value = (body, None)
+    mock_fetch.return_value = (body, None, "http")
     mock_gen.side_effect = ["A summary.", {"asides": [{"index": 1, "kind": "older_news"}]}]
     _enable_filter_llm(memory_db)
     fid = add_feed(memory_db)
@@ -663,11 +657,11 @@ def test_aside_pass_stores_fingerprints(mock_gen, mock_fetch, memory_db):
     }
 
 
-@patch("app.pipeline.fetch_full_text_and_image")
+@patch("app.pipeline.extract.extract")
 @patch("app.pipeline.ollama_client.generate")
 def test_aside_pass_failure_does_not_lose_the_summary(mock_gen, mock_fetch, memory_db):
     """Pass 2 is best-effort: summarization has already succeeded by then."""
-    mock_fetch.return_value = ("One.\nTwo.\nThree.\nFour.", None)
+    mock_fetch.return_value = ("One.\nTwo.\nThree.\nFour.", None, "http")
     mock_gen.side_effect = ["A summary.", None]
     _enable_filter_llm(memory_db)
     fid = add_feed(memory_db)
@@ -681,10 +675,10 @@ def test_aside_pass_failure_does_not_lose_the_summary(mock_gen, mock_fetch, memo
     assert row["aside_spans"] is None
 
 
-@patch("app.pipeline.fetch_full_text_and_image")
+@patch("app.pipeline.extract.extract")
 @patch("app.pipeline.ollama_client.generate")
 def test_aside_pass_exception_is_swallowed(mock_gen, mock_fetch, memory_db, caplog):
-    mock_fetch.return_value = ("One.\nTwo.\nThree.\nFour.", None)
+    mock_fetch.return_value = ("One.\nTwo.\nThree.\nFour.", None, "http")
     mock_gen.side_effect = ["A summary.", RuntimeError("boom")]
     _enable_filter_llm(memory_db)
     fid = add_feed(memory_db)
@@ -697,10 +691,10 @@ def test_aside_pass_exception_is_swallowed(mock_gen, mock_fetch, memory_db, capl
     assert "Aside detection failed" in caplog.text
 
 
-@patch("app.pipeline.fetch_full_text_and_image")
+@patch("app.pipeline.extract.extract")
 @patch("app.pipeline.ollama_client.generate")
 def test_aside_pass_skips_very_short_bodies(mock_gen, mock_fetch, memory_db):
-    mock_fetch.return_value = ("Only one line.", None)
+    mock_fetch.return_value = ("Only one line.", None, "http")
     mock_gen.return_value = "A summary."
     _enable_filter_llm(memory_db)
     fid = add_feed(memory_db)
@@ -731,7 +725,7 @@ def test_advisory_lock_blocks_a_second_process(app):
             a.close(); b.close()
 
 
-@patch("app.pipeline.fetch_full_text_and_image")
+@patch("app.pipeline.extract.extract")
 @patch("app.pipeline.ollama_client.generate")
 def test_run_pipeline_skips_when_another_process_holds_the_lock(
     mock_gen, mock_fetch, app, monkeypatch

@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import text
 
-from app import content_filter, prompts, ollama_client, topics as topics_mod
+from app import content_filter, extract, prompts, ollama_client, topics as topics_mod, youtube
 from app.db import get_db_direct, get_setting, set_setting
 
 log = logging.getLogger(__name__)
@@ -246,6 +246,23 @@ def _persist_score(db, article, result, rule_map, global_threshold) -> None:
     log.info("Scored article id=%d score=%.2f status=%s", article["id"], score, status)
 
 
+def _extract_body(article) -> tuple[str, str | None, str]:
+    """Body text for an article, plus which strategy produced it.
+
+    YouTube entries carry no body at all, so captions are tried first for them.
+    """
+    url = article["url"]
+    if youtube.is_youtube(url):
+        captions = youtube.transcript(url)
+        if captions:
+            return captions, None, extract.SOURCE_YOUTUBE
+        log.info("No transcript for %s — falling back to the description", url)
+
+    feed_content = article["feed_content"] if "feed_content" in article.keys() else None
+    return extract.extract(url, feed_content=feed_content,
+                           raw_snippet=article["raw_snippet"])
+
+
 def _detect_asides(full_text: str, model: str, base_url: str) -> str | None:
     """Pass 2 of the content filter: ask the LLM which paragraphs are padding.
 
@@ -309,18 +326,20 @@ def summarize_scored_articles(db) -> int:
 
     for article in articles:
         try:
-            fetched_text, og_image = fetch_full_text_and_image(article["url"])
-            full_text = (
-                fetched_text
-                or (article["feed_content"] if "feed_content" in article.keys() else None)
-                or article["raw_snippet"]
-                or ""
-            )
+            full_text, og_image, source = _extract_body(article)
 
             summary = None
             clean_title, was_clickbait = None, 0
 
-            if declickbait:
+            if source == extract.SOURCE_YOUTUBE:
+                # Spoken text summarizes badly under the article prompt.
+                summary = ollama_client.generate(
+                    model=model,
+                    prompt=prompts.transcript_summarization_prompt(
+                        full_text, article["title"]),
+                    expect_json=False, base_url=base_url,
+                )
+            elif declickbait:
                 result = ollama_client.generate(
                     model=model,
                     prompt=prompts.summarization_with_title_prompt(
@@ -363,11 +382,12 @@ def summarize_scored_articles(db) -> int:
                      "thumbnail_url=:thumb, clean_title=:clean_title, "
                      "title_was_clickbait=:was_clickbait, "
                      "aside_spans=CAST(:aside_spans AS jsonb), "
-                     "status='summarized' WHERE id=:id"),
+                     "extract_source=:source, status='summarized' WHERE id=:id"),
                 {"full_text": full_text, "summary": summary.strip(),
                  "thumb": new_thumb, "clean_title": clean_title,
                  "was_clickbait": bool(was_clickbait),
-                 "aside_spans": aside_spans, "id": article["id"]},
+                 "aside_spans": aside_spans, "source": source,
+                 "id": article["id"]},
             )
             db.commit()
             done += 1

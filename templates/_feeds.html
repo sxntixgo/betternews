@@ -14,7 +14,11 @@
       </span>
       <small class="feed-meta">
         {{ feed.url }}
-        {% if feed.last_success_at %} · ok {{ feed.last_success_at | dt }}
+        {%- set ex = (extraction or {}).get(feed.id) %}
+    {%- if ex and ex.measured %} · {{ (100 * ex.full_text / ex.measured) | round | int }}% full text
+      {%- if ex.full_text * 2 < ex.measured %} <span class="models-warn">(mostly snippets)</span>{% endif %}
+    {%- endif %}
+    {% if feed.last_success_at %} · ok {{ feed.last_success_at | dt }}
         {% elif feed.last_polled_at %} · last attempt {{ feed.last_polled_at | dt }}
         {% endif %}
         {% if feed.last_error %}<br><span class="feed-error">{{ feed.last_error }}</span>{% endif %}

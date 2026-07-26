@@ -1,0 +1,11 @@
+[run]
+source = app
+omit =
+    */__pycache__/*
+
+[report]
+exclude_lines =
+    pragma: no cover
+    # Module entry points: exercised by running the process, not by importing it
+    if __name__ == .__main__.:
+    raise SystemExit

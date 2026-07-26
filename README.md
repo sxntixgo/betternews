@@ -2,7 +2,7 @@
 
 A single-user, self-hosted RSS reader with **LLM-powered relevance ranking**. It polls your feeds, uses a local [Ollama](https://ollama.com/) model to score each article against a profile it learns from your likes/dislikes, and surfaces what's actually worth reading — with generated summaries so you can decide fast.
 
-Flask + HTMX, no build step, SQLite storage, runs in Docker.
+Flask + HTMX, no build step, Postgres storage, runs in Docker.
 
 ## Features
 
@@ -13,7 +13,8 @@ Flask + HTMX, no build step, SQLite storage, runs in Docker.
 - **Feed management** — tag/group feeds in the sidebar, OPML import & export.
 - **Reader mode** — in-app reader modal with full-text extraction ([trafilatura](https://trafilatura.readthedocs.io/)), falling back to feed-provided content.
 - **PWA-ready** — manifest + service worker for install-to-homescreen.
-- **Background polling** — APScheduler polls feeds and runs the scoring/summary pipeline on an interval.
+- **Background polling** — APScheduler polls feeds and runs the scoring/summary pipeline on an interval, in its own worker process.
+- **Retention** — old articles are pruned on a schedule; favorites and your voting history are never touched.
 - **Padding removal** — related-story rails, newsletter pitches and older-news recaps are folded away in the reader. Collapsed, never deleted.
 - **Clickbait-free headlines** — optional: the summarizer rewrites headlines that withhold their point, and shows the original underneath. Costs no extra LLM calls.
 - **Prompt-injection aware** — article text is wrapped in XML delimiters and scoring is constrained to JSON output.
@@ -21,15 +22,17 @@ Flask + HTMX, no build step, SQLite storage, runs in Docker.
 ## Architecture
 
 ```
-Browser (HTMX) ──► Flask app ──► SQLite (./data/rss.db)
-                       │
-                       ├─ APScheduler ──► feedparser (poll feeds)
-                       └─ pipeline ─────► Ollama (score + summarize)
+Browser (HTMX) ──► Flask app ─┐
+                              ├──► Postgres
+        worker (APScheduler) ─┘        │
+              ├─ feedparser (poll feeds)
+              ├─ pipeline ──► Ollama (score + summarize)
+              └─ retention (prune old articles)
 ```
 
 - **Flask app** in Docker serving HTML fragments.
 - **Ollama** runs on the host (or any reachable host) and does all the LLM work.
-- **SQLite** persists feeds, articles, votes, preferences, and settings in `./data`.
+- **Postgres 16** persists feeds, articles, votes, preferences and settings in a named volume.
 
 See [`CLAUDE.md`](CLAUDE.md) for a detailed codebase guide (key files, routes, DB schema, article status flow).
 
@@ -119,7 +122,12 @@ pytest tests/ --cov=app
 
 ## Backups
 
-`scripts/backup.py` makes timestamped copies of the SQLite DB (configurable via `DB_PATH`, `BACKUP_DIR`, `KEEP`).
+`scripts/backup.py` writes timestamped `pg_dump -Fc` archives (configurable via
+`DATABASE_URL`, `BACKUP_DIR`, `KEEP`).
+
+**Coming from the SQLite version?** `scripts/import_sqlite.py --sqlite data/rss.db
+--dry-run` reports what would move; drop `--dry-run` to import. The SQLite file is
+opened read-only and is your rollback.
 
 ## License
 

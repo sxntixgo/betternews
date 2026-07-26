@@ -42,5 +42,23 @@ services:
       retries: 3
       start_period: 15s
 
+  # APScheduler lives here, not in a gunicorn worker: one scheduler per worker
+  # means every job fires once per worker.
+  worker:
+    build: .
+    command: ["python", "-m", "app.worker"]
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://betterread:betterread@db:5432/betterread}
+    depends_on:
+      db:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
 volumes:
   pgdata:

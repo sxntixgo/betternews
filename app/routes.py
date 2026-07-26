@@ -8,6 +8,7 @@ from flask import Blueprint, current_app, render_template, request, Response
 from sqlalchemy import text as sql
 
 from app import content_filter, ollama_client
+from app import retention
 from app.repo import articles as art_repo, users as user_repo
 from app.db import get_db, get_setting, set_setting
 from app.pipeline import DEFAULT_SCORING_MODEL, DEFAULT_SUMMARY_MODEL, ollama_base
@@ -619,6 +620,89 @@ def content_filter_save():
     db.commit()
     return render_template(
         "_content_filter_setting.html", mode=mode, llm_enabled=llm, saved=True
+    )
+
+
+@bp.get("/settings/retention")
+def retention_form():
+    db = get_db()
+    return render_template(
+        "_retention_setting.html",
+        days=retention.retention_days(db),
+        confirmed=retention.is_confirmed(db),
+        preview=retention.preview(db),
+        users=_users_for_cleanup(db),
+    )
+
+
+def _users_for_cleanup(db):
+    from app.models import users as U
+    from sqlalchemy import select as _select
+    return db.execute(
+        _select(U.c.id, U.c.username).order_by(U.c.id)
+    ).mappings().all()
+
+
+@bp.post("/settings/retention")
+def retention_save():
+    raw = request.form.get("retention_days", "").strip()
+    try:
+        days = int(raw)
+    except ValueError:
+        return Response("days must be a whole number", status=400)
+    if days < 0:
+        return Response("days must be 0 or more", status=400)
+    db = get_db()
+    set_setting(db, retention.SETTING_DAYS, str(days))
+    retention.set_confirmed(db, request.form.get("retention_confirmed") == "1")
+    db.commit()
+    return render_template(
+        "_retention_setting.html",
+        days=days,
+        confirmed=retention.is_confirmed(db),
+        preview=retention.preview(db),
+        users=_users_for_cleanup(db),
+        saved=True,
+    )
+
+
+@bp.post("/settings/retention/prune")
+def retention_prune_now():
+    """Run the policy immediately. Requires the confirmation toggle."""
+    db = get_db()
+    if not retention.is_confirmed(db):
+        return Response("confirm the retention policy first", status=400)
+    n = retention.prune(db)
+    db.commit()
+    return render_template(
+        "_retention_setting.html",
+        days=retention.retention_days(db),
+        confirmed=True,
+        preview=retention.preview(db),
+        users=_users_for_cleanup(db),
+        pruned=n,
+    )
+
+
+@bp.post("/settings/retention/clear-read")
+def retention_clear_read():
+    """Remove read articles from selected users' lists (or all users)."""
+    db = get_db()
+    if request.form.get("all_users") == "1":
+        ids = [u["id"] for u in _users_for_cleanup(db)]
+    else:
+        ids = [int(v) for v in request.form.getlist("user_id") if v.isdigit()]
+    if not ids:
+        return Response("select at least one user", status=400)
+    n = retention.clear_read(db, ids)
+    db.commit()
+    return render_template(
+        "_retention_setting.html",
+        days=retention.retention_days(db),
+        confirmed=retention.is_confirmed(db),
+        preview=retention.preview(db),
+        users=_users_for_cleanup(db),
+        cleared=n,
     )
 
 

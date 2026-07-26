@@ -16,6 +16,7 @@ def _on_job_error(event) -> None:
 def init_scheduler(app) -> BackgroundScheduler:
     from app.feeds import poll_all_feeds
     from app.pipeline import run_pipeline, regenerate_preferences
+    from app.retention import run as run_retention
 
     scheduler = BackgroundScheduler(daemon=True)
     scheduler.add_listener(_on_job_error, EVENT_JOB_ERROR)
@@ -45,6 +46,16 @@ def init_scheduler(app) -> BackgroundScheduler:
         id="regen_prefs",
         args=[app],
         misfire_grace_time=1800,
+    )
+
+    scheduler.add_job(
+        run_retention,
+        "cron",
+        hour=3,
+        minute=30,
+        id="retention",
+        args=[app],
+        misfire_grace_time=3600,
     )
 
     return scheduler

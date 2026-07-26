@@ -7,12 +7,13 @@ point `DATABASE_URL` at a throwaway database before anything connects.
 """
 
 import os
+from pathlib import Path
 
 import flask
 from sqlalchemy import create_engine, delete, insert, select, text, update
 from sqlalchemy.engine import Connection, Engine
 
-from app.models import metadata, settings as settings_t
+from app.models import settings as settings_t
 
 DEFAULT_URL = "postgresql+psycopg://betterread:betterread@db:5432/betterread"
 
@@ -69,12 +70,21 @@ def close_db(e: BaseException | None = None) -> None:
 
 
 def init_db() -> None:
-    """Create any missing tables.
+    """Bring the schema up to date by running Alembic to head.
 
-    Alembic owns migrations; this is the first-run convenience path and the
-    fixture used by tests. `create_all` is a no-op against an existing schema.
+    Deliberately not `metadata.create_all`: using the migrations as the only
+    path means every startup and every test run exercises them, so a broken
+    migration is caught immediately rather than the first time it meets real
+    data.
     """
-    metadata.create_all(get_engine())
+    from alembic import command
+    from alembic.config import Config
+
+    root = Path(__file__).resolve().parent.parent
+    cfg = Config(str(root / "alembic.ini"))
+    cfg.set_main_option("script_location", str(root / "migrations"))
+    cfg.set_main_option("sqlalchemy.url", database_url())
+    command.upgrade(cfg, "head")
 
 
 def get_setting(db: Connection, key: str, default: str = "") -> str:

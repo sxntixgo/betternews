@@ -53,11 +53,19 @@ def create_app() -> Flask:
     from app.routes import bp
     app.register_blueprint(bp)
 
-    # Only start scheduler when running under gunicorn (single worker) or flask dev server.
-    # Guard avoids double-start when the module is imported by pytest.
-    if os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not app.debug:
+    # The scheduler normally runs as its own process (`python -m app.worker`),
+    # because one APScheduler per gunicorn worker means every job fires N times.
+    # RUN_SCHEDULER_IN_WEB=1 restores the old in-process behaviour for a
+    # single-worker or dev setup.
+    if _should_run_scheduler(app):
         from app.scheduler import init_scheduler
         scheduler = init_scheduler(app)
         scheduler.start()
 
     return app
+
+
+def _should_run_scheduler(app: Flask) -> bool:
+    if os.environ.get("RUN_SCHEDULER_IN_WEB", "") != "1":
+        return False
+    return os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not app.debug

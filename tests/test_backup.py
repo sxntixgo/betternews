@@ -1,89 +1,131 @@
-"""Tests for scripts/backup.py — the SQLite online-backup helper."""
-import sqlite3
-import sys
+"""Backup script. `pg_dump` itself is mocked — no live server needed."""
+
+import subprocess
 from pathlib import Path
+from unittest.mock import patch
 
-import pytest
-
-# Add scripts/ to import path.
-SCRIPTS_DIR = Path(__file__).parent.parent / "scripts"
-sys.path.insert(0, str(SCRIPTS_DIR))
-
-import backup as backup_mod  # noqa: E402
+from scripts import backup
 
 
-def _make_db(path: Path) -> None:
-    conn = sqlite3.connect(str(path))
-    conn.executescript(
-        "CREATE TABLE t(id INTEGER PRIMARY KEY, v TEXT);"
-        "INSERT INTO t(v) VALUES ('a'),('b'),('c');"
-    )
-    conn.commit()
-    conn.close()
+# ── URL parsing ────────────────────────────────────────────────────────────────
+
+def test_url_becomes_libpq_env_and_dbname():
+    env, name = backup.pg_env_and_target(
+        "postgresql+psycopg://alice:s3cret@dbhost:6543/mydb")
+    assert name == "mydb"
+    assert env["PGHOST"] == "dbhost"
+    assert env["PGPORT"] == "6543"
+    assert env["PGUSER"] == "alice"
+    assert env["PGPASSWORD"] == "s3cret"
 
 
-def test_backup_writes_copy_with_same_data(tmp_path):
-    src = tmp_path / "src.db"
-    _make_db(src)
-    dst_dir = tmp_path / "out"
-    dst = backup_mod.backup(src, dst_dir, keep=3)
-    assert dst.exists()
-    rows = sqlite3.connect(str(dst)).execute("SELECT v FROM t ORDER BY id").fetchall()
-    assert [r[0] for r in rows] == ["a", "b", "c"]
+def test_password_is_url_decoded():
+    env, _ = backup.pg_env_and_target(
+        "postgresql+psycopg://u:p%40ss%2Fword@h:5432/d")
+    assert env["PGPASSWORD"] == "p@ss/word"
 
 
-def test_backup_retention_keeps_only_n_newest(tmp_path):
-    src = tmp_path / "src.db"
-    _make_db(src)
-    dst_dir = tmp_path / "out"
-    # Pre-create 5 fake older backup files; their mtime ordering is filename-based
-    # because the script uses sorted(glob).
-    for i in range(5):
-        (dst_dir).mkdir(parents=True, exist_ok=True)
-        (dst_dir / f"rss-2020010{i}-000000Z.db").write_bytes(b"x")
-    backup_mod.backup(src, dst_dir, keep=3)
-    remaining = sorted(dst_dir.glob("rss-*.db"))
-    assert len(remaining) == 3
-    # The newest one is the just-written file (lexically last).
-    assert remaining[-1].name.startswith("rss-")
+def test_missing_dbname_falls_back():
+    _, name = backup.pg_env_and_target("postgresql+psycopg://u:p@h:5432/")
+    assert name == "betterread"
 
 
-def test_backup_main_missing_source_returns_error(tmp_path, monkeypatch, capsys):
-    monkeypatch.setenv("DB_PATH", str(tmp_path / "nope.db"))
-    monkeypatch.setenv("BACKUP_DIR", str(tmp_path / "out"))
-    rc = backup_mod.main([])
-    assert rc == 1
-    assert "not found" in capsys.readouterr().err
+# ── rotation ───────────────────────────────────────────────────────────────────
+
+def _touch(d: Path, stamps):
+    for s in stamps:
+        (d / f"{backup.PREFIX}{s}{backup.SUFFIX}").write_text("x")
 
 
-def test_backup_main_writes_path_to_stdout(tmp_path, monkeypatch, capsys):
-    src = tmp_path / "src.db"
-    _make_db(src)
-    monkeypatch.setenv("DB_PATH", str(src))
-    monkeypatch.setenv("BACKUP_DIR", str(tmp_path / "out"))
-    monkeypatch.setenv("KEEP", "2")
-    rc = backup_mod.main([])
-    assert rc == 0
-    out = capsys.readouterr().out.strip()
-    assert Path(out).exists()
+def test_rotation_keeps_the_newest_n(tmp_path):
+    _touch(tmp_path, ["20260101T000000Z", "20260102T000000Z",
+                      "20260103T000000Z", "20260104T000000Z"])
+    removed = backup.rotate(tmp_path, keep=2)
+    left = sorted(p.name for p in tmp_path.glob("*.dump"))
+    assert len(removed) == 2
+    assert left == [f"{backup.PREFIX}20260103T000000Z{backup.SUFFIX}",
+                    f"{backup.PREFIX}20260104T000000Z{backup.SUFFIX}"]
 
 
-def test_backup_main_invalid_keep_falls_back_to_default(tmp_path, monkeypatch, capsys):
-    src = tmp_path / "src.db"
-    _make_db(src)
-    monkeypatch.setenv("DB_PATH", str(src))
-    monkeypatch.setenv("BACKUP_DIR", str(tmp_path / "out"))
+def test_rotation_leaves_foreign_files_alone(tmp_path):
+    """Including the legacy SQLite backups, which may still be sitting there."""
+    _touch(tmp_path, ["20260101T000000Z", "20260102T000000Z"])
+    (tmp_path / "important.txt").write_text("keep me")
+    (tmp_path / "rss-old.db").write_text("legacy sqlite backup")
+    backup.rotate(tmp_path, keep=1)
+    assert (tmp_path / "important.txt").exists()
+    assert (tmp_path / "rss-old.db").exists()
+
+
+def test_rotation_disabled_when_keep_is_zero(tmp_path):
+    _touch(tmp_path, ["20260101T000000Z", "20260102T000000Z"])
+    assert backup.rotate(tmp_path, keep=0) == []
+    assert len(list(tmp_path.glob("*.dump"))) == 2
+
+
+# ── main ───────────────────────────────────────────────────────────────────────
+
+@patch("scripts.backup.subprocess.run")
+def test_main_invokes_pg_dump_in_custom_format(mock_run, tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("BACKUP_DIR", str(tmp_path))
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://u:p@h:5432/mydb")
+    assert backup.main([]) == 0
+    cmd = mock_run.call_args[0][0]
+    assert cmd[0] == "pg_dump"
+    assert "--format=custom" in cmd
+    assert cmd[-1] == "mydb"
+    assert backup.PREFIX in capsys.readouterr().out
+
+
+@patch("scripts.backup.subprocess.run")
+def test_main_never_puts_the_password_on_the_command_line(mock_run, tmp_path, monkeypatch):
+    """It would be visible in `ps` to anyone on the box."""
+    monkeypatch.setenv("BACKUP_DIR", str(tmp_path))
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://u:hunter2@h:5432/d")
+    backup.main([])
+    assert "hunter2" not in " ".join(mock_run.call_args[0][0])
+    assert mock_run.call_args.kwargs["env"]["PGPASSWORD"] == "hunter2"
+
+
+@patch("scripts.backup.subprocess.run", side_effect=FileNotFoundError)
+def test_main_reports_missing_pg_dump(_mock, tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("BACKUP_DIR", str(tmp_path))
+    assert backup.main([]) == 2
+    assert "pg_dump not found" in capsys.readouterr().err
+
+
+@patch("scripts.backup.subprocess.run")
+def test_failed_dump_leaves_no_truncated_file(mock_run, tmp_path, monkeypatch, capsys):
+    """A partial file would look like a usable backup until you needed it."""
+    def _fail(cmd, **kw):
+        Path(cmd[cmd.index("--file") + 1]).write_text("half a dump")
+        raise subprocess.CalledProcessError(1, cmd, stderr=b"connection refused")
+    mock_run.side_effect = _fail
+    monkeypatch.setenv("BACKUP_DIR", str(tmp_path))
+    assert backup.main([]) == 1
+    assert list(tmp_path.glob("*.dump")) == []
+    assert "connection refused" in capsys.readouterr().err
+
+
+@patch("scripts.backup.subprocess.run")
+def test_main_rotates_after_writing(mock_run, tmp_path, monkeypatch):
+    _touch(tmp_path, ["20200101T000000Z", "20200102T000000Z"])
+    monkeypatch.setenv("BACKUP_DIR", str(tmp_path))
+    monkeypatch.setenv("KEEP", "1")
+    backup.main([])
+    assert len(list(tmp_path.glob("*.dump"))) == 1
+
+
+@patch("scripts.backup.subprocess.run")
+def test_main_tolerates_invalid_keep(mock_run, tmp_path, monkeypatch):
+    monkeypatch.setenv("BACKUP_DIR", str(tmp_path))
     monkeypatch.setenv("KEEP", "not-a-number")
-    assert backup_mod.main([]) == 0
+    assert backup.main([]) == 0
 
 
-def test_backup_main_handles_sqlite_error(tmp_path, monkeypatch, capsys):
-    src = tmp_path / "src.db"
-    _make_db(src)
-    monkeypatch.setenv("DB_PATH", str(src))
-    monkeypatch.setenv("BACKUP_DIR", str(tmp_path / "out"))
-    monkeypatch.setattr(backup_mod, "backup",
-                        lambda *a, **kw: (_ for _ in ()).throw(sqlite3.OperationalError("disk full")))
-    rc = backup_mod.main([])
-    assert rc == 2
-    assert "disk full" in capsys.readouterr().err
+@patch("scripts.backup.subprocess.run")
+def test_main_creates_the_backup_directory(mock_run, tmp_path, monkeypatch):
+    target = tmp_path / "nested" / "backups"
+    monkeypatch.setenv("BACKUP_DIR", str(target))
+    assert backup.main([]) == 0
+    assert target.is_dir()

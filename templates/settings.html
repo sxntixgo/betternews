@@ -73,6 +73,18 @@
 </section>
 
 <section class="settings-group">
+  <h2>Storage</h2>
+
+  <h3>Retention</h3>
+  <div id="retention-panel"
+       hx-get="/settings/retention"
+       hx-trigger="load"
+       hx-swap="innerHTML">
+    <p class="loading">Loading…</p>
+  </div>
+</section>
+
+<section class="settings-group">
   <h2>Status</h2>
 
   <h3>Pipeline</h3>

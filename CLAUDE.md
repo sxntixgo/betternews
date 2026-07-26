@@ -16,10 +16,13 @@ Flask app in Docker; Ollama on Windows host; **Postgres 16** in the `db` compose
 - `app/routes.py` — Flask routes. HTMX-first: most return HTML fragments.
 - `app/feeds.py` — feedparser polling. `poll_all_feeds(app)` is the entry point.
 - `app/scheduler.py` — APScheduler wiring. Jobs registered here.
+- `app/worker.py` — the scheduler **process** (`python -m app.worker`). APScheduler is in-process, so hosting it in gunicorn means one scheduler per worker and every job firing N times. `RUN_SCHEDULER_IN_WEB=1` opts back into the old behaviour.
+- `app/retention.py` — pruning + bulk clear-read. **Touches `articles` and per-user state only** (see the scope test in `tests/test_retention.py`).
 
 ## Running locally
 ```
-docker compose up --build
+docker compose up --build          # db + web + worker
+docker compose exec web alembic upgrade head    # migrations run on boot too
 ```
 Requires: Ollama running on host with `OLLAMA_HOST=0.0.0.0:11434` (env var set before starting Ollama).
 
@@ -104,6 +107,16 @@ new → scored → summarized → liked | disliked | dismissed
 docker compose run --rm web pytest tests/ --cov=app
 ```
 Ollama and feedparser are mocked. Postgres is **not** — there is no in-memory mode, so tests create and drop a throwaway database each, which means every run exercises the real DDL. Point `TEST_DATABASE_URL` at a server. Coverage target is 100%.
+
+## Retention
+`retention_days` (default 15) prunes articles past the window. **Ships inert** —
+`retention_confirmed` must be set in Settings first, because the default window
+is shorter than most existing corpora and the first run would otherwise delete
+nearly everything. Favorites are never pruned; votes carry title/summary
+snapshots so the preference profile survives any amount of pruning.
+
+Retention keys on `created_at` (ingest time), never `published_at` — feeds carry
+wrong and future publication dates.
 
 ## Migrating from the old SQLite database
 ```

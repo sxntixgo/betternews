@@ -11,5 +11,10 @@
     </div>
   {% endif %}
 {% elif is_first_page %}
-  <p class="empty">No articles yet. Add feeds in <a href="/settings">Settings</a> and click Refresh.</p>
+  {# An empty list has several causes needing different actions — say which. #}
+  {% if status %}
+    {% include "_empty_state.html" %}
+  {% else %}
+    <p class="empty">No articles yet.</p>
+  {% endif %}
 {% endif %}

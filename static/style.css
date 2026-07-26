@@ -904,3 +904,23 @@ dialog[open] { display: flex; flex-direction: column; }
 /* Signed-out pages (sign in, register, 403) render with no sidebar, so the
    content must not sit in a column that assumes one. */
 .site-layout-bare .site-content { margin-left: 0; width: 100%; }
+
+/* Empty-list diagnosis. A blank page is how a broken model goes unnoticed. */
+.empty-state {
+  max-width: 560px;
+  margin: 48px auto;
+  padding: 20px 22px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  text-align: left;
+}
+.empty-state h2 { margin: 0 0 8px; font-size: 16px; }
+.empty-state p { margin: 0 0 12px; color: var(--muted); font-size: 14px; line-height: 1.55; }
+.empty-state .btn-secondary { display: inline-block; text-decoration: none; }
+/* Something is actually broken, as opposed to merely waiting. */
+.empty-ollama_unreachable, .empty-model_missing { border-color: #d14343; }
+.empty-ollama_unreachable h2, .empty-model_missing h2 { color: #d14343; }
+[data-theme="dark"] .empty-ollama_unreachable,
+[data-theme="dark"] .empty-model_missing { border-color: #ff8080; }
+[data-theme="dark"] .empty-ollama_unreachable h2,
+[data-theme="dark"] .empty-model_missing h2 { color: #ff8080; }

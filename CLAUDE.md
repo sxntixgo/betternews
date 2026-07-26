@@ -25,6 +25,7 @@ Flask app in Docker; Ollama on Windows host; **Postgres 16** in the `db` compose
 - `app/user_topics.py` — **per-user** topic stances. Scores are shared, so these cannot re-score anything: they filter and reorder one user's list at read time via `NOT_HIDDEN_SQL` / `BOOST_SQL`, applied in `repo.articles` and `digest`. Any new article-listing query must apply them too, or the list and the unread count disagree.
 - `app/insights.py` — ranking-accuracy queries behind `/insights`.
 - `app/health.py` — feed auto-recovery + the ingestion-aware `/health`.
+- `app/pipeline_status.py` — why the reading list is empty. Ordered by what the reader should act on first: no feeds, then Ollama unreachable, then a model that is not installed, then simply waiting, then everything hidden, then caught up. The list only shows `status='summarized'`, so poll -> score -> summarize must all complete before anything appears; a blank page for every one of those states is how a misconfigured model went unnoticed three times.
 - `app/worker.py` — the scheduler **process** (`python -m app.worker`). APScheduler is in-process, so hosting it in gunicorn means one scheduler per worker and every job firing N times. `RUN_SCHEDULER_IN_WEB=1` opts back into the old behaviour.
 - `app/retention.py` — pruning + bulk clear-read. **Touches `articles` and per-user state only** (see the scope test in `tests/test_retention.py`).
 

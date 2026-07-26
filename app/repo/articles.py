@@ -12,6 +12,7 @@ from app.models import articles as A
 from app.models import feeds as F
 from app.models import user_article_state as S
 from app.models import votes as V
+from app.user_topics import BOOST_SQL, NOT_HIDDEN_SQL
 
 # Pipeline lifecycle values that are eligible to appear in the reading list.
 VISIBLE_STATUSES = ("summarized",)
@@ -47,15 +48,25 @@ def list_for_user(db, user_id: int, *, hidden: bool = False, saved: bool = False
     stmt = _visible(_card_select(user_id))
     stmt = stmt.where(A.c.status.in_(HIDDEN_STATUSES if hidden else VISIBLE_STATUSES))
     if topic:
+        # An explicit topic filter is a deliberate request, so it overrides the
+        # user's own hide stance for that topic.
         stmt = stmt.where(A.c.topics.any(topic))
+    else:
+        stmt = stmt.where(NOT_HIDDEN_SQL)
     if saved:
+        # Something you saved is something you asked to keep.
         stmt = stmt.where(S.c.saved_at.isnot(None))
     if feed_id is not None:
         stmt = stmt.where(A.c.feed_id == feed_id)
+
+    # The boost reorders within this user's list; the stored score is untouched.
+    effective = (func.coalesce(A.c.score, 0) + BOOST_SQL).label("effective_score")
+    stmt = stmt.add_columns(effective)
     order = ([A.c.published_at.desc().nullslast()] if sort == "date"
-             else [A.c.score.desc().nullslast(), A.c.published_at.desc().nullslast()])
+             else [text("effective_score DESC"), A.c.published_at.desc().nullslast()])
     rows = db.execute(
-        stmt.order_by(*order).limit(limit * 3).offset(offset)
+        stmt.order_by(*order).limit(limit * 3).offset(offset),
+        {"pref_uid": user_id},
     ).mappings().all()
     return _collapse_clusters(db, rows, limit)
 
@@ -205,8 +216,9 @@ def unread_count(db, user_id: int) -> int:
         .where(A.c.status.in_(VISIBLE_STATUSES))
         .where(S.c.read_at.is_(None))
         .where(S.c.dismissed_at.is_(None))
+        .where(NOT_HIDDEN_SQL)
     )
-    return db.execute(stmt).scalar_one()
+    return db.execute(stmt, {"pref_uid": user_id}).scalar_one()
 
 
 def sidebar_counts(db, user_id: int):

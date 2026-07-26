@@ -25,6 +25,11 @@
     <dd>{% if stats.like_rate is not none %}{{ stats.like_rate }}%{% else %}—{% endif %}</dd>
   </dl>
 
+  <h3>Topics you care about</h3>
+  <div id="user-topics" hx-get="/profile/topics" hx-trigger="load" hx-swap="innerHTML">
+    <p class="loading">Loading topics…</p>
+  </div>
+
   <h3>Password</h3>
   <div id="password-panel">
     {% include "_profile_password.html" with context %}

@@ -893,3 +893,10 @@ dialog[open] { display: flex; flex-direction: column; }
   .action-model { grid-template-columns: 1fr; }
   .action-model-form { grid-column: 1; }
 }
+
+/* Per-user topic stances on the profile */
+.btn-icon.stance-on {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}

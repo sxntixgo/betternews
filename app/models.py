@@ -208,6 +208,21 @@ pipeline_runs = Table(
 Index("ix_pipeline_runs_started_at", pipeline_runs.c.started_at.desc())
 
 
+# Per-user topic stances. Scores are shared — there is one LLM pass per article
+# — so these cannot re-score anything. They shape *this user's* list at read
+# time instead: a boost lifts matching articles, a hide removes them, and
+# neither is visible to anyone else.
+user_topic_prefs = Table(
+    "user_topic_prefs", metadata,
+    Column("user_id", Integer, ForeignKey("users.id", ondelete="CASCADE"),
+           primary_key=True),
+    Column("topic", Text, primary_key=True),
+    Column("stance", Text, nullable=False),
+    _ts(name="created_at", nullable=False, server_default=func.now()),
+    CheckConstraint("stance IN ('more','hide')", name="stance_valid"),
+)
+
+
 # One cached digest per user. Keyed by a fingerprint of the unread set, so a
 # digest is reused until what you have not read actually changes — otherwise
 # every page load would cost an Ollama call.

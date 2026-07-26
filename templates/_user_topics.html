@@ -1,0 +1,61 @@
+{% if error %}<p class="ollama-result ollama-result-bad">{{ error }}</p>{% endif %}
+{% if saved %}<p class="ollama-result ollama-result-ok">Saved — your list updates immediately.</p>{% endif %}
+
+<p class="hint" style="margin:6px 0 12px">
+  <strong>More</strong> lifts a topic in your list; <strong>Hide</strong> removes
+  it. This affects only what you see — scores are shared, and nobody else's
+  reading list changes. Turning a stance off restores things exactly.
+</p>
+
+{% if hints.more or hints.hide %}
+  <p class="ollama-result ollama-result-ok">
+    Based on how you've voted:
+    {% if hints.more %}you seem to like
+      {% for t in hints.more %}<code>{{ t }}</code>{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}
+    {%- if hints.more and hints.hide %}; {% endif %}
+    {%- if hints.hide %}you rarely like
+      {% for t in hints.hide %}<code>{{ t }}</code>{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}.
+  </p>
+{% endif %}
+
+{% if not rows %}
+  <p class="hint">No topics yet — they're assigned as articles are scored.</p>
+{% endif %}
+
+<ul class="feed-list">
+  {% for r in rows %}
+    <li class="feed-item">
+      <div class="feed-main">
+        <a href="/?topic={{ r.topic }}"><strong>{{ r.topic }}</strong></a>
+        <span class="feed-meta">
+          {{ r.articles }} article{{ 's' if r.articles != 1 else '' }}
+          {%- if r.voted %} · you voted {{ r.voted }}× ({{ r.like_rate }}% liked){% endif %}
+          {%- if r.stance == 'more' %} · <strong>more of this</strong>
+          {%- elif r.stance == 'hide' %} · <strong>hidden</strong>{% endif %}
+        </span>
+      </div>
+      <div class="feed-actions">
+        {% for value, label in [('more','More'), ('hide','Hide'), ('clear','Reset')] %}
+          <form hx-post="/profile/topics" hx-target="#user-topics" hx-swap="innerHTML"
+                style="display:inline">
+            <input type="hidden" name="topic" value="{{ r.topic }}">
+            <input type="hidden" name="stance" value="{{ value }}">
+            <button type="submit"
+                    class="btn-icon{% if r.stance == value %} stance-on{% endif %}"
+                    {% if value == 'clear' and not r.stance %}disabled{% endif %}>{{ label }}</button>
+          </form>
+        {% endfor %}
+      </div>
+    </li>
+  {% endfor %}
+</ul>
+
+{% if rows | selectattr('stance') | list %}
+  <form hx-post="/profile/topics" hx-target="#user-topics" hx-swap="innerHTML"
+        style="margin-top:12px">
+    <input type="hidden" name="topic" value="-">
+    <input type="hidden" name="stance" value="reset-all">
+    <button type="submit" class="btn-secondary"
+            hx-confirm="Clear all your topic preferences?">Reset all</button>
+  </form>
+{% endif %}

@@ -11,7 +11,8 @@ from sqlalchemy import text as sql
 
 from app import content_filter, ollama_client
 from app import (auth, digest as digest_mod, export as export_mod, extract,
-                 health, insights, retention, topics as topics_mod)
+                 health, insights, retention, topics as topics_mod,
+                 user_topics)
 from app.repo import articles as art_repo, users as user_repo
 from app.db import get_db, get_setting, set_setting
 from app.pipeline import DEFAULT_SCORING_MODEL, DEFAULT_SUMMARY_MODEL, ollama_base
@@ -309,6 +310,45 @@ def profile():
     user = auth.current_user()
     return render_template("profile.html", user=user,
                            stats=user_repo.stats(db, user["id"]))
+
+
+@bp.get("/profile/topics")
+@auth.login_required
+def profile_topics():
+    db = get_db()
+    uid = current_user_id(db)
+    return render_template("_user_topics.html",
+                           rows=user_topics.for_profile(db, uid),
+                           hints=user_topics.suggestions(db, uid))
+
+
+@bp.post("/profile/topics")
+@auth.login_required
+def profile_topics_save():
+    """Set one topic's stance. Shapes this user's list only."""
+    db = get_db()
+    uid = current_user_id(db)
+    topic = request.form.get("topic", "").strip()
+    stance = request.form.get("stance", "").strip()
+    try:
+        if stance == "clear":
+            user_topics.set_stance(db, uid, topic, None)
+        elif stance == "reset-all":
+            user_topics.clear_all(db, uid)
+        else:
+            user_topics.set_stance(db, uid, topic, stance)
+    except ValueError as exc:
+        return render_template("_user_topics.html",
+                               rows=user_topics.for_profile(db, uid),
+                               hints=user_topics.suggestions(db, uid),
+                               error=str(exc))
+    db.commit()
+    # The digest covers unread articles, so a stance change invalidates it.
+    digest_mod.clear(db, uid)
+    db.commit()
+    return render_template("_user_topics.html",
+                           rows=user_topics.for_profile(db, uid),
+                           hints=user_topics.suggestions(db, uid), saved=True)
 
 
 @bp.post("/profile/password")

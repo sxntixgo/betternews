@@ -21,7 +21,8 @@ Flask app in Docker; Ollama on Windows host; **Postgres 16** in the `db` compose
 - `app/digest.py` — the "what you missed" briefing. Per-user (unread is per-user), cached against a fingerprint of the unread set so it only regenerates when that set changes.
 - `app/extract.py` — ordered extraction chain; the winning rung is stored on `articles.extract_source`.
 - `app/export.py` — Markdown/zip export, scoped to the calling user.
-- `app/topics.py` — topic slugs + the mute/boost rules layered over the LLM score.
+- `app/topics.py` — topic slugs + the **admin** mute/boost rules, which change the stored score for everyone.
+- `app/user_topics.py` — **per-user** topic stances. Scores are shared, so these cannot re-score anything: they filter and reorder one user's list at read time via `NOT_HIDDEN_SQL` / `BOOST_SQL`, applied in `repo.articles` and `digest`. Any new article-listing query must apply them too, or the list and the unread count disagree.
 - `app/insights.py` — ranking-accuracy queries behind `/insights`.
 - `app/health.py` — feed auto-recovery + the ingestion-aware `/health`.
 - `app/worker.py` — the scheduler **process** (`python -m app.worker`). APScheduler is in-process, so hosting it in gunicorn means one scheduler per worker and every job firing N times. `RUN_SCHEDULER_IN_WEB=1` opts back into the old behaviour.
@@ -101,6 +102,7 @@ gets swapped into `#article-list`.
 - `GET|POST /settings/models` — choose scoring/summary models from `ollama_client.list_models()`
 - `GET|POST /login` `GET|POST /register` `GET|POST /logout` — public
 - `GET /profile` `POST /profile/password` — any user
+- `GET|POST /profile/topics` — per-user topic stances (more / hide / clear)
 - `GET /admin/users` `POST /admin/users/<id>/{role,delete,reset-password}` — **admin**
 - `GET|POST /settings/titles` — toggle `declickbait_enabled` (headline rewriting)
 - `GET|POST /settings/content` — `content_filter_mode` (`off`/`highlight`/`remove`) + `content_filter_llm`

@@ -20,6 +20,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from app.models import articles as A
 from app.models import digests as D
 from app.models import user_article_state as S
+from app.user_topics import NOT_HIDDEN_SQL
 
 log = logging.getLogger(__name__)
 
@@ -41,10 +42,11 @@ def unread_for(db, user_id: int, limit: int = MAX_ARTICLES):
         .where(A.c.status == "summarized")
         .where(S.c.read_at.is_(None))
         .where(S.c.dismissed_at.is_(None))
+        .where(NOT_HIDDEN_SQL)          # don't brief someone on what they hid
         .order_by(A.c.score.desc().nullslast())
         .limit(limit)
     )
-    return db.execute(stmt).mappings().all()
+    return db.execute(stmt, {"pref_uid": user_id}).mappings().all()
 
 
 def fingerprint(rows) -> str:

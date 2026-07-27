@@ -98,15 +98,18 @@ def test_an_unreachable_endpoint_is_recorded(_sleep, db_conn, app):
     assert "Could not reach" in row["error"]
 
 
-def test_long_prompts_are_truncated(db_conn, app):
-    """Prompts run to thousands of characters; the log is for diagnosis, not
-    archival."""
+def test_long_prompts_are_truncated_but_keep_the_end(db_conn, app):
+    """Prompts run to thousands of characters, so the log truncates -- but a
+    reasoning model puts its answer at the end, so the tail is kept."""
     _on(db_conn)
-    with patch("app.ollama_client.httpx.post", return_value=_resp("x" * 9000)):
-        ollama_client.generate("m", "y" * 9000)
+    with patch("app.ollama_client.httpx.post", return_value=_resp("x" * 9000 + "TAIL")):
+        ollama_client.generate("m", "y" * 9000 + "END")
     row = call_log.recent(db_conn)[0]
-    assert len(row["request_preview"]) <= ollama_client.PREVIEW_CHARS
-    assert len(row["response_preview"]) <= ollama_client.PREVIEW_CHARS
+    for preview in (row["request_preview"], row["response_preview"]):
+        assert len(preview) < 9000
+        assert "characters omitted" in preview
+    assert row["response_preview"].endswith("TAIL")
+    assert row["request_preview"].endswith("END")
 
 
 def test_the_log_is_bounded(db_conn, app):

@@ -36,6 +36,20 @@ def clear_last_error() -> None:
 _call_sink = None
 
 PREVIEW_CHARS = 1500
+# Reasoning models put the answer *after* the reasoning, so a head-only preview
+# truncates the one part worth reading.
+PREVIEW_TAIL_CHARS = 600
+
+
+def _preview(text: str | None) -> str | None:
+    if text is None:
+        return None
+    if len(text) <= PREVIEW_CHARS:
+        return text
+    head = text[:PREVIEW_CHARS - PREVIEW_TAIL_CHARS]
+    tail = text[-PREVIEW_TAIL_CHARS:]
+    cut = len(text) - len(head) - len(tail)
+    return f"{head}\n\n... [{cut} characters omitted] ...\n\n{tail}"
 
 
 def set_call_sink(fn) -> None:
@@ -136,19 +150,19 @@ def generate(
                             f"{text[:200]}", model, target)
                     _emit(action=action, model=model, endpoint=target, ok=False,
                           status_code=r.status_code, duration_ms=_ms(),
-                          request_preview=prompt[:PREVIEW_CHARS],
-                          response_preview=text[:PREVIEW_CHARS],
+                          request_preview=_preview(prompt),
+                          response_preview=_preview(text),
                           error="Response was not valid JSON")
                     return None
                 _emit(action=action, model=model, endpoint=target, ok=True,
                       status_code=r.status_code, duration_ms=_ms(),
-                      request_preview=prompt[:PREVIEW_CHARS],
-                      response_preview=text[:PREVIEW_CHARS], error=None)
+                      request_preview=_preview(prompt),
+                      response_preview=_preview(text), error=None)
                 return parsed
             _emit(action=action, model=model, endpoint=target, ok=True,
                   status_code=r.status_code, duration_ms=_ms(),
-                  request_preview=prompt[:PREVIEW_CHARS],
-                  response_preview=text[:PREVIEW_CHARS], error=None)
+                  request_preview=_preview(prompt),
+                  response_preview=_preview(text), error=None)
             return text
         except (httpx.ConnectError, httpx.TimeoutException) as exc:
             log.warning("Ollama attempt %d/%d failed: %s", attempt + 1, MAX_RETRIES, exc)
@@ -166,7 +180,7 @@ def generate(
             _record(hint, model, target)
             _emit(action=action, model=model, endpoint=target, ok=False,
                   status_code=code, duration_ms=_ms(),
-                  request_preview=prompt[:PREVIEW_CHARS],
+                  request_preview=_preview(prompt),
                   response_preview=body, error=hint)
             return None
         except Exception as exc:
@@ -174,7 +188,7 @@ def generate(
             _record(msg, model, target)
             _emit(action=action, model=model, endpoint=target, ok=False,
                   status_code=None, duration_ms=_ms(),
-                  request_preview=prompt[:PREVIEW_CHARS],
+                  request_preview=_preview(prompt),
                   response_preview=None, error=msg)
             return None
 
@@ -182,7 +196,7 @@ def generate(
     _record(msg, model, target)
     _emit(action=action, model=model, endpoint=target, ok=False,
           status_code=None, duration_ms=_ms(),
-          request_preview=prompt[:PREVIEW_CHARS], response_preview=None, error=msg)
+          request_preview=_preview(prompt), response_preview=None, error=msg)
     return None
 
 
@@ -226,12 +240,60 @@ def _fetch_models(target: str) -> list[str]:
     return sorted(m["name"] for m in data.get("models", []) if m.get("name"))
 
 
-def _validate_json(text: str) -> dict | None:
-    try:
-        data = json.loads(text)
-        if not isinstance(data, dict):
-            raise ValueError(f"expected dict, got {type(data).__name__}")
-        return data
-    except (json.JSONDecodeError, ValueError) as exc:
-        log.warning("Ollama JSON parse failed: %s | raw: %.300s", exc, text)
+def _extract_json_object(text: str) -> str | None:
+    """Find a JSON object inside prose.
+
+    `format: "json"` does not constrain reasoning models: gpt-oss and similar
+    emit their chain of thought into the same response field, with the answer
+    somewhere after it. Markdown fences and "Here is the JSON:" preambles are
+    just as common. Scanning for a balanced object recovers all of those.
+
+    Scans from the last opening brace backwards, because the answer follows the
+    reasoning rather than preceding it, and the reasoning itself often contains
+    braces.
+    """
+    if not text:
         return None
+    starts = [i for i, ch in enumerate(text) if ch == "{"]
+    for start in reversed(starts):
+        depth, in_string, escaped = 0, False, False
+        for i in range(start, len(text)):
+            ch = text[i]
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif ch == "\\":
+                    escaped = True
+                elif ch == '"':
+                    in_string = False
+                continue
+            if ch == '"':
+                in_string = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return text[start:i + 1]
+    return None
+
+
+def _validate_json(text: str) -> dict | None:
+    stripped = (text or "").strip()
+    # Markdown fences are the most common wrapper and cost nothing to remove.
+    if stripped.startswith("```"):
+        stripped = re.sub(r"^```(?:json)?\s*|\s*```$", "", stripped,
+                          flags=re.IGNORECASE | re.MULTILINE).strip()
+
+    for candidate in (stripped, _extract_json_object(stripped)):
+        if not candidate:
+            continue
+        try:
+            data = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, dict):
+            return data
+
+    log.warning("Ollama JSON parse failed | raw: %.300s", text)
+    return None

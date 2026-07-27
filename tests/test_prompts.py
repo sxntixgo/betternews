@@ -1,3 +1,4 @@
+import pytest
 from app import prompts
 from app.prompts import scoring_prompt, summarization_prompt, profile_prompt
 
@@ -103,3 +104,60 @@ def test_title_prompt_truncates_long_content():
 def test_title_prompt_handles_empty_content():
     p = prompts.summarization_with_title_prompt("", "headline")
     assert "<article_content>" in p
+
+
+# ── language ───────────────────────────────────────────────────────────────────
+
+def test_scoring_asks_for_the_reason_in_the_articles_language():
+    """The reason is shown beside the article, so English text under a Spanish
+    headline reads badly."""
+    p = prompts.scoring_prompt("profile", "Título", "Un resumen")
+    assert "SAME LANGUAGE as the article" in p
+
+
+def test_batch_scoring_asks_for_it_per_article():
+    p = prompts.batch_scoring_prompt(
+        "profile", [{"id": 1, "title": "Título", "snippet": "s"}])
+    assert "SAME LANGUAGE as that article" in p
+
+
+@pytest.mark.parametrize("builder", ["scoring_prompt", "batch_scoring_prompt"])
+def test_topics_stay_english_even_so(builder):
+    """Deliberately the opposite rule: a mute on `football` has to catch Spanish
+    articles too, so topics are a controlled vocabulary, not prose."""
+    fn = getattr(prompts, builder)
+    p = (fn("profile", "t", "s") if builder == "scoring_prompt"
+         else fn("profile", [{"id": 1, "title": "t", "snippet": "s"}]))
+    assert "ALWAYS in English" in p
+
+
+def test_the_profile_is_written_in_the_readers_language():
+    p = prompts.profile_prompt(["Título: resumen"], [])
+    assert "language most of these articles are in" in p
+
+
+@pytest.mark.parametrize("builder,args", [
+    ("summarization_prompt", ("body",)),
+    ("summarization_with_title_prompt", ("body", "title")),
+    ("transcript_summarization_prompt", ("spoken words", "title")),
+])
+def test_per_article_prose_follows_the_article_language(builder, args):
+    """A reader with Spanish feeds should not get English summaries."""
+    p = getattr(prompts, builder)(*args)
+    assert "language" in p.lower()
+
+
+def test_the_digest_is_english_whatever_the_articles_are():
+    """Deliberately the exception: the briefing is one piece of prose over a
+    mixed-language list, so it has one language of its own."""
+    p = prompts.digest_prompt([{"id": 1, "title": "Título", "summary": "Resumen"}])
+    assert "ENTIRE briefing in ENGLISH" in p
+    assert "Translate any title or claim" in p
+
+
+def test_the_digest_forbids_other_scripts():
+    """Models drift into other scripts mid-paragraph; Chinese characters showed
+    up in a briefing over Spanish articles."""
+    p = prompts.digest_prompt([{"id": 1, "title": "t", "summary": "s"}])
+    assert "only the Latin alphabet" in p
+    assert "Chinese" in p

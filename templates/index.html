@@ -140,6 +140,35 @@
     focused = -1;
   });
 
+  // Voting replaces the card in place. The clicked button is destroyed by the
+  // swap, so focus falls back to the document and the viewport can jump -- which
+  // is maddening when you are halfway down a long list. Pin the scroll position
+  // across any card-level swap, whatever the browser decides to do.
+  (function () {
+    var pinned = null;
+    document.body.addEventListener('htmx:beforeSwap', function (e) {
+      var t = e.detail.target;
+      if (t && t.classList && t.classList.contains('article-row')) {
+        pinned = window.scrollY;
+      }
+    });
+    function restore() {
+      if (pinned === null) return;
+      var want = pinned;
+      pinned = null;
+      if (Math.abs(window.scrollY - want) > 1) window.scrollTo(0, want);
+    }
+    // afterSettle covers the class transitions on the replaced row; the rAF
+    // catches anything the browser defers past it.
+    document.body.addEventListener('htmx:afterSettle', function () {
+      var want = pinned;
+      restore();
+      if (want !== null) requestAnimationFrame(function () {
+        if (Math.abs(window.scrollY - want) > 1) window.scrollTo(0, want);
+      });
+    });
+  })();
+
   var currentSort = 'date';
   var _qp = new URLSearchParams(window.location.search);
   var showHidden = _qp.get('hidden') === '1';

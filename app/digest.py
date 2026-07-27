@@ -30,6 +30,22 @@ MIN_ARTICLES = 2
 # Observed live: llama3.1:8b writes "[id: 26701]" when a theme cites one
 # article, and "[ids: 1, 2]" when it cites several. Matching only the plural
 # left the marker rendering as raw debris and linked nothing.
+# CJK, Cyrillic, Arabic, Hebrew, Greek, Devanagari. Models drift into another
+# script mid-paragraph, and asking nicely in the prompt does not always hold.
+_NON_LATIN_RE = re.compile(
+    r"[\u0370-\u03ff\u0400-\u04ff\u0590-\u05ff\u0600-\u06ff"
+    r"\u0900-\u097f\u3000-\u303f\u3040-\u30ff\u4e00-\u9fff\uac00-\ud7af]"
+)
+
+# A stray character is not worth a second call; a sentence of another script is.
+NON_LATIN_TOLERANCE = 3
+
+
+def has_non_latin(text: str) -> int:
+    """How many characters are in a script the briefing should not contain."""
+    return len(_NON_LATIN_RE.findall(text or ""))
+
+
 _IDS_RE = re.compile(r"[\[(]\s*ids?\s*:\s*([0-9,\s#]+?)\s*[\])]", re.IGNORECASE)
 
 
@@ -109,10 +125,30 @@ def generate(db, user_id: int, *, model: str, base_url: str, force: bool = False
 
     items = [{"id": r["id"], "title": r["clean_title"] or r["title"],
               "summary": r["summary"]} for r in rows]
+    prompt = prompts.digest_prompt(items)
     body = ollama_client.generate(
-        model=model, prompt=prompts.digest_prompt(items),
-        expect_json=False, base_url=base_url,
+        model=model, prompt=prompt, expect_json=False, base_url=base_url,
+        action="digest",
     )
+
+    # The briefing is English by design (see prompts.digest_prompt), because it
+    # is one piece of prose over a reading list that may mix languages. Asking
+    # in the prompt does not always hold, so check, and spend one more call when
+    # it did not -- the digest is generated rarely and then cached.
+    drift = has_non_latin(body or "")
+    if drift > NON_LATIN_TOLERANCE:
+        log.warning("Digest for user %d came back with %d non-Latin characters; "
+                    "retrying", user_id, drift)
+        retry = ollama_client.generate(
+            model=model,
+            prompt=prompt + "\n\nYour previous attempt used a non-Latin script. "
+                            "Write every word in English, Latin alphabet only.",
+            expect_json=False, base_url=base_url, action="digest (retry)",
+        )
+        # Only if it actually improved: never trade a bad briefing for a worse one.
+        if retry and retry.strip() and has_non_latin(retry) < drift:
+            body = retry
+
     if not body or not body.strip():
         log.warning("Digest generation returned nothing for user %d", user_id)
         # A stale digest beats none; the caller shows when it was made.

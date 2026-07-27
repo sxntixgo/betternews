@@ -257,3 +257,57 @@ def test_a_singular_marker_links(client, app):
     out = digest.linkify("A theme.\n[id: 26701]", {26701: "https://a.test/x"})
     assert 'data-article-id="26701"' in out
     assert "[id:" not in out
+
+
+# ── the briefing is English ────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("text,expected", [
+    ("Plain English prose.", 0),
+    ("The council met 中文 today", 2),
+    ("Совет собрался", 13),
+    ("Café, naïve, piñata — all Latin", 0),      # accents are not another script
+])
+def test_non_latin_is_counted_not_guessed(text, expected):
+    assert digest.has_non_latin(text) == expected
+
+
+def test_a_drifting_briefing_is_regenerated(db_conn):
+    """Asking in the prompt does not always hold, and the reader sees the result."""
+    uid = _uid(db_conn)
+    _unread(db_conn, 3)
+    with patch("app.ollama_client.generate",
+               side_effect=["**Theme**\n中文中文中文中文 drifted.",
+                            "**Theme**\nClean English briefing."]) as gen:
+        body, _, _ = digest.generate(db_conn, uid, model="m", base_url="u")
+    assert gen.call_count == 2
+    assert body == "**Theme**\nClean English briefing."
+    assert "retry" in gen.call_args.kwargs["action"]
+
+
+def test_a_stray_character_is_not_worth_a_second_call(db_conn):
+    uid = _uid(db_conn)
+    _unread(db_conn, 3)
+    with patch("app.ollama_client.generate",
+               return_value="Mostly fine 中 briefing.") as gen:
+        digest.generate(db_conn, uid, model="m", base_url="u")
+    assert gen.call_count == 1
+
+
+def test_a_worse_retry_is_discarded(db_conn):
+    """Never trade a bad briefing for a worse one."""
+    uid = _uid(db_conn)
+    _unread(db_conn, 3)
+    first = "Drifted 中文中文中文中文."
+    with patch("app.ollama_client.generate",
+               side_effect=[first, "完全中文的简报内容在这里出现了很多"]):
+        body, _, _ = digest.generate(db_conn, uid, model="m", base_url="u")
+    assert body == first
+
+
+def test_a_failed_retry_keeps_the_first_attempt(db_conn):
+    uid = _uid(db_conn)
+    _unread(db_conn, 3)
+    first = "Drifted 中文中文中文中文."
+    with patch("app.ollama_client.generate", side_effect=[first, None]):
+        body, _, _ = digest.generate(db_conn, uid, model="m", base_url="u")
+    assert body == first

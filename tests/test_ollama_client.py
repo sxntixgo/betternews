@@ -7,10 +7,13 @@ import pytest
 from app import ollama_client
 
 
-def _mock_response(text: str, status: int = 200) -> MagicMock:
+def _mock_response(text: str, status: int = 200, thinking: str | None = None) -> MagicMock:
     r = MagicMock()
     r.status_code = status
-    r.json.return_value = {"response": text}
+    body = {"response": text}
+    if thinking is not None:
+        body["thinking"] = thinking
+    r.json.return_value = body
     r.raise_for_status = MagicMock()
     return r
 
@@ -421,3 +424,76 @@ def test_a_long_preview_keeps_the_tail():
     assert "THE-ANSWER-IS-HERE" in out
     assert "characters omitted" in out
     assert len(out) < len(text)
+
+
+# ── reasoning models ───────────────────────────────────────────────────────────
+
+@patch("app.ollama_client.httpx.post")
+def test_structured_calls_ask_the_model_not_to_think(mock_post):
+    """Asking for JSON means we want the answer, not the reasoning that
+    consumed the whole output budget."""
+    mock_post.return_value = _mock_response('{"score": 0.5}')
+    ollama_client.generate("m", "p", expect_json=True)
+    assert mock_post.call_args.kwargs["json"]["think"] is False
+
+
+@patch("app.ollama_client.httpx.post")
+def test_free_text_calls_do_not_disable_thinking(mock_post):
+    """Summaries and digests are prose; reasoning may well improve them."""
+    mock_post.return_value = _mock_response("a summary")
+    ollama_client.generate("m", "p")
+    assert "think" not in mock_post.call_args.kwargs["json"]
+
+
+@patch("app.ollama_client.httpx.post")
+def test_a_server_that_rejects_think_is_retried_without_it(mock_post):
+    """Older Ollama, or a model with no thinking mode, must not be reported as
+    a failure we caused."""
+    bad = MagicMock()
+    bad.status_code = 400
+    bad.text = '{"error":"model does not support think"}'
+    bad.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "e", request=MagicMock(), response=bad)
+    mock_post.side_effect = [bad, _mock_response('{"score": 0.7}')]
+    assert ollama_client.generate("m", "p", expect_json=True)["score"] == 0.7
+    assert "think" not in mock_post.call_args_list[1].kwargs["json"]
+
+
+@patch("app.ollama_client.httpx.post")
+def test_json_found_in_the_thinking_field_is_used(mock_post):
+    """gpt-oss returns its reasoning separately; when it uses the whole budget
+    there, `response` comes back empty."""
+    mock_post.return_value = _mock_response(
+        "", thinking='Let me think... {"score": 0.4, "reason": "ok"}')
+    out = ollama_client.generate("m", "p", expect_json=True)
+    assert out["score"] == 0.4
+
+
+@patch("app.ollama_client.httpx.post")
+def test_response_wins_over_thinking(mock_post):
+    mock_post.return_value = _mock_response(
+        '{"score": 0.9}', thinking='{"score": 0.1}')
+    assert ollama_client.generate("m", "p", expect_json=True)["score"] == 0.9
+
+
+@patch("app.ollama_client.httpx.post")
+def test_an_empty_response_says_so_and_suggests_a_fix(mock_post):
+    """The reported symptom: HTTP 200, 470 ms, no response body."""
+    ollama_client.clear_last_error()
+    mock_post.return_value = _mock_response("")
+    assert ollama_client.generate("gpt-oss:20b", "p", expect_json=True) is None
+    msg = ollama_client.last_error["message"]
+    assert "empty response" in msg
+    assert "non-reasoning model" in msg
+    assert "gpt-oss:20b" in msg
+
+
+@patch("app.ollama_client.httpx.post")
+def test_reasoning_with_no_answer_says_so(mock_post):
+    ollama_client.clear_last_error()
+    mock_post.return_value = _mock_response(
+        "", thinking="We need to consider each article and decide, but ")
+    assert ollama_client.generate("gpt-oss:20b", "p", expect_json=True) is None
+    msg = ollama_client.last_error["message"]
+    assert "only reasoning" in msg
+    assert "We need to consider" in msg      # quotes what it actually said

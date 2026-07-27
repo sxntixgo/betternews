@@ -123,6 +123,12 @@ def generate(
     payload: dict = {"model": model, "prompt": prompt, "stream": False}
     if expect_json:
         payload["format"] = "json"
+        # Reasoning models spend their output budget thinking and often never
+        # reach the JSON -- or put it in `thinking` and leave `response` empty.
+        # Asking for structured output means we do not want the reasoning.
+        # Servers and models that do not support this reject it, so the call is
+        # retried once without it rather than failing outright.
+        payload["think"] = False
 
     target = _base(base_url)
     started = time.monotonic()
@@ -141,18 +147,38 @@ def generate(
                 follow_redirects=True,
             )
             r.raise_for_status()
-            text: str = r.json()["response"].strip()
+            body = r.json()
+            # A thinking model returns its reasoning separately. When it uses
+            # its whole budget reasoning, `response` is empty and the answer,
+            # if there is one, is in `thinking`.
+            text: str = (body.get("response") or "").strip()
+            thinking: str = (body.get("thinking") or "").strip()
+            if not text and thinking:
+                log.info("Model %s answered only in `thinking` (%d chars)",
+                         model, len(thinking))
+                text = thinking
             clear_last_error()
             if expect_json:
                 parsed = _validate_json(text)
                 if parsed is None:
-                    _record(f"Model returned text that is not valid JSON: "
-                            f"{text[:200]}", model, target)
+                    if not text:
+                        why = (f"Model '{model}' returned an empty response. "
+                               f"Reasoning models can spend their whole output "
+                               f"budget thinking; try a non-reasoning model for "
+                               f"this job.")
+                    elif thinking and text is thinking:
+                        why = (f"Model '{model}' produced only reasoning and no "
+                               f"answer. Try a non-reasoning model for this job. "
+                               f"It said: {text[:200]}")
+                    else:
+                        why = (f"Model returned text that is not valid JSON: "
+                               f"{text[:200]}")
+                    _record(why, model, target)
                     _emit(action=action, model=model, endpoint=target, ok=False,
                           status_code=r.status_code, duration_ms=_ms(),
                           request_preview=_preview(prompt),
                           response_preview=_preview(text),
-                          error="Response was not valid JSON")
+                          error=why)
                     return None
                 _emit(action=action, model=model, endpoint=target, ok=True,
                       status_code=r.status_code, duration_ms=_ms(),
@@ -171,6 +197,12 @@ def generate(
         except httpx.HTTPStatusError as exc:
             code = exc.response.status_code
             body = (exc.response.text or "")[:300].strip()
+            if code == 400 and "think" in body.lower() and "think" in payload:
+                # Older Ollama, or a model with no thinking mode. Drop it and
+                # try again rather than reporting a failure we caused.
+                log.info("Server rejected `think`; retrying without it")
+                payload.pop("think", None)
+                continue
             if code == 404:
                 # What Ollama says when the model is not pulled.
                 hint = (f"Model '{model}' is not installed on this server. "

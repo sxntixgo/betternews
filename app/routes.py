@@ -1121,6 +1121,28 @@ def topics_save():
                            saved=True)
 
 
+@bp.post("/settings/models/recommended")
+@auth.admin_required
+def models_use_recommended():
+    """Set every job to the best installed model for it."""
+    from app import llm_config
+    db = get_db()
+    installed = ollama_client.list_models(ollama_base(db))
+    if not installed:
+        return render_template("_models.html", installed=[],
+                               rows=llm_config.current(db, []))
+    changed = 0
+    for action in llm_config.ACTIONS:
+        suggested, _ = llm_config.recommend(action.id, installed)
+        if suggested and llm_config.model_for(db, action.id) != suggested:
+            llm_config.set_model(db, action.id, suggested)
+            changed += 1
+    db.commit()
+    log.info("Applied recommended models to %d job(s)", changed)
+    return render_template("_models.html", installed=installed,
+                           rows=llm_config.current(db, installed), saved=True)
+
+
 @bp.get("/settings/embeds")
 @auth.admin_required
 def embeds_form():

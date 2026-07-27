@@ -948,3 +948,16 @@ dialog[open] { display: flex; flex-direction: column; }
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* Per-job model guidance */
+.action-guidance { font-style: italic; opacity: .85; }
+.action-suggestion {
+  grid-column: 1 / -1;
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.action-suggestion-ok { color: var(--accent); }
+.action-suggestion-warn { color: #d14343; }
+[data-theme="dark"] .action-suggestion-warn { color: #ff8080; }
+.action-suggestion .btn-icon { font-size: 11px; padding: 1px 6px; margin-left: 4px; }

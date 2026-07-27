@@ -255,3 +255,125 @@ def test_panel_queries_the_configured_endpoint(mock_list, client, app):
         db.commit(); db.close()
     client.get("/settings/models")
     mock_list.assert_called_once_with("http://ollama.lan:80")
+
+
+# ── recommendations ────────────────────────────────────────────────────────────
+
+INSTALLED = ["llama3.2:latest", "llama3.1:8b", "gpt-oss:20b"]
+
+
+@pytest.mark.parametrize("name,expected", [
+    ("gpt-oss:20b", True), ("deepseek-r1:8b", True), ("qwq:32b", True),
+    ("magistral:24b", True), ("llama3.1:8b", False), ("mistral:7b", False),
+    ("llama3.2:latest", False), ("", False),
+])
+def test_reasoning_models_are_recognised(name, expected):
+    assert llm_config.is_reasoning_model(name) is expected
+
+
+@pytest.mark.parametrize("name,expected", [
+    ("llama3.1:8b", 8), ("gpt-oss:20b", 20), ("qwen2.5:14b", 14),
+    ("phi3:3.8b", 3.8), ("llama3.2:latest", None), ("mistral", None),
+])
+def test_parameter_size_is_read_from_the_tag(name, expected):
+    assert llm_config.model_size_b(name) == expected
+
+
+@pytest.mark.parametrize("action_id", ["scoring", "summary", "asides"])
+def test_per_article_jobs_avoid_reasoning_models(action_id):
+    """Reasoning on every article is the failure that produced empty responses
+    and truncated JSON."""
+    model, why = llm_config.recommend(action_id, INSTALLED)
+    assert model == "llama3.1:8b"
+    assert "not a reasoning model" in why
+
+
+@pytest.mark.parametrize("action_id", ["transcript", "profile", "digest"])
+def test_rare_free_text_jobs_prefer_the_stronger_model(action_id):
+    model, why = llm_config.recommend(action_id, INSTALLED)
+    assert model == "gpt-oss:20b"
+    assert "reasons before answering" in why
+
+
+def test_a_reasoning_only_server_is_called_out_rather_than_endorsed(db_conn):
+    """Recommending the least-bad option without saying so would be misleading."""
+    model, why = llm_config.recommend("scoring", ["gpt-oss:20b", "deepseek-r1:8b"])
+    assert model in ("gpt-oss:20b", "deepseek-r1:8b")
+    assert "poor fit" in why and "general instruct model" in why
+
+
+def test_no_models_means_no_recommendation():
+    model, why = llm_config.recommend("scoring", [])
+    assert model is None and "did not report" in why
+
+
+def test_a_stated_size_beats_an_unstated_one():
+    """`llama3.2:latest` hides its size; guessing wrong is worse than caution."""
+    model, _ = llm_config.recommend("scoring", ["llama3.2:latest", "mistral:7b"])
+    assert model == "mistral:7b"
+
+
+def test_current_reports_a_suboptimal_choice(db_conn):
+    llm_config.set_model(db_conn, "scoring", "gpt-oss:20b")
+    db_conn.commit()
+    row = {r["action"].id: r for r in llm_config.current(db_conn, INSTALLED)}["scoring"]
+    assert row["suboptimal"] is True
+    assert row["suggested"] == "llama3.1:8b"
+
+
+def test_a_merely_different_choice_is_not_flagged_as_bad(db_conn):
+    """Preferring a smaller model is a judgement call, not a mistake."""
+    llm_config.set_model(db_conn, "scoring", "llama3.2:latest")
+    db_conn.commit()
+    row = {r["action"].id: r for r in llm_config.current(db_conn, INSTALLED)}["scoring"]
+    assert row["suboptimal"] is False
+
+
+# ── the panel ──────────────────────────────────────────────────────────────────
+
+@patch("app.routes.ollama_client.list_models", return_value=INSTALLED)
+def test_the_panel_recommends_and_explains(mock_list, client):
+    body = client.get("/settings/models").get_data(as_text=True)
+    assert "recommended" in body
+    assert "Reasoning models" in body            # the general guidance
+    assert "not a reasoning model" in body       # a per-job reason
+
+
+@patch("app.routes.ollama_client.list_models", return_value=INSTALLED)
+def test_the_panel_warns_when_a_reasoning_model_is_used_for_json(mock_list, client, app):
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        llm_config.set_model(db, "scoring", "gpt-oss:20b")
+        db.commit()
+        db.close()
+    body = client.get("/settings/models").get_data(as_text=True)
+    assert "reasons before answering, which this" in body
+    assert "action-suggestion-warn" in body
+
+
+@patch("app.routes.ollama_client.list_models", return_value=INSTALLED)
+def test_applying_every_recommendation(mock_list, client, app):
+    r = client.post("/settings/models/recommended")
+    assert r.status_code == 200
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        assert llm_config.model_for(db, "scoring") == "llama3.1:8b"
+        assert llm_config.model_for(db, "digest") == "gpt-oss:20b"
+        db.close()
+
+
+@patch("app.routes.ollama_client.list_models", return_value=[])
+def test_applying_recommendations_without_ollama_changes_nothing(mock_list, client, app):
+    client.post("/settings/models/recommended")
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        assert all(r["inherited"] for r in llm_config.current(db))
+        db.close()
+
+
+def test_applying_recommendations_is_admin_only(login_as):
+    c, _ = login_as()
+    assert c.post("/settings/models/recommended").status_code == 403

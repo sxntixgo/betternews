@@ -10,8 +10,8 @@ from flask import (Blueprint, current_app, g, redirect, render_template,
 from sqlalchemy import text as sql
 
 from app import content_filter, ollama_client
-from app import (auth, digest as digest_mod, export as export_mod, extract,
-                 health, insights, pipeline_status, retention,
+from app import (auth, call_log, digest as digest_mod, export as export_mod,
+                 extract, health, insights, pipeline_status, retention,
                  topics as topics_mod, user_topics)
 from app.repo import articles as art_repo, users as user_repo
 from app.db import get_db, get_setting, set_setting
@@ -1002,6 +1002,7 @@ def insights_page():
         per_topic=insights.per_topic(db),
         pipeline=insights.pipeline_health(db),
         runs=insights.recent_runs(db),
+        llm_error=__import__("app.pipeline", fromlist=["x"]).last_llm_error(db),
     )
 
 
@@ -1042,6 +1043,41 @@ def notifications_save():
     from app.pipeline import HIGH_SCORE_NOTIFY
     return render_template("_notifications_setting.html", enabled=enabled,
                            threshold=HIGH_SCORE_NOTIFY, saved=True)
+
+
+@bp.get("/ollama-log")
+@auth.admin_required
+def ollama_log():
+    """What was actually sent to Ollama and what came back."""
+    db = get_db()
+    only_failed = request.args.get("failed") == "1"
+    return render_template(
+        "ollama_log.html",
+        calls=call_log.recent(db, failures_only=only_failed),
+        summary=call_log.summary(db),
+        enabled=call_log.enabled(db),
+        only_failed=only_failed,
+        keep=call_log.KEEP,
+    )
+
+
+@bp.post("/ollama-log/toggle")
+@auth.admin_required
+def ollama_log_toggle():
+    db = get_db()
+    set_setting(db, call_log.SETTING,
+                "1" if request.form.get("enabled") == "1" else "")
+    db.commit()
+    return redirect(url_for("main.ollama_log"))
+
+
+@bp.post("/ollama-log/clear")
+@auth.admin_required
+def ollama_log_clear():
+    db = get_db()
+    call_log.clear(db)
+    db.commit()
+    return redirect(url_for("main.ollama_log"))
 
 
 @bp.get("/settings/topics")

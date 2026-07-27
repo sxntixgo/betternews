@@ -80,6 +80,24 @@
 </section>
 {% endif %}
 
+{% if llm_error %}
+<section class="settings-group">
+  <h2>Last LLM failure</h2>
+  <p class="ollama-result ollama-result-bad">
+    {{ llm_error.message }}
+  </p>
+  <p class="hint">
+    <a href="/ollama-log">See the full exchange with Ollama</a><br>
+    model <code>{{ llm_error.model }}</code> ·
+    endpoint <code>{{ llm_error.endpoint }}</code>
+    {%- if llm_error.at %} · {{ llm_error.at[:16] | replace('T', ' ') }}{% endif %}
+    <br>
+    Runs showing <em>0 scored</em> with a near-zero duration mean the calls
+    failed fast rather than that there was nothing to do.
+  </p>
+</section>
+{% endif %}
+
 {% if runs %}
 <section class="settings-group">
   <h2>Recent pipeline runs</h2>

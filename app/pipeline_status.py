@@ -108,6 +108,18 @@ def diagnose(db, *, user_id: int, visible: int) -> dict | None:
                               f"progresses. Installed: {', '.join(installed)}.",
                     "action": ("Choose a model", "/settings"), "admin_only": True}
 
+        from app.pipeline import last_llm_error
+        err = last_llm_error(db)
+        if err:
+            # Ollama answered, and the model exists, but the calls still fail.
+            return {"kind": "llm_failing",
+                    "title": f"{pending} article{'s' if pending != 1 else ''} waiting "
+                             f"— the model is not responding usefully",
+                    "detail": f"{err.get('message', 'Unknown error.')} "
+                              f"(model {err.get('model')}, endpoint "
+                              f"{err.get('endpoint')})",
+                    "action": ("Ollama settings", "/settings"), "admin_only": True}
+
         run = last_run(db)
         when = "" if not run else f" Last run finished {run.get('finished_at')}."
         return {"kind": "processing",

@@ -101,6 +101,11 @@
 {% if runs %}
 <section class="settings-group">
   <h2>Recent pipeline runs</h2>
+  <p class="hint">
+    A run showing <em>0 scored</em> with a near-zero duration means the calls
+    failed fast, not that there was nothing to do.
+    <a href="/ollama-log">See what Ollama said</a>.
+  </p>
   <ul class="feed-list">
     {% for r in runs %}
       <li class="feed-item">
@@ -123,6 +128,7 @@
 
 <section class="settings-group">
   <h2>Pipeline</h2>
+  <p class="hint"><a href="/ollama-log">Ollama call log</a> -- every request and reply.</p>
   <dl class="status-list">
     <dt>Waiting to score</dt><dd>{{ pipeline.unscored }}</dd>
     <dt>Waiting to summarize</dt><dd>{{ pipeline.unsummarized }}</dd>

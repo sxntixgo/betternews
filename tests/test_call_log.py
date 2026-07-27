@@ -240,3 +240,90 @@ def test_clearing_from_the_page(client, app):
         db = get_db_direct()
         assert call_log.summary(db)["total"] == 0
         db.close()
+
+
+# ── discoverability ────────────────────────────────────────────────────────────
+
+def test_settings_links_to_the_call_log(client):
+    """A page with no route to it may as well not exist."""
+    body = client.get("/settings").get_data(as_text=True)
+    assert 'href="/ollama-log"' in body
+
+
+def test_insights_links_to_it_even_with_nothing_recorded(client):
+    """The original link only appeared once an error had been recorded, which is
+    exactly when you no longer need to go looking for it."""
+    body = client.get("/insights").get_data(as_text=True)
+    assert 'href="/ollama-log"' in body
+
+
+def test_insights_still_links_when_runs_exist(client, app):
+    from app.db import get_db_direct
+    from sqlalchemy import text as _t
+    with app.app_context():
+        db = get_db_direct()
+        db.execute(_t("INSERT INTO pipeline_runs (finished_at, scored_n) VALUES (now(), 0)"))
+        db.commit()
+        db.close()
+    body = client.get("/insights").get_data(as_text=True)
+    assert "failed fast, not that there was nothing to do" in body
+    assert 'href="/ollama-log"' in body
+
+
+# ── an empty log means two very different things ──────────────────────────────
+
+def _enable_via_page(client):
+    client.post("/ollama-log/toggle", data={"enabled": "1"})
+
+
+def test_no_articles_at_all_is_called_out(client, app):
+    """Nothing calls Ollama when there is nothing to process -- an empty log is
+    then expected, not a fault."""
+    _enable_via_page(client)
+    body = client.get("/ollama-log").get_data(as_text=True)
+    assert "no articles at all" in body
+    assert "Manage feeds" in body
+
+
+def test_a_waiting_queue_with_no_calls_is_flagged(client, app):
+    """The interesting case: work is queued but nothing is being sent."""
+    from app.db import get_db_direct
+    from tests.conftest import add_article, add_feed
+    with app.app_context():
+        db = get_db_direct()
+        add_article(db, add_feed(db), status="new", score=None)
+        db.close()
+    _enable_via_page(client)
+    # The template wraps, so compare against normalised whitespace rather than
+    # writing assertions that break when a line is rewrapped.
+    body = " ".join(client.get("/ollama-log").get_data(as_text=True).split())
+    assert "1 article is waiting, but no calls have been recorded" in body
+    assert "worker process is not running the current build" in body
+    assert "Run the pipeline now" in body
+
+
+def test_a_fully_processed_queue_is_not_alarming(client, app):
+    from app.db import get_db_direct
+    from tests.conftest import add_article, add_feed
+    with app.app_context():
+        db = get_db_direct()
+        add_article(db, add_feed(db), status="summarized")
+        db.close()
+    _enable_via_page(client)
+    body = client.get("/ollama-log").get_data(as_text=True)
+    assert "already been processed" in body
+    assert "ollama-result-bad" not in body
+
+
+def test_the_queue_counts_are_shown(client, app):
+    from app.db import get_db_direct
+    from tests.conftest import add_article, add_feed
+    with app.app_context():
+        db = get_db_direct()
+        fid = add_feed(db)
+        add_article(db, fid, seq=1, guid="a", status="new", score=None)
+        add_article(db, fid, seq=2, guid="b", status="hidden", score=0.1)
+        db.close()
+    body = client.get("/ollama-log").get_data(as_text=True)
+    assert "Waiting to be scored" in body
+    assert "Hidden by score" in body

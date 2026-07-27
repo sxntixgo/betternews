@@ -81,7 +81,10 @@
           if (now && now !== before) {
             clearInterval(iv);
             setPolling(false);
-            htmx.trigger(document.getElementById('article-list'), 'reload');
+            // Was htmx.trigger(list, 'reload'), which never fired: the element
+            // has no hx-trigger, so nothing listened for a 'reload' event and
+            // the list silently never refreshed after a poll finished.
+            refreshList();
           }
         });
       }, 3000);
@@ -140,34 +143,13 @@
     focused = -1;
   });
 
-  // Voting replaces the card in place. The clicked button is destroyed by the
-  // swap, so focus falls back to the document and the viewport can jump -- which
-  // is maddening when you are halfway down a long list. Pin the scroll position
-  // across any card-level swap, whatever the browser decides to do.
-  (function () {
-    var pinned = null;
-    document.body.addEventListener('htmx:beforeSwap', function (e) {
-      var t = e.detail.target;
-      if (t && t.classList && t.classList.contains('article-row')) {
-        pinned = window.scrollY;
-      }
-    });
-    function restore() {
-      if (pinned === null) return;
-      var want = pinned;
-      pinned = null;
-      if (Math.abs(window.scrollY - want) > 1) window.scrollTo(0, want);
-    }
-    // afterSettle covers the class transitions on the replaced row; the rAF
-    // catches anything the browser defers past it.
-    document.body.addEventListener('htmx:afterSettle', function () {
-      var want = pinned;
-      restore();
-      if (want !== null) requestAnimationFrame(function () {
-        if (Math.abs(window.scrollY - want) > 1) window.scrollTo(0, want);
-      });
-    });
-  })();
+  // NOTE: there was a scroll-pinning block here that saved and restored
+  // window.scrollY around card swaps. It was written for a misdiagnosis --
+  // measuring the vote in a real browser shows scrollY does not move at all.
+  // What moved was the *content*: a stray hx-get on #article-list refetched the
+  // whole list on any click (see refreshList). Pinning a scroll offset over a
+  // rebuilt list could not have helped, so it is gone rather than left as
+  // cargo cult.
 
   var currentSort = 'date';
   var _qp = new URLSearchParams(window.location.search);
@@ -183,10 +165,14 @@
       + (currentFeed ? '&feed=' + encodeURIComponent(currentFeed) : '');
   }
   function refreshList() {
-    var list = document.getElementById('article-list');
-    var qs = buildQs();
-    list.setAttribute('hx-get', qs);
-    htmx.ajax('GET', qs, { target: '#article-list', swap: 'innerHTML' });
+    // Deliberately NOT setting hx-get on #article-list. htmx gives an element
+    // with hx-get and no hx-trigger a *default trigger of click*, so the
+    // attribute turns every click anywhere in the list -- voting, opening an
+    // article, empty space -- into a refetch from offset 0 that discards every
+    // page load-more had appended. The reader lands among different articles,
+    // which is invisible on page 1 and maddening once you have scrolled.
+    // The request belongs here, once, explicitly.
+    htmx.ajax('GET', buildQs(), { target: '#article-list', swap: 'innerHTML' });
   }
   function setSort(sort) {
     currentSort = sort;

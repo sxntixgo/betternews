@@ -3,6 +3,7 @@ import re
 from datetime import datetime, timezone
 import xml.etree.ElementTree as ET
 from html import escape
+from urllib.parse import quote
 
 from flask import (Blueprint, current_app, g, redirect, render_template,
                    request, Response, url_for)
@@ -497,12 +498,13 @@ def articles():
         offset = 0
     feed_arg = request.args.get("feed", "").strip()
     feed_id = int(feed_arg) if feed_arg.isdigit() else None
+    topic = request.args.get("topic", "").strip() or None
     db = get_db()
     uid = current_user_id(db)
     declickbait = _declickbait(db)
     rows = art_repo.list_for_user(
         db, uid, hidden=show_hidden, saved=show_saved, feed_id=feed_id,
-        sort=sort, topic=request.args.get("topic", "").strip() or None,
+        sort=sort, topic=topic,
         limit=_PAGE_SIZE, offset=offset,
     )
     next_offset = offset + _PAGE_SIZE if len(rows) == _PAGE_SIZE else None
@@ -515,6 +517,10 @@ def articles():
             parts.append("saved=1")
         if feed_arg.isdigit():
             parts.append(f"feed={int(feed_arg)}")
+        if topic:
+            # Without this, scrolling a topic view silently loads page 2 of
+            # *everything* -- the filter looks like it forgot itself mid-list.
+            parts.append(f"topic={quote(topic)}")
         next_qs = "&".join(parts)
     return render_template(
         "_articles.html",

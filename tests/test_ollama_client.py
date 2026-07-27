@@ -333,3 +333,91 @@ def test_a_successful_call_clears_the_last_error(mock_post):
     mock_post.return_value = _mock_response("fine")
     ollama_client.generate("m", "p")
     assert ollama_client.last_error is None
+
+
+# ── JSON buried in prose ───────────────────────────────────────────────────────
+
+REASONING = (
+    "We need to score relevance for a reader with no preference profile yet; "
+    "neutral at 0.5. The article is about cats watching outside from windows. "
+    "None of these topics directly match; maybe health.\n"
+    '{"score": 0.5, "reason": "Cats and mental stimulation.", "topics": ["health"]}'
+)
+
+
+@patch("app.ollama_client.httpx.post")
+def test_json_after_a_reasoning_preamble_is_recovered(mock_post):
+    """format:"json" does not constrain reasoning models — gpt-oss emits its
+    chain of thought into the same field, with the answer after it."""
+    mock_post.return_value = _mock_response(REASONING)
+    out = ollama_client.generate("gpt-oss:20b", "p", expect_json=True)
+    assert out["score"] == 0.5
+    assert out["topics"] == ["health"]
+
+
+@pytest.mark.parametrize("wrapper", [
+    '```json\n{"score": 0.8}\n```',
+    '```\n{"score": 0.8}\n```',
+    'Here is the JSON:\n{"score": 0.8}',
+    '{"score": 0.8}\n\nHope that helps!',
+    '  \n {"score": 0.8}  \n ',
+])
+@patch("app.ollama_client.httpx.post")
+def test_common_wrappers_are_stripped(mock_post, wrapper):
+    mock_post.return_value = _mock_response(wrapper)
+    assert ollama_client.generate("m", "p", expect_json=True)["score"] == 0.8
+
+
+@patch("app.ollama_client.httpx.post")
+def test_the_last_object_wins_when_reasoning_contains_braces(mock_post):
+    """Reasoning often quotes the schema it was asked for; the real answer is
+    the one at the end."""
+    text = ('Thinking: the format is {"score": 0.0, "reason": "..."} so I will '
+            'fill it in.\n{"score": 0.9, "reason": "actually relevant"}')
+    mock_post.return_value = _mock_response(text)
+    out = ollama_client.generate("m", "p", expect_json=True)
+    assert out["score"] == 0.9
+    assert out["reason"] == "actually relevant"
+
+
+@patch("app.ollama_client.httpx.post")
+def test_braces_inside_strings_do_not_confuse_the_scan(mock_post):
+    mock_post.return_value = _mock_response('{"reason": "he said {not json} loudly", "score": 0.4}')
+    assert ollama_client.generate("m", "p", expect_json=True)["score"] == 0.4
+
+
+@patch("app.ollama_client.httpx.post")
+def test_escaped_quotes_inside_strings_are_handled(mock_post):
+    mock_post.return_value = _mock_response(r'{"reason": "she said \"hi\"", "score": 0.2}')
+    assert ollama_client.generate("m", "p", expect_json=True)["score"] == 0.2
+
+
+@pytest.mark.parametrize("junk", [
+    "No JSON here at all.",
+    "{ unbalanced",
+    "[1, 2, 3]",          # valid JSON, but not an object
+    "",
+])
+@patch("app.ollama_client.httpx.post")
+def test_genuinely_unusable_responses_still_fail(mock_post, junk):
+    """Recovering JSON from prose must not become 'accept anything'."""
+    mock_post.return_value = _mock_response(junk)
+    assert ollama_client.generate("m", "p", expect_json=True) is None
+
+
+# ── previews keep the end ──────────────────────────────────────────────────────
+
+def test_short_text_is_previewed_whole():
+    assert ollama_client._preview("short") == "short"
+    assert ollama_client._preview(None) is None
+
+
+def test_a_long_preview_keeps_the_tail():
+    """A head-only preview cuts off exactly where a reasoning model puts its
+    answer."""
+    text = "A" * 5000 + "THE-ANSWER-IS-HERE"
+    out = ollama_client._preview(text)
+    assert out.startswith("AAA")
+    assert "THE-ANSWER-IS-HERE" in out
+    assert "characters omitted" in out
+    assert len(out) < len(text)

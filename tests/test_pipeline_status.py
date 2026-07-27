@@ -214,3 +214,83 @@ def test_several_broken_jobs_read_as_a_list(db_conn):
     db_conn.commit()
     d = _diagnose(db_conn, probe=(True, "ok", ["real:8b"]))
     assert " and " in d["detail"] and " are set to use " in d["detail"]
+
+
+# ── the LLM answered, but uselessly ────────────────────────────────────────────
+
+def test_a_recorded_llm_failure_is_surfaced(db_conn):
+    """The reported symptom: runs showing 0 scored in 0s, with the reason only
+    ever in the log."""
+    import json
+    from app.db import set_setting
+    add_article(db_conn, add_feed(db_conn), status="new", score=None)
+    set_setting(db_conn, "last_llm_error", json.dumps({
+        "message": "Model 'llama3.2:3b' is not installed on this server.",
+        "model": "llama3.2:3b", "endpoint": "http://ollama:11434",
+        "at": "2026-07-27T03:00:00+00:00",
+    }))
+    db_conn.commit()
+    d = _diagnose(db_conn)
+    assert d["kind"] == "llm_failing"
+    assert "not installed" in d["detail"]
+    assert "http://ollama:11434" in d["detail"]
+
+
+def test_a_corrupt_error_record_does_not_break_the_page(db_conn):
+    from app.db import set_setting
+    add_article(db_conn, add_feed(db_conn), status="new", score=None)
+    set_setting(db_conn, "last_llm_error", "{{not json")
+    db_conn.commit()
+    assert _diagnose(db_conn)["kind"] == "processing"
+
+
+def test_a_successful_run_clears_the_recorded_error(db_conn):
+    from app.db import set_setting
+    from app.pipeline import _record_llm_error, last_llm_error
+    set_setting(db_conn, "last_llm_error", '{"message":"old"}')
+    _record_llm_error(db_conn, scored=5, summarized=2)
+    db_conn.commit()
+    assert last_llm_error(db_conn) is None
+
+
+def test_insights_shows_the_failure(client, app):
+    import json
+    from app.db import get_db_direct, set_setting
+    with app.app_context():
+        db = get_db_direct()
+        set_setting(db, "last_llm_error", json.dumps({
+            "message": "Model 'ghost:1b' is not installed on this server.",
+            "model": "ghost:1b", "endpoint": "http://ollama:11434"}))
+        db.commit()
+        db.close()
+    body = client.get("/insights").get_data(as_text=True)
+    assert "Last LLM failure" in body
+    assert "ghost:1b" in body
+    assert "failed fast rather than that there was nothing to do" in body
+
+
+def test_a_failed_run_records_why(db_conn):
+    """The whole point: a run that scores nothing must leave the reason behind."""
+    from app import ollama_client
+    from app.pipeline import _record_llm_error, last_llm_error
+    ollama_client._record("Model 'ghost:1b' is not installed on this server.",
+                          "ghost:1b", "http://ollama:11434")
+    try:
+        _record_llm_error(db_conn, scored=0, summarized=0)
+        db_conn.commit()
+        err = last_llm_error(db_conn)
+        assert err["model"] == "ghost:1b"
+        assert "not installed" in err["message"]
+        assert err["at"]                      # timestamped, so staleness is visible
+    finally:
+        ollama_client.clear_last_error()
+
+
+def test_a_run_with_nothing_to_do_records_nothing(db_conn):
+    """No articles waiting is not a failure, and must not look like one."""
+    from app import ollama_client
+    from app.pipeline import _record_llm_error, last_llm_error
+    ollama_client.clear_last_error()
+    _record_llm_error(db_conn, scored=0, summarized=0)
+    db_conn.commit()
+    assert last_llm_error(db_conn) is None

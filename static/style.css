@@ -924,3 +924,27 @@ dialog[open] { display: flex; flex-direction: column; }
 [data-theme="dark"] .empty-model_missing { border-color: #ff8080; }
 [data-theme="dark"] .empty-ollama_unreachable h2,
 [data-theme="dark"] .empty-model_missing h2 { color: #ff8080; }
+
+/* Ollama call log */
+.call-entry {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin: 8px 0;
+  padding: 8px 12px;
+}
+.call-entry > summary { cursor: pointer; font-size: 13px; }
+.call-entry.call-failed { border-color: #d14343; }
+[data-theme="dark"] .call-entry.call-failed { border-color: #ff8080; }
+.call-body h4 { margin: 12px 0 4px; font-size: 12px; color: var(--muted); }
+.call-body pre {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

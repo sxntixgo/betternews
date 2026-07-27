@@ -98,6 +98,10 @@ def run_pipeline(app: flask.Flask) -> bool:
                     "UPDATE pipeline_runs SET finished_at=now(), scored_n=:s, "
                     "summarized_n=:m WHERE id=:i"),
                     {"s": int(scored or 0), "m": int(summarized or 0), "i": run_id})
+                # Carry the reason out of the log and into something the UI can
+                # show. A run that scored nothing is otherwise indistinguishable
+                # from a run with nothing to do.
+                _record_llm_error(db, scored, summarized)
                 set_setting(
                     db,
                     "last_pipeline_run_at",
@@ -170,7 +174,7 @@ def _score_batch(chunk, profile_text, model, base_url, vocab) -> dict | None:
         reply = ollama_client.generate(
             model=model,
             prompt=prompts.batch_scoring_prompt(profile_text, items, vocabulary=vocab),
-            expect_json=True, base_url=base_url,
+            expect_json=True, base_url=base_url, action="scoring (batch)",
         )
     except Exception as exc:
         log.error("Batch scoring call failed: %s", exc)
@@ -206,7 +210,7 @@ def _score_individually(chunk, profile_text, model, base_url, vocab) -> dict:
                 model=model,
                 prompt=prompts.scoring_prompt(profile_text, article["title"], snippet,
                                               vocabulary=vocab),
-                expect_json=True, base_url=base_url,
+                expect_json=True, base_url=base_url, action="scoring",
             )
         except Exception as exc:
             log.error("Error scoring article id=%d: %s", article["id"], exc)
@@ -237,6 +241,29 @@ def _persist_score(db, article, result, rule_map, global_threshold) -> None:
     )
     db.commit()
     log.info("Scored article id=%d score=%.2f status=%s", article["id"], score, status)
+
+
+def _record_llm_error(db, scored, summarized) -> None:
+    """Persist why the LLM calls failed, or clear it once they work again."""
+    import json as _json
+    err = ollama_client.last_error
+    if err and not (scored or summarized):
+        set_setting(db, "last_llm_error", _json.dumps({
+            **err, "at": datetime.now(timezone.utc).isoformat(),
+        }))
+    elif scored or summarized:
+        set_setting(db, "last_llm_error", "")
+
+
+def last_llm_error(db) -> dict | None:
+    import json as _json
+    raw = get_setting(db, "last_llm_error", "")
+    if not raw:
+        return None
+    try:
+        return _json.loads(raw)
+    except ValueError:
+        return None
 
 
 def _extract_body(article) -> tuple[str, str | None, str]:
@@ -271,7 +298,7 @@ def _detect_asides(full_text: str, model: str, base_url: str) -> str | None:
             model=model,
             prompt=prompts.aside_prompt(paragraphs),
             expect_json=True,
-            base_url=base_url,
+            base_url=base_url, action="asides",
         )
         if not isinstance(result, dict):
             log.warning("Aside detection returned no usable JSON")
@@ -346,7 +373,7 @@ def summarize_scored_articles(db) -> int:
                     model=transcript_model,
                     prompt=prompts.transcript_summarization_prompt(
                         full_text, article["title"]),
-                    expect_json=False, base_url=base_url,
+                    expect_json=False, base_url=base_url, action="summary",
                 )
             elif declickbait:
                 result = ollama_client.generate(

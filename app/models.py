@@ -223,6 +223,26 @@ user_topic_prefs = Table(
 )
 
 
+# A bounded log of what was actually said to Ollama and what came back.
+# Off by default: it is a row per LLM call, and prompts are large. On, it is the
+# difference between "0 scored" and knowing the server answered 404.
+ollama_calls = Table(
+    "ollama_calls", metadata,
+    Column("id", Integer, primary_key=True),
+    _ts(name="at", nullable=False, server_default=func.now()),
+    Column("action", Text),
+    Column("model", Text),
+    Column("endpoint", Text),
+    Column("ok", Boolean, nullable=False, server_default="false"),
+    Column("status_code", Integer),
+    Column("duration_ms", Integer),
+    Column("request_preview", Text),
+    Column("response_preview", Text),
+    Column("error", Text),
+)
+Index("ix_ollama_calls_at", ollama_calls.c.at.desc())
+
+
 # One cached digest per user. Keyed by a fingerprint of the unread set, so a
 # digest is reused until what you have not read actually changes — otherwise
 # every page load would cost an Ollama call.

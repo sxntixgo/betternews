@@ -251,3 +251,85 @@ def test_probe_unexpected_error(mock_get):
     ok, message, _ = ollama_client.probe("http://1.2.3.4:9999")
     assert ok is False
     assert "RuntimeError" in message
+
+
+# ── redirects ──────────────────────────────────────────────────────────────────
+
+@patch("app.ollama_client.httpx.post")
+def test_generate_follows_redirects(mock_post):
+    """A reverse proxy that redirects HTTP to HTTPS otherwise fails every call
+    with a 308 and only a log line to show for it."""
+    mock_post.return_value = _mock_response("ok")
+    ollama_client.generate("m", "p")
+    assert mock_post.call_args.kwargs["follow_redirects"] is True
+
+
+@patch("app.ollama_client.httpx.get")
+def test_list_models_follows_redirects(mock_get):
+    resp = MagicMock()
+    resp.raise_for_status = MagicMock()
+    resp.json.return_value = {"models": []}
+    mock_get.return_value = resp
+    ollama_client.list_models()
+    assert mock_get.call_args.kwargs["follow_redirects"] is True
+
+
+# ── failure reporting ──────────────────────────────────────────────────────────
+
+def _http_error(code, body=""):
+    resp = MagicMock()
+    resp.status_code = code
+    resp.text = body
+    resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "err", request=MagicMock(), response=resp)
+    return resp
+
+
+@patch("app.ollama_client.httpx.post")
+def test_a_missing_model_says_so_and_quotes_ollama(mock_post):
+    """404 is what Ollama returns for a model it does not have — the single most
+    common cause of a pipeline that runs and achieves nothing."""
+    ollama_client.clear_last_error()
+    mock_post.return_value = _http_error(404, '{"error":"model ghost:1b not found"}')
+    assert ollama_client.generate("ghost:1b", "p") is None
+    err = ollama_client.last_error
+    assert "not installed" in err["message"]
+    assert "ghost:1b" in err["message"]
+    assert "not found" in err["message"]        # Ollama's own words
+    assert err["model"] == "ghost:1b"
+
+
+@patch("app.ollama_client.httpx.post")
+def test_other_http_errors_are_reported_with_the_body(mock_post):
+    ollama_client.clear_last_error()
+    mock_post.return_value = _http_error(502, "upstream gone")
+    ollama_client.generate("m", "p")
+    assert "HTTP 502" in ollama_client.last_error["message"]
+    assert "upstream gone" in ollama_client.last_error["message"]
+
+
+@patch("app.ollama_client.time.sleep")
+@patch("app.ollama_client.httpx.post")
+def test_an_unreachable_endpoint_is_reported(mock_post, _sleep):
+    ollama_client.clear_last_error()
+    mock_post.side_effect = httpx.ConnectError("refused")
+    ollama_client.generate("m", "p", base_url="http://nope:1234")
+    assert "Could not reach" in ollama_client.last_error["message"]
+    assert ollama_client.last_error["endpoint"] == "http://nope:1234"
+
+
+@patch("app.ollama_client.httpx.post")
+def test_unparseable_json_is_reported_with_what_came_back(mock_post):
+    ollama_client.clear_last_error()
+    mock_post.return_value = _mock_response("I am not JSON at all")
+    assert ollama_client.generate("m", "p", expect_json=True) is None
+    assert "not valid JSON" in ollama_client.last_error["message"]
+    assert "I am not JSON" in ollama_client.last_error["message"]
+
+
+@patch("app.ollama_client.httpx.post")
+def test_a_successful_call_clears_the_last_error(mock_post):
+    ollama_client._record("stale failure", "m", "u")
+    mock_post.return_value = _mock_response("fine")
+    ollama_client.generate("m", "p")
+    assert ollama_client.last_error is None

@@ -13,6 +13,44 @@ DEFAULT_TIMEOUT = int(os.environ.get("OLLAMA_TIMEOUT", "180"))
 MAX_RETRIES = 3
 _RETRY_BACKOFF = [1, 3, 7]
 
+# Why the last call failed, so the UI can say rather than leaving it in a log.
+# The pipeline is serialized by an advisory lock and runs in one process, so a
+# module-level record is accurate for the run that just happened.
+last_error: dict | None = None
+
+
+def _record(message: str, model: str, base: str) -> None:
+    global last_error
+    last_error = {"message": message, "model": model, "endpoint": base}
+    log.error("Ollama call failed (%s at %s): %s", model, base, message)
+
+
+def clear_last_error() -> None:
+    global last_error
+    last_error = None
+
+
+# Where to send a record of each call. The web and worker run as separate
+# processes, so an in-memory buffer would be invisible to whichever one serves
+# the page — the sink writes to the database instead. Installed by create_app.
+_call_sink = None
+
+PREVIEW_CHARS = 1500
+
+
+def set_call_sink(fn) -> None:
+    global _call_sink
+    _call_sink = fn
+
+
+def _emit(**record) -> None:
+    if _call_sink is None:
+        return
+    try:
+        _call_sink(record)
+    except Exception as exc:                      # never let logging break a call
+        log.debug("Could not record the Ollama call: %s", exc)
+
 # Hostname or IPv4 literal. Deliberately excludes ':' so a host carrying its own
 # port is rejected with a useful message instead of silently losing the port.
 _HOST_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$")
@@ -65,11 +103,18 @@ def generate(
     expect_json: bool = False,
     timeout: int = DEFAULT_TIMEOUT,
     base_url: str | None = None,
+    action: str | None = None,
 ) -> dict | str | None:
     """Call Ollama /api/generate. Returns dict if expect_json=True, str otherwise, None on failure."""
     payload: dict = {"model": model, "prompt": prompt, "stream": False}
     if expect_json:
         payload["format"] = "json"
+
+    target = _base(base_url)
+    started = time.monotonic()
+
+    def _ms():
+        return int((time.monotonic() - started) * 1000)
 
     for attempt in range(MAX_RETRIES):
         try:
@@ -77,24 +122,67 @@ def generate(
                 f"{_base(base_url)}/api/generate",
                 json=payload,
                 timeout=timeout,
+                # Without this a reverse proxy that redirects to HTTPS returns a
+                # 308 and every call fails, with nothing but a log line to say so.
+                follow_redirects=True,
             )
             r.raise_for_status()
             text: str = r.json()["response"].strip()
+            clear_last_error()
             if expect_json:
-                return _validate_json(text)
+                parsed = _validate_json(text)
+                if parsed is None:
+                    _record(f"Model returned text that is not valid JSON: "
+                            f"{text[:200]}", model, target)
+                    _emit(action=action, model=model, endpoint=target, ok=False,
+                          status_code=r.status_code, duration_ms=_ms(),
+                          request_preview=prompt[:PREVIEW_CHARS],
+                          response_preview=text[:PREVIEW_CHARS],
+                          error="Response was not valid JSON")
+                    return None
+                _emit(action=action, model=model, endpoint=target, ok=True,
+                      status_code=r.status_code, duration_ms=_ms(),
+                      request_preview=prompt[:PREVIEW_CHARS],
+                      response_preview=text[:PREVIEW_CHARS], error=None)
+                return parsed
+            _emit(action=action, model=model, endpoint=target, ok=True,
+                  status_code=r.status_code, duration_ms=_ms(),
+                  request_preview=prompt[:PREVIEW_CHARS],
+                  response_preview=text[:PREVIEW_CHARS], error=None)
             return text
         except (httpx.ConnectError, httpx.TimeoutException) as exc:
             log.warning("Ollama attempt %d/%d failed: %s", attempt + 1, MAX_RETRIES, exc)
             if attempt < MAX_RETRIES - 1:
                 time.sleep(_RETRY_BACKOFF[attempt])
         except httpx.HTTPStatusError as exc:
-            log.error("Ollama HTTP error %s: %s", exc.response.status_code, exc)
+            code = exc.response.status_code
+            body = (exc.response.text or "")[:300].strip()
+            if code == 404:
+                # What Ollama says when the model is not pulled.
+                hint = (f"Model '{model}' is not installed on this server. "
+                        f"Ollama replied: {body}")
+            else:
+                hint = f"HTTP {code} from the endpoint. Response: {body}"
+            _record(hint, model, target)
+            _emit(action=action, model=model, endpoint=target, ok=False,
+                  status_code=code, duration_ms=_ms(),
+                  request_preview=prompt[:PREVIEW_CHARS],
+                  response_preview=body, error=hint)
             return None
         except Exception as exc:
-            log.error("Ollama unexpected error: %s", exc)
+            msg = f"{type(exc).__name__}: {exc}"
+            _record(msg, model, target)
+            _emit(action=action, model=model, endpoint=target, ok=False,
+                  status_code=None, duration_ms=_ms(),
+                  request_preview=prompt[:PREVIEW_CHARS],
+                  response_preview=None, error=msg)
             return None
 
-    log.error("Ollama: all %d retries exhausted for model=%s", MAX_RETRIES, model)
+    msg = f"Could not reach the endpoint after {MAX_RETRIES} attempts."
+    _record(msg, model, target)
+    _emit(action=action, model=model, endpoint=target, ok=False,
+          status_code=None, duration_ms=_ms(),
+          request_preview=prompt[:PREVIEW_CHARS], response_preview=None, error=msg)
     return None
 
 
@@ -132,7 +220,7 @@ def probe(base_url: str | None = None) -> tuple[bool, str, list[str]]:
 
 
 def _fetch_models(target: str) -> list[str]:
-    r = httpx.get(f"{target}/api/tags", timeout=10)
+    r = httpx.get(f"{target}/api/tags", timeout=10, follow_redirects=True)
     r.raise_for_status()
     data = r.json()
     return sorted(m["name"] for m in data.get("models", []) if m.get("name"))

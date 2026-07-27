@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Ollama log — Better Read{% endblock %}
+{% block content %}
+<section class="settings-group">
+  <h2>Ollama call log</h2>
+  <p class="hint">
+    Every request sent to Ollama and what came back. Off by default: it writes a
+    row per call including part of the prompt, and keeps the most recent
+    {{ keep }}. Turn it on when the pipeline reports <em>0 scored</em> and you
+    want to see the server's own answer rather than infer it.
+  </p>
+
+  <form method="post" action="{{ url_for('main.ollama_log_toggle') }}" style="display:inline">
+    <input type="hidden" name="enabled" value="{{ '' if enabled else '1' }}">
+    <button type="submit" class="btn-secondary">
+      {{ 'Stop logging' if enabled else 'Start logging' }}
+    </button>
+  </form>
+  {% if calls %}
+    <form method="post" action="{{ url_for('main.ollama_log_clear') }}" style="display:inline">
+      <button type="submit" class="btn-secondary">Clear</button>
+    </form>
+    <a class="btn-secondary" href="{{ url_for('main.ollama_log', failed=none if only_failed else 1) }}">
+      {{ 'Show all' if only_failed else 'Failures only' }}
+    </a>
+  {% endif %}
+
+  <p class="{{ 'ollama-result ollama-result-bad' if summary.failed else 'hint' }}"
+     style="margin-top:12px">
+    {% if not enabled and not calls %}
+      Logging is off and nothing has been recorded.
+    {% else %}
+      {{ summary.total }} call{{ 's' if summary.total != 1 else '' }} recorded,
+      <strong>{{ summary.failed }}</strong> failed.
+      {%- if summary.newest %} Most recent {{ summary.newest | dt }}.{% endif %}
+    {% endif %}
+  </p>
+</section>
+
+{% for c in calls %}
+  <details class="call-entry{{ '' if c.ok else ' call-failed' }}">
+    <summary>
+      <strong>{{ c.action or 'call' }}</strong>
+      <span class="feed-meta">
+        {{ c.at | dt }} · {{ c.model }}
+        {%- if c.status_code %} · HTTP {{ c.status_code }}{% endif %}
+        {%- if c.duration_ms is not none %} · {{ c.duration_ms }} ms{% endif %}
+        {%- if not c.ok %} · <strong>failed</strong>{% endif %}
+      </span>
+    </summary>
+    <div class="call-body">
+      {% if c.error %}
+        <p class="ollama-result ollama-result-bad">{{ c.error }}</p>
+      {% endif %}
+      <h4>Sent to {{ c.endpoint }}</h4>
+      <pre>{{ c.request_preview or '(nothing recorded)' }}</pre>
+      <h4>Received</h4>
+      <pre>{{ c.response_preview or '(no response body)' }}</pre>
+    </div>
+  </details>
+{% endfor %}
+{% endblock %}

@@ -1058,6 +1058,10 @@ def ollama_log():
         enabled=call_log.enabled(db),
         only_failed=only_failed,
         keep=call_log.KEEP,
+        # An empty log has two very different meanings: no calls are being made,
+        # or none are needed. The queue is what tells them apart.
+        queue=pipeline_status.counts(db),
+        last_run=pipeline_status.last_run(db),
     )
 
 

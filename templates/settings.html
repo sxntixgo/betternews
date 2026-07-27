@@ -12,6 +12,16 @@
     <p class="loading">Loading connection settings…</p>
   </div>
 
+  <h3>Call log</h3>
+  <p class="hint">
+    Records each request sent to Ollama and the reply, so a run that scores
+    nothing can be read rather than guessed at. Off by default -- it writes a row
+    per call including part of the prompt.
+  </p>
+  <div class="models-actions" style="margin-bottom:16px">
+    <a class="btn-secondary" href="/ollama-log">Open the call log</a>
+  </div>
+
   <h3>Model per job</h3>
   <div id="models-panel"
        hx-get="/settings/models"

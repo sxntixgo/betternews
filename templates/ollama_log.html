@@ -37,6 +37,48 @@
   </p>
 </section>
 
+<section class="settings-group">
+  <h2>Pipeline queue</h2>
+  <p class="hint">
+    Nothing is sent to Ollama unless something is waiting. An empty log with an
+    empty queue means there was no work, not that calls are failing.
+  </p>
+  <dl class="status-list">
+    <dt>Waiting to be scored</dt><dd>{{ queue.unscored or 0 }}</dd>
+    <dt>Waiting to be summarized</dt><dd>{{ queue.unsummarized or 0 }}</dd>
+    <dt>Ready to read</dt><dd>{{ queue.ready or 0 }}</dd>
+    <dt>Hidden by score</dt><dd>{{ queue.hidden or 0 }}</dd>
+    <dt>Articles in total</dt><dd>{{ queue.total or 0 }}</dd>
+  </dl>
+
+  {% set pending = (queue.unscored or 0) + (queue.unsummarized or 0) %}
+  {% if enabled and not summary.total %}
+    {% if not queue.total %}
+      <p class="ollama-result ollama-result-bad">
+        There are no articles at all, so nothing calls Ollama. The feeds have not
+        produced anything yet -- check <a href="/manage-feeds">Manage feeds</a> for
+        errors, then press Refresh.
+      </p>
+    {% elif not pending %}
+      <p class="hint">
+        Every article has already been processed, so there is nothing to send.
+        Logging will fill in once new articles arrive.
+      </p>
+    {% else %}
+      <p class="ollama-result ollama-result-bad">
+        {{ pending }} article{{ 's' if pending != 1 else '' }} {{ 'are' if pending != 1 else 'is' }} waiting, but no
+        calls have been recorded. Either the pipeline has not run since logging
+        was switched on -- press Refresh below -- or the worker process is not
+        running the current build.
+        {% if last_run %}Last run started {{ last_run.started_at | dt }}.{% endif %}
+      </p>
+      <div class="models-actions">
+        <button class="btn-secondary" hx-post="/poll" hx-swap="none">Run the pipeline now</button>
+      </div>
+    {% endif %}
+  {% endif %}
+</section>
+
 {% for c in calls %}
   <details class="call-entry{{ '' if c.ok else ' call-failed' }}">
     <summary>

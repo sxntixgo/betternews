@@ -22,27 +22,6 @@
         </span>
       {% endif %}
       <span class="article-title">{{ article.display_title or article.title }}</span>
-      <div class="article-actions-inline">
-        <button
-          hx-post="/article/{{ article.id }}/save"
-          hx-target="#card-{{ article.id }}"
-          hx-swap="outerHTML"
-          class="btn-icon btn-save"
-          aria-pressed="{{ 'true' if article.saved_at else 'false' }}"
-          title="{{ 'Unsave' if article.saved_at else 'Save for later' }}">{{ '★' if article.saved_at else '☆' }}</button>
-        <button
-          hx-post="/vote/{{ article.id }}/1"
-          hx-target="#card-{{ article.id }}"
-          hx-swap="outerHTML"
-          {% if article.opinion == 'liked' %}disabled aria-pressed="true"{% endif %}
-          class="btn-icon btn-like" title="Like (l)">👍</button>
-        <button
-          hx-post="/vote/{{ article.id }}/-1"
-          hx-target="#card-{{ article.id }}"
-          hx-swap="outerHTML"
-          {% if article.opinion == 'disliked' %}disabled aria-pressed="true"{% endif %}
-          class="btn-icon btn-dislike" title="Dislike">👎</button>
-      </div>
     </div>
     {% if article.original_title %}
       <p class="original-title" title="Headline as published">
@@ -65,5 +44,30 @@
     {% if article.status == 'hidden' and article.score_reason %}
       <p class="hidden-reason" title="LLM reason for low score">Hidden: {{ article.score_reason }}</p>
     {% endif %}
+  </div>
+  {# A column of the row, not part of the header. Inside the header only the
+     title respected the buttons and the summary ran on underneath them, so the
+     card's right edge was ragged. Here every line of text stops at the same
+     place. #}
+  <div class="article-actions-inline">
+    <button
+      hx-post="/article/{{ article.id }}/save"
+      hx-target="#card-{{ article.id }}"
+      hx-swap="outerHTML"
+      class="btn-icon btn-save"
+      aria-pressed="{{ 'true' if article.saved_at else 'false' }}"
+      title="{{ 'Unsave' if article.saved_at else 'Save for later' }}">{{ '★' if article.saved_at else '☆' }}</button>
+    <button
+      hx-post="/vote/{{ article.id }}/1"
+      hx-target="#card-{{ article.id }}"
+      hx-swap="outerHTML"
+      {% if article.opinion == 'liked' %}disabled aria-pressed="true"{% endif %}
+      class="btn-icon btn-like" title="Like (l)">👍</button>
+    <button
+      hx-post="/vote/{{ article.id }}/-1"
+      hx-target="#card-{{ article.id }}"
+      hx-swap="outerHTML"
+      {% if article.opinion == 'disliked' %}disabled aria-pressed="true"{% endif %}
+      class="btn-icon btn-dislike" title="Dislike">👎</button>
   </div>
 </div>

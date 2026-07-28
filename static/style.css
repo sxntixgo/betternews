@@ -422,11 +422,15 @@ nav a { color: var(--accent); text-decoration: none; font-size: 14px; }
 }
 .article-row:hover .article-title { color: var(--accent); }
 
+/* A column of .article-row, sitting to the right of the whole card. It used to
+   live inside .article-row-header, where only the title made room for it and
+   the summary ran on underneath -- so the right edge of the card was ragged. */
 .article-actions-inline {
   display: flex;
   gap: 2px;
   flex-shrink: 0;
   align-items: center;
+  align-self: flex-start;
 }
 
 .article-summary {
@@ -522,12 +526,10 @@ button:disabled { opacity: 0.4; cursor: default; }
    targets in a row take ~130px off the width of a phone, and the headline is
    what the reader is actually there for; a column costs one button's width
    instead. Must come after the coarse-pointer block above, which sets the
-   padding these buttons inherit. align-self keeps the header's baseline
-   alignment intact for the score badge and title. */
+   padding these buttons inherit. */
 @media (max-width: 720px) {
   .article-actions-inline {
     flex-direction: column;
-    align-self: flex-start;
     gap: 4px;
   }
 }

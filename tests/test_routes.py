@@ -1,5 +1,6 @@
 import io
 from unittest.mock import MagicMock, patch
+from urllib.parse import quote
 
 import pytest
 from sqlalchemy import text
@@ -787,6 +788,37 @@ def test_articles_pagination_preserves_hidden_and_feed_filter(client, app):
     assert b"hidden=1" in r.data
     assert f"feed={feed_id}".encode() in r.data
     assert b"offset=50" in r.data
+
+
+def test_articles_pagination_preserves_the_topic_filter(client, app):
+    """Page 2 of a topic view must still be that topic, not everything."""
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        feed_id = add_feed(db)
+        for i in range(50):
+            add_article(db, feed_id, seq=i, guid=f"g{i}", status="summarized",
+                        topics=["space-science"])
+        db.close()
+    r = client.get("/articles?topic=space-science")
+    assert b"offset=50" in r.data
+    assert b"topic=space-science" in r.data
+
+
+def test_articles_pagination_escapes_a_topic_with_url_characters(client, app):
+    from app.db import get_db_direct
+    topic = "r&d science"
+    with app.app_context():
+        db = get_db_direct()
+        feed_id = add_feed(db)
+        for i in range(50):
+            add_article(db, feed_id, seq=i, guid=f"g{i}", status="summarized",
+                        topics=[topic])
+        db.close()
+    r = client.get(f"/articles?topic={quote(topic)}")
+    assert b"offset=50" in r.data
+    # & would start a new query parameter and silently truncate the topic.
+    assert b"topic=r%26d%20science" in r.data
 
 
 def test_sidebar_feeds_lists_feeds_with_unread_counts(client, app):

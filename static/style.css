@@ -518,6 +518,20 @@ button:disabled { opacity: 0.4; cursor: default; }
   .article-actions-inline .btn-icon { padding: 8px 10px; }
 }
 
+/* Narrow screens: stack save / like / dislike into a column. Three 40px tap
+   targets in a row take ~130px off the width of a phone, and the headline is
+   what the reader is actually there for; a column costs one button's width
+   instead. Must come after the coarse-pointer block above, which sets the
+   padding these buttons inherit. align-self keeps the header's baseline
+   alignment intact for the score badge and title. */
+@media (max-width: 720px) {
+  .article-actions-inline {
+    flex-direction: column;
+    align-self: flex-start;
+    gap: 4px;
+  }
+}
+
 .btn-read {
   font-size: 12px;
   color: var(--accent);

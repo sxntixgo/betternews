@@ -1,4 +1,4 @@
-# Better Read
+# Better News
 
 A single-user, self-hosted RSS reader with **LLM-powered relevance ranking**. It polls your feeds, uses a local [Ollama](https://ollama.com/) model to score each article against a profile it learns from your likes/dislikes, and surfaces what's actually worth reading — with generated summaries so you can decide fast.
 

@@ -382,6 +382,17 @@ nav a { color: var(--accent); text-decoration: none; font-size: 14px; }
 .article-row:first-child { border-top: 1px solid var(--border); }
 .article-row.liked    { background: var(--like-bg); }
 .article-row.disliked { background: var(--dislike-bg); }
+/* Dismissed: dealt with, but still there. Greyed rather than removed so you can
+   see what you have already been through, and so nothing vanishes silently --
+   retention is the only thing that deletes an article, and never a starred one.
+   The star stays at full strength: it is the control that saves the article
+   from retention, so it must not look disabled. */
+.article-row.dismissed {
+  opacity: 0.45;
+  filter: grayscale(0.8);
+}
+.article-row.dismissed:hover { opacity: 0.75; }
+.article-row.dismissed .btn-save { opacity: 1; filter: none; }
 .article-row.focused  { background: var(--focus-bg); }
 .article-row.read .article-title { color: var(--muted); font-weight: 500; }
 .article-row.read .article-summary { opacity: 0.7; }

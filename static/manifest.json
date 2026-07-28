@@ -1,6 +1,6 @@
 {
-  "name": "Better Read",
-  "short_name": "Better Read",
+  "name": "Better News",
+  "short_name": "Better News",
   "description": "Personal RSS reader with LLM ranking",
   "start_url": "/",
   "display": "standalone",

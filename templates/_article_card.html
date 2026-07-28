@@ -1,4 +1,4 @@
-<div class="article-row {{ article.opinion or article.status }}{% if article.read_at %} read{% endif %}{% if article.saved_at %} saved{% endif %}" id="card-{{ article.id }}"
+<div class="article-row {{ article.opinion or article.status }}{% if article.read_at %} read{% endif %}{% if article.saved_at %} saved{% endif %}{% if article.dismissed_at %} dismissed{% endif %}" id="card-{{ article.id }}"
      data-article-id="{{ article.id }}"
      data-url="{{ article.url }}"
      data-title="{{ article.title | e }}">

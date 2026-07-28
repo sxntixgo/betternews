@@ -348,3 +348,77 @@ def test_renormalize_route(client, app):
         db.close()
     r = client.post("/settings/topics", data={"topic": "-", "action": "renormalize"})
     assert b"Tidied topics on 1 articles" in r.data
+
+
+# ── localized / entity tags ───────────────────────────────────────────────────
+
+@pytest.mark.parametrize("raw,expected", [
+    ("política", "politics"),          # was "pol-tica": a topic matching no rule
+    ("Córdoba", "cordoba"),
+    ("São Paulo", "sao-paulo"),
+    ("Tucumán", "tucuman"),
+    ("economía", "economy"),
+])
+def test_accents_fold_instead_of_becoming_hyphens(raw, expected):
+    assert topics.normalize([raw]) == [expected]
+
+
+@pytest.mark.parametrize("slug", [
+    "santiago-del-estero", "tierra-del-fuego", "new-york-city",
+    "atletico-de-madrid", "ciudad-de-mexico",
+])
+def test_three_word_place_and_club_names_survive(slug):
+    """Two words would have silently dropped every one of these."""
+    assert topics.normalize([slug]) == [slug]
+
+
+@pytest.mark.parametrize("slug", [
+    "tecnologia-software-desarrollo", "tech-economy-politics",
+    "ai-business-markets",
+])
+def test_welded_concepts_are_still_dropped(slug):
+    assert topics.normalize([slug]) == []
+
+
+def test_a_name_is_not_confused_with_a_concept():
+    """The compound check keys off subject words, not entity words."""
+    assert "madrid" not in topics.CONCEPT_WORDS
+    assert "juniors" not in topics.CONCEPT_WORDS
+    assert "software" in topics.CONCEPT_WORDS
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ("EEUU", "us"), ("estados-unidos", "us"), ("USA", "us"),
+    ("Reino Unido", "uk"), ("España", "spain"), ("Brasil", "brazil"),
+    ("CABA", "buenos-aires"), ("Boca", "boca-juniors"), ("River", "river-plate"),
+    ("soccer", "football"), ("LaLiga", "la-liga"),
+])
+def test_entity_spellings_converge_on_one_slug(raw, expected):
+    """A mute rule has to catch the topic however the article spelled it."""
+    assert topics.normalize([raw]) == [expected]
+
+
+def test_a_story_can_carry_subject_and_place_and_club():
+    got = topics.normalize(["football", "argentina", "boca-juniors",
+                            "buenos-aires", "sports", "copa-libertadores"])
+    assert got == ["football", "argentina", "boca-juniors",
+                   "buenos-aires", "sports", "copa-libertadores"]
+    assert len(got) == topics.MAX_TOPICS
+
+
+def test_the_cap_still_applies():
+    assert len(topics.normalize([f"place-{i}" for i in range(20)])) == topics.MAX_TOPICS
+
+
+@pytest.mark.parametrize("stored,expected", [
+    ("pol-tica", "politics"), ("m-sica", "culture"), ("geo-politics", "world"),
+])
+def test_topics_mangled_before_the_accent_fix_are_repairable(stored, expected):
+    """Rows written before _deaccent existed still say "pol-tica"."""
+    assert topics.normalize([stored]) == [expected]
+
+
+def test_repair_fragments_never_become_concept_words():
+    """Otherwise "tica" would start rejecting three-word names."""
+    for frag in ("tica", "sica", "pol"):
+        assert frag not in topics.CONCEPT_WORDS

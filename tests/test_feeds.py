@@ -5,6 +5,7 @@ import pytest
 from sqlalchemy import text
 
 from app.feeds import (
+    decode_entities,
     poll_all_feeds,
     strip_html,
     _extract_full_content,
@@ -379,3 +380,61 @@ def test_poll_all_feeds_dedup_via_unique(mock_parse, app):
         n = db.execute(text("SELECT COUNT(*) AS n FROM articles")).mappings().first()["n"]
         assert n == 1
         db.close()
+
+
+# ── titles arrive double-escaped ──────────────────────────────────────────────
+
+@pytest.mark.parametrize("raw,expected", [
+    # The reported case: the feed XML said &amp;#8217;, so feedparser handed us
+    # &#8217; and the reader saw it verbatim.
+    ("Tile&#8217;s best Bluetooth tracker is down to its lowest price",
+     "Tile’s best Bluetooth tracker is down to its lowest price"),
+    ("Xbox warns of a &#8216;reset&#8217;", "Xbox warns of a ‘reset’"),
+    ("Sanders &amp; Warren on the bill", "Sanders & Warren on the bill"),
+    ("caf&eacute; society", "café society"),
+])
+def test_a_double_escaped_title_is_decoded(raw, expected):
+    assert decode_entities(raw) == expected
+
+
+@pytest.mark.parametrize("raw", [
+    "AT&T raises prices",             # a bare & is already what it means
+    "Using <div> in HTML",            # angle brackets are content, not markup
+    "100% of the time",
+    "",
+])
+def test_an_ordinary_title_is_left_alone(raw):
+    assert decode_entities(raw) == raw
+
+
+def test_decoding_is_a_single_pass():
+    """Looping until stable would eat titles that talk about escaping."""
+    assert decode_entities("write &amp;amp; to mean &amp;") == "write &amp; to mean &"
+
+
+@patch("app.feeds.feedparser.parse")
+def test_ingest_stores_the_decoded_title(mock_parse, app):
+    """The fix has to land in the column, not just in the helper."""
+    parsed = MagicMock()
+    parsed.bozo = 0
+    parsed.entries = [{
+        "id": "guid-ent", "link": "https://example.com/ent",
+        "title": "Tile&#8217;s tracker", "summary": "s",
+        "content": [], "published_parsed": None,
+    }]
+    parsed.feed = {"title": "F"}
+    parsed.etag = None
+    parsed.modified = None
+    mock_parse.return_value = parsed
+
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        db.execute(text("INSERT INTO feeds(url) VALUES(:u)"),
+                   {"u": "https://ent.example/rss"})
+        db.commit()
+        poll_all_feeds(app)
+        title = db.execute(text("SELECT title FROM articles")).scalar()
+        db.close()
+    assert title == "Tile’s tracker"
+    assert "&#" not in title

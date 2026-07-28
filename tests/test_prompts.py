@@ -122,13 +122,27 @@ def test_batch_scoring_asks_for_it_per_article():
 
 
 @pytest.mark.parametrize("builder", ["scoring_prompt", "batch_scoring_prompt"])
-def test_topics_stay_english_even_so(builder):
+def test_subject_topics_stay_english_even_so(builder):
     """Deliberately the opposite rule: a mute on `football` has to catch Spanish
-    articles too, so topics are a controlled vocabulary, not prose."""
+    articles too, so subject topics are a controlled vocabulary, not prose."""
     fn = getattr(prompts, builder)
     p = (fn("profile", "t", "s") if builder == "scoring_prompt"
          else fn("profile", [{"id": 1, "title": "t", "snippet": "s"}]))
-    assert "ALWAYS in English" in p
+    assert "English" in p
+    assert "SUBJECT" in p
+
+
+@pytest.mark.parametrize("builder", ["scoring_prompt", "batch_scoring_prompt"])
+def test_both_scorers_ask_for_named_things(builder):
+    """Places, companies and clubs -- the tags that make a feed local."""
+    fn = getattr(prompts, builder)
+    p = (fn("profile", "t", "s") if builder == "scoring_prompt"
+         else fn("profile", [{"id": 1, "title": "t", "snippet": "s"}]))
+    assert "SPECIFIC" in p
+    for kind in ("province", "company", "league"):
+        assert kind in p, f"{builder} never asks for a {kind}"
+    # Names are the one place the English rule is lifted.
+    assert "without accents" in p or "accents" in p
 
 
 def test_the_profile_is_written_in_the_readers_language():

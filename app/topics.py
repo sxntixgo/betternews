@@ -8,6 +8,7 @@ paragraph of profile prose and hoped" and "crypto never appears again".
 
 import logging
 import re
+import unicodedata
 
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -17,7 +18,7 @@ from app.models import topic_rules as R
 
 log = logging.getLogger(__name__)
 
-MAX_TOPICS = 4
+MAX_TOPICS = 6
 
 # A cold vocabulary is why early runs produced "ai-tech", "tech-economy" and
 # "tecnologia-software-desarrollo": with nothing to anchor to, the model invents
@@ -26,7 +27,7 @@ MAX_TOPICS = 4
 SEED_VOCABULARY = (
     "ai", "software", "hardware", "security", "science", "space", "health",
     "climate", "energy", "business", "economy", "markets", "crypto",
-    "politics", "world", "argentina", "us-politics", "europe", "war",
+    "politics", "world", "argentina", "us", "europe", "war",
     "sports", "formula-1", "football", "culture", "media", "gaming",
     "transport", "education", "law", "labour", "housing",
 )
@@ -34,7 +35,11 @@ SEED_VOCABULARY = (
 # Cheap canonicalisation for what the model actually returns. Language drift is
 # the common case: "economia" and "economy" must not be separate topics, or a
 # mute rule silences one and not the other.
-ALIASES = {
+#
+# Split in two on purpose. SUBJECT_ALIASES name kinds of thing and feed
+# CONCEPT_WORDS below; ENTITY_ALIASES name particular things and must not, or
+# "atletico-de-madrid" would be read as three welded concepts and dropped.
+SUBJECT_ALIASES = {
     "tecnologia": "software", "tech": "software", "technology": "software",
     "ai-tech": "ai", "artificial-intelligence": "ai", "ia": "ai",
     "economia": "economy", "tech-economy": "economy", "economics": "economy",
@@ -49,12 +54,77 @@ ALIASES = {
     "educacion": "education", "vivienda": "housing", "transporte": "transport",
     "guerra": "war", "cultura": "culture", "juegos": "gaming",
     "criptomonedas": "crypto", "energia": "energy", "clima": "climate",
+    "liderazgo": "politics", "leadership": "politics", "soccer": "football",
 }
+
+# Particular named things. Kept out of CONCEPT_WORDS so that a three-word slug
+# naming one of them survives the compound check.
+ENTITY_ALIASES = {
+    # Country and region names drift hardest: every language spells them
+    # differently and the model picks whichever the article used.
+    "eeuu": "us", "estados-unidos": "us", "usa": "us", "united-states": "us",
+    "america": "us", "us-politics": "us", "eu": "europe",
+    "european-union": "europe", "union-europea": "europe",
+    "reino-unido": "uk", "united-kingdom": "uk", "britain": "uk",
+    "gran-bretana": "uk", "brasil": "brazil", "espana": "spain",
+    "cdmx": "mexico-city", "caba": "buenos-aires",
+    # Football is the world's largest source of entity tags, and the reader's.
+    "premier": "premier-league", "laliga": "la-liga", "boca": "boca-juniors",
+    "river": "river-plate", "barca": "barcelona-fc", "fc-barcelona": "barcelona-fc",
+    "real-madrid-cf": "real-madrid", "man-utd": "manchester-united",
+    "man-city": "manchester-city",
+}
+
+# Damage already in the database, from before _deaccent existed: the slug regex
+# turned each accented vowel into a hyphen. Kept apart from SUBJECT_ALIASES so
+# these fragments never reach CONCEPT_WORDS. "Tidy existing topics" in Settings
+# (topics.renormalize_all) applies them to stored rows.
+_REPAIR_ALIASES = {
+    "pol-tica": "politics", "m-sica": "culture", "econom-a": "economy",
+    "tecnolog-a": "software", "geo-politics": "world", "ia-art": "ai",
+}
+
+ALIASES = {**SUBJECT_ALIASES, **ENTITY_ALIASES, **_REPAIR_ALIASES}
 # Live runs produced "tecnologia-software-desarrollo" and "tech-economy": the
 # model compounds concepts when left alone, and a slug nobody will ever type is
 # a slug no mute/boost rule will ever match.
-MAX_SLUG_WORDS = 2
+#
+# Three words, not two, because named things need the room: "santiago-del-estero",
+# "new-york-city", "tierra-del-fuego". Two words would have silently dropped every
+# one of them. The compound-concept check below is what keeps the old bug out.
+MAX_SLUG_WORDS = 3
 _SLUG_RE = re.compile(r"[^a-z0-9-]+")
+
+# Words that name a *subject*. A three-word slug containing one of these is the
+# model welding concepts together again ("tecnologia-software-desarrollo"), not
+# naming a place or a club -- so it gets dropped, while "santiago-del-estero"
+# survives. Two-word slugs are left alone: "us-politics" is deliberate.
+_CONNECTORS = {"de", "del", "la", "el", "los", "las", "of", "the", "y", "and"}
+CONCEPT_WORDS = frozenset(
+    word
+    for term in list(SEED_VOCABULARY) + list(SUBJECT_ALIASES)
+    for word in term.split("-")
+) - _CONNECTORS - {"us", "argentina", "europe", "formula", "1"}
+
+
+def _deaccent(text: str) -> str:
+    """Fold accents to ASCII before slugifying.
+
+    Without this the slug regex turns every accented letter into a hyphen:
+    "política" became "pol-tica" and "Córdoba" would become "c-rdoba" -- a
+    separate topic from "politics" and "cordoba", matching no rule and no alias.
+    Decompose, then drop the combining marks.
+    """
+    return "".join(c for c in unicodedata.normalize("NFKD", text)
+                   if not unicodedata.combining(c))
+
+
+def _is_compound_concept(slug: str) -> bool:
+    """Three subject words welded together, as opposed to a named thing."""
+    words = slug.split("-")
+    if len(words) <= 2:
+        return False
+    return any(w in CONCEPT_WORDS for w in words)
 
 
 def normalize(raw) -> list[str]:
@@ -67,13 +137,13 @@ def normalize(raw) -> list[str]:
         return []
     out, seen = [], set()
     for item in raw:
-        slug = _SLUG_RE.sub("-", str(item).strip().lower()).strip("-")
+        slug = _SLUG_RE.sub("-", _deaccent(str(item).strip().lower())).strip("-")
         slug = re.sub(r"-{2,}", "-", slug)[:40]
         if slug in ALIASES:
             slug = ALIASES[slug]
             if slug is None:          # contentless labels like "news"
                 continue
-        elif slug.count("-") + 1 > MAX_SLUG_WORDS:
+        elif slug.count("-") + 1 > MAX_SLUG_WORDS or _is_compound_concept(slug):
             log.debug("Dropping compound topic slug %r", slug)
             continue
         if slug and slug not in seen:

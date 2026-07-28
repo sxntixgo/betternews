@@ -39,12 +39,24 @@ INSTRUCTIONS:
   This is the opposite of the topics rule below: reasons follow the article,
   topics are always English so that one rule matches every language.
 
-- topics: 2-4 lowercase slugs naming the subject matter.
-  - ALWAYS in English, whatever language the article is in. "politica" and "politics" must not both exist.
-  - ONE concept per slug. "ai" and "business", never "ai-business" or "tech-economy-politics".
-  - Choose from the vocabulary below. Only invent a slug if nothing there applies at all — that should be rare.
+- topics: 3-6 lowercase slugs. Two kinds, and a good set has both.
+  SUBJECT — what kind of story it is. Prefer the vocabulary below.
+  SPECIFIC — the named things the story is actually about. Add one for each that
+  the article is genuinely about, not merely mentions in passing:
+    - place: country, US state, Argentine province, city
+      ("argentina", "cordoba", "texas", "new-york-city", "tierra-del-fuego")
+    - company or organisation ("amazon", "ypf", "openai", "imf")
+    - football club, league, competition or federation
+      ("boca-juniors", "real-madrid", "premier-league", "conmebol", "copa-libertadores")
+  - SUBJECT slugs are ALWAYS in English. "politica" and "politics" must not both exist.
+  - SPECIFIC slugs keep the name's own spelling, without accents: "cordoba", "sao-paulo".
+    Use the English form of a country: "spain", not "espana".
+  - ONE thing per slug. "ai" and "business", never "ai-business" or "tech-economy-politics".
+  - At most three words in a slug, and only for a name: "santiago-del-estero" is
+    fine, "tecnologia-software-desarrollo" is not.
   - Do not use vague labels like "news", "general" or "other".
-  - Use hyphens only inside a single name, e.g. "formula-1", "central-bank".
+  - A story about the national government of a country is about that country;
+    tag the country, not just "politics".
 
 KNOWN TOPICS:
 {vocab_block}
@@ -93,7 +105,13 @@ INSTRUCTIONS:
 - score 1.0 = highly relevant to this reader. 0.0 = completely irrelevant. Use 0.5 if unsure.
 - reason: one sentence in the SAME LANGUAGE as that article -- it is shown to the
   reader beside it. Each article gets a reason in its own language.
-- topics: 2-4 lowercase slugs, ALWAYS in English, ONE concept each ("ai" and "business", never "ai-business"). Prefer a slug from the vocabulary when one fits.
+- topics: 3-6 lowercase slugs, ONE thing each ("ai" and "business", never "ai-business").
+  Mix two kinds: the SUBJECT (prefer the vocabulary below, always English) and the
+  SPECIFIC named things the article is really about — place (country, US state,
+  Argentine province, city), company or organisation, football club/league/federation.
+  Examples: "cordoba", "texas", "new-york-city", "amazon", "ypf", "boca-juniors",
+  "premier-league". Names keep their own spelling without accents; countries use
+  their English form. At most three words, and only for a name.
 
 KNOWN TOPICS:
 {vocab_block}

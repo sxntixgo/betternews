@@ -1,6 +1,7 @@
 import logging
 import re
 from datetime import datetime, timezone
+from html import unescape
 from html.parser import HTMLParser
 
 import feedparser
@@ -30,6 +31,23 @@ def strip_html(raw: str) -> str:
     parser = _StripHTML()
     parser.feed(raw)
     return parser.get_text()
+
+
+def decode_entities(raw: str) -> str:
+    """Undo one layer of HTML escaping in a plain-text field.
+
+    Publishers routinely escape twice: the feed XML carries `&amp;#8217;`, the
+    XML parser hands feedparser `&#8217;`, and nothing decodes the second layer
+    -- so the title reads "Tile&#8217;s best Bluetooth tracker".
+
+    One pass, not a loop: titles legitimately containing "&amp;" as *text* are
+    rarer than the double-encoding, but repeatedly unescaping until stable would
+    mangle them, and a second pass buys nothing for the case actually seen.
+    Unlike strip_html this leaves angle brackets alone -- "Using <div> in HTML"
+    is a real headline and stripping it to "Using in HTML" would be worse than
+    the bug being fixed.
+    """
+    return unescape(raw) if raw else raw
 
 
 AUTO_PAUSE_AFTER_FAILURES = 5
@@ -93,7 +111,7 @@ def _poll_feed(db, feed_id: int, url: str,
         for entry in parsed.entries:
             guid = entry.get("id") or entry.get("link", "")
             link = entry.get("link", "")
-            title = entry.get("title", "(no title)")
+            title = decode_entities(entry.get("title", "")) or "(no title)"
             snippet = strip_html(entry.get("summary", entry.get("description", "")))[:500]
             feed_content = _extract_full_content(entry)
             published = _parse_date(entry)

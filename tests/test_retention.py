@@ -413,3 +413,27 @@ def test_clear_read_route_requires_a_selection(client):
 def test_clear_read_route_ignores_junk_ids(client):
     r = client.post("/settings/retention/clear-read", data={"user_id": "abc"})
     assert r.status_code == 400
+
+
+# ── dismissed articles are visible, but retention still owns deletion ──────────
+
+def test_retention_deletes_a_dismissed_article_past_the_window(db_conn):
+    """Dismissing stopped removing articles, so this is now the only thing that
+    does -- the deadline has to actually fire."""
+    fid = add_feed(db_conn)
+    add_article(db_conn, fid, status="dismissed", created_at=_old(60))
+    assert retention.prune(db_conn, days=15) == 1
+
+
+def test_a_starred_article_survives_even_when_dismissed(db_conn):
+    """Starring is the one thing that beats the deadline."""
+    fid = add_feed(db_conn)
+    add_article(db_conn, fid, status="dismissed",
+                saved_at=datetime.now(timezone.utc), created_at=_old(60))
+    assert retention.prune(db_conn, days=15) == 0
+
+
+def test_a_dismissed_article_inside_the_window_stays(db_conn):
+    fid = add_feed(db_conn)
+    add_article(db_conn, fid, status="dismissed", created_at=_old(2))
+    assert retention.prune(db_conn, days=15) == 0

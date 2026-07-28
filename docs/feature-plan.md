@@ -1,4 +1,4 @@
-# Better Read — New Feature Plan
+# Better News — New Feature Plan
 
 > Successor to `docs/improvements-next.md`. Every item in that file is shipped
 > except *"Notification when a high-score article (≥0.8) lands"* (carried here as

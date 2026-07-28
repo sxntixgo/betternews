@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Better Read{% endblock %}
+{% block title %}Better News{% endblock %}
 {% block header_actions %}
 <button id="poll-btn" class="btn-loadable" hx-post="/poll" hx-swap="none">
   <span class="btn-label">Refresh</span>
@@ -213,16 +213,16 @@
     refreshList();
   }
   function dismissAll() {
-    var label = currentFeed ? 'all articles in this feed' : 'all articles in the list';
-    if (!confirm('Dismiss ' + label + '?')) return;
-    document.querySelectorAll('.article-row').forEach(function(r) { r.classList.add('leaving'); });
+    // No confirmation, and no fade-out. Dismissing is no longer destructive:
+    // the articles stay in the list, greyed out, until retention deletes them,
+    // and starring one keeps it indefinitely. A prompt for something you can
+    // still see is just asking you to dismiss twice -- and animating the rows
+    // away when they are about to come back greyed would only flash.
     var qs = currentFeed ? '?feed=' + encodeURIComponent(currentFeed) : '';
     fetch('/dismiss-all' + qs, { method: 'POST' })
       .then(function() {
-        setTimeout(function() {
-          refreshList();
-          htmx.trigger(document.body, 'sidebar-refresh');
-        }, 180);
+        refreshList();
+        htmx.trigger(document.body, 'sidebar-refresh');
       });
   }
   // Back-compat for code paths that still call setFeed/toggleHidden.

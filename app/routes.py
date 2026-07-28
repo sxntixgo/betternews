@@ -1197,7 +1197,7 @@ def feeds_export_opml():
     xml = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<opml version="2.0">\n'
-        '  <head><title>Better Read feeds</title></head>\n'
+        '  <head><title>Better News feeds</title></head>\n'
         '  <body>\n'
         f'{body}\n'
         '  </body>\n'

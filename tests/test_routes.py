@@ -27,7 +27,7 @@ from tests.conftest import add_article, add_feed
 def test_index_returns_200(client):
     r = client.get("/")
     assert r.status_code == 200
-    assert b"Better Read" in r.data
+    assert b"Better News" in r.data
 
 
 def test_settings_page_renders(client):
@@ -68,16 +68,37 @@ def test_articles_shows_summarized(client, app):
     assert b"ShowMe" in r.data
 
 
-def test_articles_hides_dismissed(client, app):
+def test_articles_shows_dismissed_greyed_out(client, app):
+    """Dismissed is a state, not a deletion.
+
+    Filtering them out made a dismissal indistinguishable from an article that
+    never arrived — nothing to review and no way back. Retention is what
+    removes an article, and never a starred one.
+    """
     from app.db import get_db_direct
     with app.app_context():
         db = get_db_direct()
         feed_id = add_feed(db)
-        add_article(db, feed_id, status="dismissed", title="Hidden")
+        add_article(db, feed_id, status="dismissed", title="Dealt With")
         db.close()
 
     r = client.get("/articles")
-    assert b"Hidden" not in r.data
+    assert b"Dealt With" in r.data
+    # The class the stylesheet greys out.
+    assert b"article-row summarized dismissed" in r.data
+
+
+def test_a_dismissed_article_is_not_unread(client, app):
+    """Visible, but it must not keep inflating the badge."""
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        feed_id = add_feed(db)
+        add_article(db, feed_id, seq=1, guid="g-live", title="Live")
+        add_article(db, feed_id, seq=2, guid="g-done", status="dismissed",
+                    title="Done")
+        db.close()
+    assert client.get("/count").data.strip() == b"1"
 
 
 def test_articles_sort_score(client, app):
@@ -1297,18 +1318,41 @@ def test_sidebar_feeds_groups_by_tag(client, app):
     assert "TechFeed" in body and "NewsFeed" in body
 
 
-def test_sidebar_feeds_no_tags_uses_feeds_label(client, app):
-    """When no feeds are tagged, the single group is labelled 'Feeds' not 'Untagged'."""
+def test_sidebar_feeds_with_no_tags_is_one_group(client, app):
+    """"All feeds" and a "Feeds" group below it were the same list under two
+    headings. Untagged feeds nest under "All feeds" instead."""
     from app.db import get_db_direct
     with app.app_context():
         db = get_db_direct()
         add_feed(db, title="OnlyFeed")
         db.close()
-    r = client.get("/sidebar/feeds")
-    body = r.data.decode()
-    assert 'data-group="untagged"' in body
-    assert "Feeds</span>" in body
+    body = client.get("/sidebar/feeds").data.decode()
+    assert "All feeds" in body
+    assert "OnlyFeed" in body
+    # Neither of the second headings survives.
+    assert 'data-group="untagged"' not in body
+    assert "Feeds</span>" not in body
     assert "Untagged" not in body
+    # The feed sits inside the All-feeds group, not in one of its own.
+    all_group = body.split('data-group="all"')[1].split('data-group=')[0]
+    assert "OnlyFeed" in all_group
+
+
+def test_sidebar_keeps_untagged_separate_once_tags_exist(client, app):
+    """With tags doing the organising, leftovers are a real category again."""
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        tagged = add_feed(db, url="https://a.example/r", title="Tagged")
+        add_feed(db, url="https://b.example/r", title="Loose")
+        db.execute(text("UPDATE feeds SET tags = ARRAY['sports'] WHERE id = :i"),
+                   {"i": tagged})
+        db.commit()
+        db.close()
+    body = client.get("/sidebar/feeds").data.decode()
+    assert 'data-group="untagged"' in body
+    assert "Untagged" in body
+    assert "sports" in body
 
 
 def test_sidebar_feeds_feed_in_multiple_tags(client, app):

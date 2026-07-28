@@ -28,7 +28,7 @@ def _card_select(user_id: int):
             A.c.id, A.c.url, A.c.title, A.c.summary, A.c.score, A.c.score_reason,
             A.c.status, A.c.thumbnail_url, A.c.raw_snippet, A.c.clean_title,
             A.c.title_was_clickbait, A.c.feed_id, A.c.topics, A.c.cluster_id,
-            S.c.read_at, S.c.saved_at, S.c.opinion,
+            S.c.read_at, S.c.saved_at, S.c.opinion, S.c.dismissed_at,
             _FULL_TEXT_HEAD,
         )
         .select_from(
@@ -38,8 +38,19 @@ def _card_select(user_id: int):
 
 
 def _visible(stmt):
-    """Exclude what this user dismissed — without touching anyone else's list."""
-    return stmt.where(S.c.dismissed_at.is_(None))
+    """Dismissed articles stay in the list, greyed out by the card template.
+
+    They used to be filtered out here. Hiding them meant a dismissal was
+    indistinguishable from an article that never arrived: nothing to review, no
+    way to tell what you had already dealt with, and no way back. They now stay
+    until retention deletes them (or forever, if starred -- see
+    retention._prunable), which is the only thing that ever removes an article.
+
+    Kept as a function rather than deleted at the call sites: this is where the
+    decision lives, and the unread counts deliberately do NOT use it -- a
+    dismissed article is visible but not unread.
+    """
+    return stmt
 
 
 def list_for_user(db, user_id: int, *, hidden: bool = False, saved: bool = False,

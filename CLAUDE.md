@@ -1,4 +1,4 @@
-# Better Read — Codebase Guide
+# Better News — Codebase Guide
 
 ## What this is
 Single-user, self-hosted RSS reader with LLM-powered relevance ranking.

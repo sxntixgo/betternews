@@ -14,6 +14,22 @@
       </a>{% endif %}
       {% if total_unread %}<span class="sidebar-feed-count">{{ total_unread }}</span>{% endif %}
     </div>
+    {# With no tags, a separate "Feeds" group below this one was the same list
+       under a second heading. Nest the feeds here instead. Once tags exist they
+       do the organising and the leftovers get their own "Untagged" group, so
+       this body is only used in the untagged case. #}
+    {% if not tag_groups %}
+    <div class="sidebar-group-body">
+      {% for f in untagged %}
+        <button class="sidebar-feed sidebar-feed-nested"
+                data-feed-id="{{ f.id }}" data-hidden="0"
+                onclick="selectFeed('{{ f.id }}', false)">
+          <span class="sidebar-feed-title">{{ f.title }}</span>
+          {% if f.unread %}<span class="sidebar-feed-count">{{ f.unread }}</span>{% endif %}
+        </button>
+      {% endfor %}
+    </div>
+    {% endif %}
   </div>
 
   {% for tag, tag_feeds in tag_groups %}
@@ -35,11 +51,11 @@
   </div>
   {% endfor %}
 
-  {% if untagged %}
+  {% if untagged and tag_groups %}
   <div class="sidebar-group" data-group="untagged">
     <div class="sidebar-group-header">
       <button class="sidebar-collapse" onclick="toggleSidebarGroup('untagged')" aria-label="Toggle list">▾</button>
-      <span class="sidebar-group-title sidebar-tag-label">{% if tag_groups %}Untagged{% else %}Feeds{% endif %}</span>
+      <span class="sidebar-group-title sidebar-tag-label">Untagged</span>
     </div>
     <div class="sidebar-group-body">
       {% for f in untagged %}

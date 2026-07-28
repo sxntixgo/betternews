@@ -251,8 +251,13 @@ def test_one_users_dismiss_does_not_affect_another(login_as, client, app):
         db.close()
     other, _ = login_as()
     other.post(f"/article/{aid}/dismiss")
-    assert b"Shared Story" not in other.get("/articles").data
+    # Both still see the article -- dismissing stopped removing it. What must
+    # stay per-user is the *state*: greyed out for the one who dismissed it,
+    # untouched for everyone else.
+    assert b"Shared Story" in other.get("/articles").data
+    assert b"dismissed" in other.get("/articles").data
     assert b"Shared Story" in client.get("/articles").data      # admin unaffected
+    assert b"dismissed" not in client.get("/articles").data
 
 
 def test_reading_lists_are_independent(login_as, client, app):

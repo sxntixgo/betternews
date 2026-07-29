@@ -5,7 +5,8 @@ has read, saved, dismissed or voted on is not, and conflating the two is how one
 user's dismiss removes an article from everyone's list.
 """
 
-from sqlalchemy import Integer, and_, case, func, literal, select, text
+from sqlalchemy import (Integer, Text, and_, case, cast, func, literal,
+                        select, text)
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.models import articles as A
@@ -53,10 +54,6 @@ def _visible(stmt):
     return stmt
 
 
-# Fetch three pages' worth so cluster collapsing cannot leave a short page.
-OVER_FETCH = 3
-
-
 class Page(list):
     """Rows for one page, plus where the next page actually starts.
 
@@ -64,10 +61,11 @@ class Page(list):
     to the one route that paginates; every other caller wants the rows and
     nothing else, and keeps working unchanged.
 
-    `next_offset` is None at the end of the list.
+    `next_offset` is None at the end of the list. It is simply
+    ``offset + limit`` now that collapsing happens in SQL -- the offset counts
+    articles the reader sees, so there is nothing to correct for.
     """
     next_offset: int | None = None
-    consumed: int = 0
 
 
 def list_for_user(db, user_id: int, *, hidden: bool = False, saved: bool = False,
@@ -89,51 +87,52 @@ def list_for_user(db, user_id: int, *, hidden: bool = False, saved: bool = False
 
     # The boost reorders within this user's list; the stored score is untouched.
     effective = (func.coalesce(A.c.score, 0) + BOOST_SQL).label("effective_score")
-    stmt = stmt.add_columns(effective)
-    order = ([A.c.published_at.desc().nullslast()] if sort == "date"
-             else [text("effective_score DESC"), A.c.published_at.desc().nullslast()])
+
+    # An un-clustered article is a cluster of one. Without the COALESCE every
+    # row with cluster_id IS NULL shares a single key and the whole list
+    # collapses to one article -- the first thing to get wrong here, and the
+    # loudest.
+    cluster_expr = func.coalesce(A.c.cluster_id, cast(A.c.id, Text))
+
+    # Window functions are evaluated before DISTINCT ON, so this counts every
+    # copy in the cluster, not the one that survives.
+    duplicates = (func.count().over(partition_by=cluster_expr) - 1).label(
+        "duplicate_count")
+
+    # published_at is not in _card_select, but the outer query has to sort by it.
+    inner = stmt.add_columns(A.c.published_at, effective,
+                             cluster_expr.label("cluster_key"), duplicates)
+
+    # DISTINCT ON keeps the first row per cluster in *this* order, which is what
+    # the old Python loop did: it kept whichever copy the display order reached
+    # first, not the highest-scoring one, whatever its docstring claimed.
+    # id last, always. published_at ties are common -- a feed stamps a whole
+    # batch with one timestamp -- and without a unique tiebreaker the sort is
+    # unstable, so LIMIT/OFFSET can hand the same article to two pages and skip
+    # another entirely. That is the bug this phase exists to remove, and it does
+    # not care whether collapsing happens in Python or SQL.
+    within = ([A.c.published_at.desc().nullslast(), A.c.id.desc()] if sort == "date"
+              else [effective.desc(), A.c.published_at.desc().nullslast(),
+                    A.c.id.desc()])
+    collapsed = (inner.distinct(cluster_expr)
+                 .order_by(cluster_expr, *within)
+                 .subquery("collapsed"))
+
+    # Collapsing now happens before LIMIT/OFFSET, so the offset counts articles
+    # the reader actually sees. That is the whole point: paging is exact, and a
+    # cluster split across a page boundary can no longer appear twice.
+    outer = ([collapsed.c.published_at.desc().nullslast(), collapsed.c.id.desc()]
+             if sort == "date"
+             else [collapsed.c.effective_score.desc(),
+                   collapsed.c.published_at.desc().nullslast(),
+                   collapsed.c.id.desc()])
     rows = db.execute(
-        stmt.order_by(*order).limit(limit * OVER_FETCH).offset(offset),
+        select(collapsed).order_by(*outer).limit(limit).offset(offset),
         {"pref_uid": user_id},
     ).mappings().all()
-    page = _collapse_clusters(db, rows, limit)
-    # Advance by the rows *consumed*, not the rows returned. Collapsing eats
-    # duplicates, so filling a 50-row page can take 60 source rows; advancing by
-    # 50 would start the next page inside what this one already showed, and the
-    # reader sees the same articles twice. The two counts are only equal when
-    # nothing collapsed, which is why this went unnoticed.
-    page.next_offset = offset + page.consumed if len(page) == limit else None
-    return page
 
-
-def _collapse_clusters(db, rows, limit: int):
-    """Keep the best-scoring member of each cluster, noting the others.
-
-    Over-fetches so collapsing does not leave a short page, and reports how many
-    source rows that took. The two numbers differ whenever duplicates collapse,
-    and paginating on the wrong one silently repeats articles -- see
-    `list_for_user`.
-    """
-    seen: dict[str, dict] = {}
-    out: list[dict] = []
-    consumed = 0
-    for row in rows:
-        consumed += 1
-        key = row["cluster_id"]
-        if not key:
-            out.append(dict(row))
-        elif key in seen:
-            seen[key]["duplicate_count"] = seen[key].get("duplicate_count", 0) + 1
-            continue
-        else:
-            d = dict(row)
-            d["duplicate_count"] = 0
-            seen[key] = d
-            out.append(d)
-        if len(out) >= limit:
-            break
-    page = Page(out[:limit])
-    page.consumed = consumed
+    page = Page(dict(r) for r in rows)
+    page.next_offset = offset + limit if len(page) == limit else None
     return page
 
 

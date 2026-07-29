@@ -22,3 +22,9 @@ build/
 .coverage.*
 htmlcov/
 .DS_Store
+
+# SPA / native client build output
+web/node_modules/
+web/dist/
+mobile/node_modules/
+mobile/.expo/

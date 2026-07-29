@@ -61,9 +61,14 @@ def get_article(article_id: int):
     reader in the browser does."""
     db = get_db()
     uid = current_api_user()
-    row = art_repo.get_card(db, uid, article_id)
-    if row is None:
+    if not art_repo.exists(db, article_id):
         return error("No such article.", 404)
+
+    # Marked read *before* the card is read back. The other order returned
+    # state.read=false from the very call that set it, so every client had to
+    # patch the value it had just been given.
+    art_repo.mark_read(db, uid, article_id)
+    row = art_repo.get_card(db, uid, article_id)
 
     # Mirrors views/reading.article_content deliberately, down to the columns it
     # reads. Any divergence here is the phone and the browser showing different
@@ -85,7 +90,6 @@ def get_article(article_id: int):
         mode=presenters.content_filter_mode(db),
         stored_asides=body["aside_spans"],
     )
-    art_repo.mark_read(db, uid, article_id)
     db.commit()
     out = serializers.article_detail(row, blocks, asides, declickbait)
     out["description"] = description

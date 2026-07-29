@@ -14,12 +14,13 @@
 // ── wire types ────────────────────────────────────────────────────────────────
 
 /** What a person has done with an article. Per user, never shared. */
+export type Opinion = 'liked' | 'disliked';
+
 export interface ArticleState {
   read: boolean;
   saved: boolean;
   dismissed: boolean;
-  /** "liked" | "disliked" | null */
-  opinion: string | null;
+  opinion: Opinion | null;
 }
 
 export interface Article {
@@ -138,6 +139,12 @@ export class ApiError extends Error {
 
 export interface ClientOptions {
   baseUrl: string;
+  /**
+   * Abandon a request after this long. `fetch` has no timeout of its own, so
+   * without one a server that is up but wedged hangs the client forever -- on a
+   * phone that means force-quit. 0 disables it.
+   */
+  timeoutMs?: number;
   /** Read lazily so a client survives the token changing under it. */
   getToken: () => string | null | Promise<string | null>;
   /** Called on 401 so the app can clear the stored token and show sign-in. */
@@ -155,14 +162,28 @@ export class BetterNewsClient {
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const token = await this.opts.getToken();
     const doFetch = this.opts.fetchImpl ?? fetch;
-    const res = await doFetch(`${this.opts.baseUrl}/api/v1${path}`, {
+
+    // Callers pass their own signal to cancel on unmount; the timeout gets its
+    // own controller and the two are combined when both are present.
+    const timeoutMs = this.opts.timeoutMs ?? 0;
+    const timer = timeoutMs > 0 ? new AbortController() : null;
+    const handle = timer ? setTimeout(() => timer.abort(), timeoutMs) : null;
+    const signal = combineSignals(init.signal ?? null, timer?.signal ?? null);
+
+    let res: Response;
+    try {
+      res = await doFetch(`${this.opts.baseUrl}/api/v1${path}`, {
       ...init,
+      signal,
       headers: {
         ...(init.body ? { 'Content-Type': 'application/json' } : {}),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...(init.headers ?? {}),
       },
-    });
+      });
+    } finally {
+      if (handle !== null) clearTimeout(handle);
+    }
 
     if (res.status === 401) this.opts.onAuthFailure?.();
 
@@ -184,24 +205,34 @@ export class BetterNewsClient {
     return this.request<Me>('/me');
   }
 
-  articles(q: ListQuery = {}) {
-    const p = new URLSearchParams();
-    if (q.feed !== undefined) p.set('feed', String(q.feed));
-    if (q.topic) p.set('topic', q.topic);
-    if (q.hidden) p.set('hidden', '1');
-    if (q.saved) p.set('saved', '1');
-    if (q.sort) p.set('sort', q.sort);
-    if (q.limit !== undefined) p.set('limit', String(q.limit));
-    if (q.offset !== undefined) p.set('offset', String(q.offset));
-    const qs = p.toString();
-    return this.request<ArticlePage>(`/articles${qs ? `?${qs}` : ''}`);
+  articles(q: ListQuery = {}, init?: RequestInit) {
+    // Built by hand rather than with URLSearchParams: bare React Native ships a
+    // polyfill whose `set` throws, so this file would only work on runtimes
+    // that happen to replace the global -- and the header above promises that
+    // `fetch` is the only requirement.
+    const parts: string[] = [];
+    const add = (k: string, v: string) =>
+      parts.push(`${encodeURIComponent(k)}=${encodeURIComponent(v)}`);
+    if (q.feed !== undefined) add('feed', String(q.feed));
+    if (q.topic) add('topic', q.topic);
+    if (q.hidden) add('hidden', '1');
+    if (q.saved) add('saved', '1');
+    if (q.sort) add('sort', q.sort);
+    if (q.limit !== undefined) add('limit', String(q.limit));
+    if (q.offset !== undefined) add('offset', String(q.offset));
+    const qs = parts.join('&');
+    return this.request<ArticlePage>(`/articles${qs ? `?${qs}` : ''}`, init);
   }
 
-  /** Fetching an article marks it read, exactly as opening the web reader does. */
-  article(id: number) {
-    return this.request<ArticleDetail>(`/articles/${id}`);
+  /**
+   * Fetching an article marks it read, exactly as opening the web reader does,
+   * and the returned `state.read` already reflects that.
+   */
+  article(id: number, init?: RequestInit) {
+    return this.request<ArticleDetail>(`/articles/${id}`, init);
   }
 
+  /** **Toggles**: saving an already-saved article unsaves it. */
   save(id: number) {
     return this.request<Article>(`/articles/${id}/save`, { method: 'POST' });
   }
@@ -214,6 +245,7 @@ export class BetterNewsClient {
     return this.request<Article>(`/articles/${id}/read`, { method: 'POST' });
   }
 
+  /** **Sets**, and does not toggle: voting the same way twice is idempotent. */
   vote(id: number, value: 1 | -1) {
     return this.request<Article>(`/articles/${id}/vote`, {
       method: 'POST',
@@ -239,4 +271,24 @@ export class BetterNewsClient {
   digest() {
     return this.request<Digest>('/digest');
   }
+}
+
+
+/** One signal from up to two, without assuming `AbortSignal.any` exists. */
+function combineSignals(
+  a: AbortSignal | null,
+  b: AbortSignal | null,
+): AbortSignal | undefined {
+  if (!a) return b ?? undefined;
+  if (!b) return a;
+  const ctrl = new AbortController();
+  const stop = () => ctrl.abort();
+  for (const s of [a, b]) {
+    if (s.aborted) {
+      ctrl.abort();
+      break;
+    }
+    s.addEventListener('abort', stop, { once: true });
+  }
+  return ctrl.signal;
 }

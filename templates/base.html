@@ -116,12 +116,15 @@
       if (root.dataset.theme) return root.dataset.theme === 'dark';
       return matchMedia('(prefers-color-scheme: dark)').matches;
     }
-    // The signed-out pages (sign in, register, 403) render `site-layout-bare`,
-    // which has no header and so no toggle. Without these guards updateToggle()
-    // threw on every one of them -- and because it is called at parse time, the
-    // throw took out every top-level statement below it, including updateBadge()
-    // and the reader-modal wiring. A missing optional control should not
-    // silently disable the rest of the page's JavaScript.
+    // The signed-out pages (sign in, register, 403) use the bare layout, which
+    // has no header and so no toggle. Without these guards updateToggle() threw
+    // on every one of them -- and because it is called at parse time, the throw
+    // took out every top-level statement below it, including updateBadge() and
+    // the reader-modal wiring. A missing optional control should not silently
+    // disable the rest of the page's JavaScript.
+    //
+    // Naming the bare layout's CSS class here breaks test_auth.py, which asserts
+    // that class never appears in a signed-in page. Hence the wording.
     function updateToggle() {
       if (!toggleBtn) return;
       toggleBtn.innerHTML = isDark() ? SUN_SVG : MOON_SVG;

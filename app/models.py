@@ -150,6 +150,23 @@ Index("ix_user_article_state_user_id", user_article_state.c.user_id)
 # The training record for the preference profile. Deliberately decoupled from
 # articles: the snapshots mean a vote survives its article being pruned, and
 # article_id is a nullable convenience pointer rather than a data dependency.
+# Per-device credentials for non-browser clients. Session cookies do not suit a
+# native app: it cannot participate in the login redirect, and it needs a
+# credential it can hold and the user can revoke for one device without signing
+# out everywhere else.
+api_tokens = Table(
+    "api_tokens", metadata,
+    Column("id", Integer, primary_key=True),
+    Column("user_id", Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+    # The token itself is never stored. It is a password: keep only the hash,
+    # so a database leak does not hand over every reader's account.
+    Column("token_hash", Text, nullable=False, unique=True),
+    Column("name", Text, nullable=False),
+    _ts(name="created_at", nullable=False, server_default=func.now()),
+    _ts(name="last_used_at"),
+    _ts(name="revoked_at"),
+)
+
 votes = Table(
     "votes", metadata,
     Column("id", Integer, primary_key=True),

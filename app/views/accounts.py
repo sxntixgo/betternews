@@ -1,7 +1,7 @@
 """Sign in, registration and a reader's own profile."""
 
 import logging
-from app import (auth, call_log, digest as digest_mod, export as export_mod,
+from app import (api_tokens, auth, call_log, digest as digest_mod, export as export_mod,
                  extract, health, insights, pipeline_status, retention,
                  topics as topics_mod, user_topics)
 from app.db import get_db, get_setting, set_setting
@@ -99,7 +99,8 @@ def profile():
     db = get_db()
     user = auth.current_user()
     return render_template("profile.html", user=user,
-                           stats=user_repo.stats(db, user["id"]))
+                           stats=user_repo.stats(db, user["id"]),
+                           tokens=api_tokens.for_user(db, user["id"]))
 
 
 @bp.get("/profile/topics")
@@ -168,3 +169,33 @@ def profile_password():
     db.commit()
     g.pop("current_user", None)
     return render(saved=True)
+
+
+def _token_panel(db, uid, **kw):
+    return render_template("_api_tokens.html",
+                           tokens=api_tokens.for_user(db, uid), **kw)
+
+
+@bp.post("/profile/tokens")
+@auth.login_required
+def profile_token_create():
+    """Issue a token. Shown once, here, and never again."""
+    db = get_db()
+    uid = current_user_id(db)
+    name = request.form.get("name", "").strip()
+    if not name:
+        return _token_panel(db, uid, error="Give the device a name.")
+    token = api_tokens.issue(db, uid, name)
+    db.commit()
+    return _token_panel(db, uid, new_token=token)
+
+
+@bp.post("/profile/tokens/<int:token_id>/revoke")
+@auth.login_required
+def profile_token_revoke(token_id: int):
+    db = get_db()
+    uid = current_user_id(db)
+    # Scoped to this user inside revoke(); the id arrives from a form.
+    api_tokens.revoke(db, uid, token_id)
+    db.commit()
+    return _token_panel(db, uid)

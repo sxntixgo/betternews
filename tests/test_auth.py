@@ -516,3 +516,39 @@ def test_htmx_request_to_login_is_not_redirected(anon_client):
     r = anon_client.get("/login", headers={"HX-Request": "true"})
     assert r.status_code == 200
     assert "HX-Redirect" not in r.headers
+
+
+# ── API tokens on the profile page ────────────────────────────────────────────
+
+def test_creating_a_token_shows_it_once(client, app):
+    r = client.post("/profile/tokens", data={"name": "iPhone"})
+    body = r.data.decode()
+    assert "bn_" in body, "the value is shown exactly once, at creation"
+    assert "iPhone" in body
+    # And never again on a later render.
+    assert "bn_" not in client.get("/profile/topics").data.decode()
+
+
+def test_a_token_needs_a_name(client):
+    r = client.post("/profile/tokens", data={"name": "  "})
+    assert b"Give the device a name" in r.data
+
+
+def test_revoking_a_token_removes_it_from_the_list(client, app):
+    from app.db import get_db_direct
+    from app import api_tokens
+    from app.repo.users import ensure_bootstrap_user
+    client.post("/profile/tokens", data={"name": "Old phone"})
+    with app.app_context():
+        db = get_db_direct()
+        uid = ensure_bootstrap_user(db)
+        tid = api_tokens.for_user(db, uid)[0]["id"]
+        db.close()
+    body = client.post(f"/profile/tokens/{tid}/revoke").data.decode()
+    assert "Old phone" not in body
+    assert "No devices yet" in body
+
+
+def test_the_profile_page_lists_tokens(client):
+    client.post("/profile/tokens", data={"name": "Laptop"})
+    assert b"Laptop" in client.get("/profile").data

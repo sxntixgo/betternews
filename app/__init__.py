@@ -59,7 +59,11 @@ def create_app() -> Flask:
     app.jinja_env.globals["is_admin"] = auth.is_admin
 
     from app.views import bp
+    from app.api import bp as api_bp
     app.register_blueprint(bp)
+    app.register_blueprint(api_bp)
+    from app import api as api_mod
+    api_mod.install(app)
 
     # The scheduler normally runs as its own process (`python -m app.worker`),
     # because one APScheduler per gunicorn worker means every job fires N times.

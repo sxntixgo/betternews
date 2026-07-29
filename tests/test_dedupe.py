@@ -173,18 +173,13 @@ def test_collapsing_stops_at_the_page_limit(client, app):
 
 # ── paging past collapsed duplicates ──────────────────────────────────────────
 
-def test_the_next_page_starts_past_what_collapsing_consumed(db_conn):
-    """Filling a page can take more source rows than it emits.
-
-    Advancing the offset by the rows *returned* starts page 2 inside page 1 and
-    the reader sees the same articles twice. The two counts are equal only when
-    nothing collapsed, which is why this survived so long.
-    """
+def test_paging_is_exact_now_that_collapsing_happens_in_sql(db_conn):
+    """LIMIT/OFFSET applies to collapsed rows, so the offset counts articles
+    the reader sees. No over-fetch, no correction, no overlap."""
     from app.repo.articles import list_for_user
     from app.repo.users import ensure_bootstrap_user
     uid = ensure_bootstrap_user(db_conn)
     fid = add_feed(db_conn)
-    # Every article duplicated, so collapsing eats two source rows per output row.
     for i in range(12):
         for copy in range(2):
             add_article(db_conn, fid, seq=i * 2 + copy, guid=f"g{i}-{copy}",
@@ -193,15 +188,10 @@ def test_the_next_page_starts_past_what_collapsing_consumed(db_conn):
 
     page = list_for_user(db_conn, uid, limit=4)
     assert len(page) == 4
-    assert page.consumed > len(page), "collapsing must have eaten duplicates"
-    assert page.next_offset == page.consumed, \
-        f"offset must follow rows read, not rows shown ({len(page)})"
+    assert page.next_offset == 4, "the offset counts articles, not source rows"
 
-    # Page two no longer restarts inside page one, which is what the old
-    # `offset + limit` did: it repeated most of the page.
     second = list_for_user(db_conn, uid, limit=4, offset=page.next_offset)
-    overlap = {r["title"] for r in page} & {r["title"] for r in second}
-    assert len(overlap) <= 1, f"page two largely repeated page one: {overlap}"
+    assert not ({r["title"] for r in page} & {r["title"] for r in second})
 
 
 def test_the_last_page_reports_no_next_offset(db_conn):
@@ -217,17 +207,10 @@ def test_the_last_page_reports_no_next_offset(db_conn):
     assert page.next_offset is None
 
 
-@pytest.mark.xfail(reason=(
-    "Known limitation, not a regression. Collapsing happens in Python over an "
-    "offset window, so a cluster whose copies straddle the page boundary is "
-    "emitted again on the next page -- page two starts with an empty `seen` "
-    "map and cannot know the cluster was already shown. Advancing by rows "
-    "consumed (which this suite does cover) removes the wholesale repeat the "
-    "old `offset + limit` caused, but not this. The real fix is to collapse in "
-    "SQL -- DISTINCT ON (cluster_id) in a subquery, with the duplicate tally as "
-    "a window function -- so LIMIT/OFFSET applies to already-collapsed rows."),
-    strict=True)
 def test_a_cluster_straddling_the_page_boundary_is_not_repeated(db_conn):
+    """Was a strict xfail: collapsing in Python over an offset window meant page
+    two started with an empty seen-map and re-emitted a cluster page one had
+    already shown. Collapsing in SQL removes the whole class."""
     from app.repo.articles import list_for_user
     from app.repo.users import ensure_bootstrap_user
     uid = ensure_bootstrap_user(db_conn)
@@ -241,3 +224,98 @@ def test_a_cluster_straddling_the_page_boundary_is_not_repeated(db_conn):
     page = list_for_user(db_conn, uid, limit=4)
     second = list_for_user(db_conn, uid, limit=4, offset=page.next_offset)
     assert not ({r["title"] for r in page} & {r["title"] for r in second})
+
+
+# ── collapsing in SQL: the ways it can go wrong ───────────────────────────────
+
+def test_unclustered_articles_are_not_collapsed_into_one(db_conn):
+    """The loudest failure mode. DISTINCT ON over a NULL cluster_id groups every
+    un-clustered article together, and the list drops to a single row."""
+    from app.repo.articles import list_for_user
+    from app.repo.users import ensure_bootstrap_user
+    uid = ensure_bootstrap_user(db_conn)
+    fid = add_feed(db_conn)
+    for i in range(8):
+        add_article(db_conn, fid, seq=i, guid=f"n{i}", title=f"Alone {i}",
+                    cluster_id=None)
+    db_conn.commit()
+    page = list_for_user(db_conn, uid, limit=50)
+    assert len(page) == 8, "each un-clustered article is a cluster of one"
+    assert all(r["duplicate_count"] == 0 for r in page)
+
+
+def test_a_mix_of_clustered_and_unclustered(db_conn):
+    from app.repo.articles import list_for_user
+    from app.repo.users import ensure_bootstrap_user
+    uid = ensure_bootstrap_user(db_conn)
+    fid = add_feed(db_conn)
+    add_article(db_conn, fid, seq=1, guid="c1", title="Carried", cluster_id="k")
+    add_article(db_conn, fid, seq=2, guid="c2", title="Carried", cluster_id="k")
+    add_article(db_conn, fid, seq=3, guid="c3", title="Carried", cluster_id="k")
+    add_article(db_conn, fid, seq=4, guid="s1", title="Solo", cluster_id=None)
+    db_conn.commit()
+    page = list_for_user(db_conn, uid, limit=50)
+    by_title = {r["title"]: r for r in page}
+    assert set(by_title) == {"Carried", "Solo"}
+    assert by_title["Carried"]["duplicate_count"] == 2, "two other copies"
+    assert by_title["Solo"]["duplicate_count"] == 0
+
+
+def test_paging_the_whole_list_yields_every_article_once(db_conn):
+    """200 articles, pages of 10, some clustered: 200 distinct ids, no repeats."""
+    from app.repo.articles import list_for_user
+    from app.repo.users import ensure_bootstrap_user
+    uid = ensure_bootstrap_user(db_conn)
+    fid = add_feed(db_conn)
+    expected = 0
+    seq = 0
+    for i in range(200):
+        # Every seventh article is carried by a second feed entry.
+        cluster = f"k{i}" if i % 7 == 0 else None
+        add_article(db_conn, fid, seq=seq, guid=f"p{seq}", title=f"Item {i}",
+                    cluster_id=cluster)
+        seq += 1
+        expected += 1
+        if cluster:
+            add_article(db_conn, fid, seq=seq, guid=f"p{seq}", title=f"Item {i}",
+                        cluster_id=cluster)
+            seq += 1
+    db_conn.commit()
+
+    seen, offset = [], 0
+    while True:
+        page = list_for_user(db_conn, uid, limit=10, offset=offset)
+        if not page:
+            break
+        seen.extend(r["id"] for r in page)
+        if page.next_offset is None:
+            break
+        offset = page.next_offset
+
+    assert len(seen) == len(set(seen)), "an article appeared on two pages"
+    assert len(seen) == expected, f"expected {expected} distinct articles, got {len(seen)}"
+
+
+def test_the_topic_boost_still_reorders_after_the_rewrite(db_conn):
+    """effective_score carries the per-user boost, and the cluster winner is
+    chosen with it -- a plain "highest stored score" would ignore the stance."""
+    from app.repo.articles import list_for_user
+    from app.repo.users import ensure_bootstrap_user
+    from app.user_topics import set_stance
+    uid = ensure_bootstrap_user(db_conn)
+    fid = add_feed(db_conn)
+    # BOOST is 0.15 -- deliberately enough to reorder within a page, not enough
+    # to lift a poor article to the top. The fixture has to sit inside that.
+    add_article(db_conn, fid, seq=1, guid="hi", title="Higher score",
+                score=0.60, topics=["economy"])
+    add_article(db_conn, fid, seq=2, guid="lo", title="Boosted", score=0.55,
+                topics=["space"])
+    db_conn.commit()
+
+    plain = [r["title"] for r in list_for_user(db_conn, uid, sort="score")]
+    assert plain[0] == "Higher score"
+
+    set_stance(db_conn, uid, "space", "more")
+    db_conn.commit()
+    boosted = [r["title"] for r in list_for_user(db_conn, uid, sort="score")]
+    assert boosted[0] == "Boosted", "the stance must still lift it"

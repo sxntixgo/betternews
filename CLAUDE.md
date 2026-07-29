@@ -148,6 +148,27 @@ gets swapped into `#article-list`.
 - Only *section boundaries* (`Related`, `Otras noticias`, …) truncate to end-of-body. Promotional one-liners (`Advertisement`, `Sign up`) are marked individually — they appear mid-article, and treating one as a boundary would discard the reporting after it.
 
 ## Tests
+
+Four suites, and it matters which is which:
+
+| Suite | Command | Crosses the network? |
+|---|---|---|
+| Backend | `docker compose run --rm web pytest tests/` | Flask test client, real Postgres, Ollama mocked |
+| Web (mocked) | `cd web && npm run e2e` | No — the API is stubbed with `page.route` |
+| Web (live) | `export BN_E2E_TOKEN=$(scripts/e2e-token.sh) && cd web && npm run e2e:live` | **Yes** — browser → proxy → Flask → Postgres |
+| Mobile | `cd mobile && npm test` | No — pure functions only |
+
+**The live suite exists because the others share a blind spot.** An app-wide
+session guard once answered every `/api/v1` call with a 302 to `/login`, valid
+token and all, and a thousand passing tests saw nothing: the Python test client
+was already signed in, and the web tests never reached Flask. Re-introducing
+that bug fails all six live tests. It skips loudly without `BN_E2E_TOKEN`, since
+a live suite that quietly passes with nothing running is worse than none.
+
+`tests/test_api_contract.py` parses `shared/api.ts` and asserts the API sends
+exactly those fields, so a rename in `app/api/serializers.py` cannot silently
+break both clients.
+
 ```
 docker compose run --rm web pytest tests/ --cov=app
 ```

@@ -14,6 +14,11 @@ export default function App() {
   const [saved, setSaved] = useState(false);
   const [sort, setSort] = useState<'date' | 'score'>('date');
   const [reading, setReading] = useState<number | null>(null);
+  // At <=720px the carried-over stylesheet parks the sidebar off-screen and
+  // waits for `.open`. Carrying CSS across does not carry the JavaScript its
+  // rules assume, so without this the sidebar was not merely hidden on a phone
+  // -- it was unreachable, and no desktop viewport would ever show that.
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   // A 401 from anywhere drops straight back to sign-in rather than leaving the
   // reader staring at an empty list.
@@ -47,16 +52,38 @@ export default function App() {
     api.vote(a.id, value).then(patch).catch(() => {});
   const save = (a: Article) => api.save(a.id).then(patch).catch(() => {});
 
+  // Choosing anything closes the drawer: on a phone the list is behind it.
+  const choose = (fn: () => void) => {
+    fn();
+    setDrawerOpen(false);
+  };
+
   return (
     <div className="site-layout">
-      <aside className="sidebar">
+      <button
+        className="drawer-toggle"
+        aria-label="Feeds"
+        aria-expanded={drawerOpen}
+        onClick={() => setDrawerOpen((v) => !v)}
+      >
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+          <path stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+                d="M4 7h16 M4 12h16 M4 17h16" />
+        </svg>
+      </button>
+      <div
+        className={`drawer-scrim ${drawerOpen ? 'visible' : ''}`}
+        onClick={() => setDrawerOpen(false)}
+      />
+
+      <aside className={`sidebar ${drawerOpen ? 'open' : ''}`}>
         <div className="sidebar-brand">Better News</div>
         <button
           className={`sidebar-feed ${feed === undefined && !saved ? 'active' : ''}`}
-          onClick={() => {
+          onClick={() => choose(() => {
             setFeed(undefined);
             setSaved(false);
-          }}
+          })}
         >
           All feeds
           {feeds && feeds.unread > 0 && <span className="sidebar-feed-count">{feeds.unread}</span>}
@@ -65,10 +92,10 @@ export default function App() {
           <button
             key={f.id}
             className={`sidebar-feed sidebar-feed-nested ${feed === f.id ? 'active' : ''}`}
-            onClick={() => {
+            onClick={() => choose(() => {
               setFeed(f.id);
               setSaved(false);
-            }}
+            })}
           >
             {f.title}
             {f.unread > 0 && <span className="sidebar-feed-count">{f.unread}</span>}
@@ -76,10 +103,10 @@ export default function App() {
         ))}
         <button
           className={`sidebar-feed ${saved ? 'active' : ''}`}
-          onClick={() => {
+          onClick={() => choose(() => {
             setSaved(true);
             setFeed(undefined);
-          }}
+          })}
         >
           Saved
           {feeds && feeds.saved > 0 && <span className="sidebar-feed-count">{feeds.saved}</span>}

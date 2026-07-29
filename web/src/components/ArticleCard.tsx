@@ -31,7 +31,9 @@ export function ArticleCard({
     .join(' ');
 
   return (
-    <article className={classes}>
+    // Same id the server-rendered card uses, so anchoring, deep links and tests
+    // can address a row without depending on its position in the list.
+    <article className={classes} id={`card-${article.id}`}>
       <div className="article-left">
         {article.thumbnail_url && (
           <img className="article-thumb" src={article.thumbnail_url} alt="" loading="lazy" />

@@ -9,6 +9,8 @@ import { defineConfig, devices } from '@playwright/test';
  */
 export default defineConfig({
   testDir: './e2e',
+  // The mocked projects must not pick up the live spec, and vice versa.
+  testIgnore: process.env.BN_E2E_TOKEN ? [] : ['**/live.spec.ts'],
   fullyParallel: true,
   reporter: process.env.CI ? 'dot' : 'list',
   use: { baseURL: 'http://localhost:5175', channel: 'chrome' },
@@ -21,6 +23,17 @@ export default defineConfig({
       use: { ...devices['iPhone 13'], browserName: 'chromium', channel: 'chrome' },
     },
     { name: 'desktop', use: { ...devices['Desktop Chrome'], channel: 'chrome' } },
+
+    // The live suite. Everything else mocks the API at the network layer, which
+    // means no committed test has ever crossed browser -> proxy -> Flask ->
+    // Postgres. That gap is how a 302-to-/login on every API call survived a
+    // suite of a thousand passing tests: the test client was already signed in,
+    // so nothing anonymous ever spoke to the real app.
+    {
+      name: 'live',
+      testMatch: /live\.spec\.ts/,
+      use: { ...devices['Desktop Chrome'], channel: 'chrome' },
+    },
   ],
   webServer: {
     command: 'npx vite --port 5175 --strictPort',

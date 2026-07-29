@@ -208,9 +208,9 @@ def test_reading_one_article_returns_blocks_and_marks_it_read(client, app, token
         db.close()
     body = client.get(f"{API}/articles/{aid}", headers=auth(token)).get_json()
     assert body["blocks"], "the client must not have to parse the body itself"
-    assert body["state"]["read"] is False, "state reflects the read before this call"
-    again = client.get(f"{API}/articles/{aid}", headers=auth(token)).get_json()
-    assert again["state"]["read"] is True
+    # Reflects the read this very call performed. Returning false here made
+    # every client patch the value it had just been handed.
+    assert body["state"]["read"] is True
 
 
 def test_a_missing_article_is_json_not_html(client, token):

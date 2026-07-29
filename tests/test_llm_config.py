@@ -192,7 +192,7 @@ def test_aside_detection_uses_its_own_model(db_conn):
 
 # ── settings panel ─────────────────────────────────────────────────────────────
 
-@patch("app.routes.ollama_client.list_models", return_value=["llama3.1:8b", "qwen:7b"])
+@patch("app.views.settings.ollama_client.list_models", return_value=["llama3.1:8b", "qwen:7b"])
 def test_panel_lists_every_job_and_the_installed_models(mock_list, client):
     data = client.get("/settings/models").get_data(as_text=True)
     for action in llm_config.ACTIONS:
@@ -200,7 +200,7 @@ def test_panel_lists_every_job_and_the_installed_models(mock_list, client):
     assert "llama3.1:8b" in data and "qwen:7b" in data
 
 
-@patch("app.routes.ollama_client.list_models", return_value=["llama3.1:8b"])
+@patch("app.views.settings.ollama_client.list_models", return_value=["llama3.1:8b"])
 def test_panel_warns_about_an_uninstalled_model(mock_list, client, app):
     from app.db import get_db_direct
     with app.app_context():
@@ -213,12 +213,12 @@ def test_panel_warns_about_an_uninstalled_model(mock_list, client, app):
     assert "will fail every time" in data
 
 
-@patch("app.routes.ollama_client.list_models", return_value=[])
+@patch("app.views.settings.ollama_client.list_models", return_value=[])
 def test_panel_says_so_when_ollama_is_unreachable(mock_list, client):
     assert b"Could not reach Ollama" in client.get("/settings/models").data
 
 
-@patch("app.routes.ollama_client.list_models", return_value=["llama3.1:8b"])
+@patch("app.views.settings.ollama_client.list_models", return_value=["llama3.1:8b"])
 def test_saving_one_job_does_not_touch_the_others(mock_list, client, app):
     r = client.post("/settings/models",
                     data={"action_id": "digest", "model": "llama3.1:8b"})
@@ -232,7 +232,7 @@ def test_saving_one_job_does_not_touch_the_others(mock_list, client, app):
         db.close()
 
 
-@patch("app.routes.ollama_client.list_models", return_value=["llama3.1:8b"])
+@patch("app.views.settings.ollama_client.list_models", return_value=["llama3.1:8b"])
 def test_saving_an_unknown_job_is_rejected(mock_list, client):
     assert client.post("/settings/models",
                        data={"action_id": "bogus", "model": "x"}).status_code == 400
@@ -245,7 +245,7 @@ def test_model_settings_are_admin_only(login_as):
                   data={"action_id": "digest", "model": "x"}).status_code == 403
 
 
-@patch("app.routes.ollama_client.list_models", return_value=["llama3.1:8b"])
+@patch("app.views.settings.ollama_client.list_models", return_value=["llama3.1:8b"])
 def test_panel_queries_the_configured_endpoint(mock_list, client, app):
     """The model list must come from the server the app actually calls."""
     from app.db import get_db_direct, set_setting as ss
@@ -331,7 +331,7 @@ def test_a_merely_different_choice_is_not_flagged_as_bad(db_conn):
 
 # ── the panel ──────────────────────────────────────────────────────────────────
 
-@patch("app.routes.ollama_client.list_models", return_value=INSTALLED)
+@patch("app.views.settings.ollama_client.list_models", return_value=INSTALLED)
 def test_the_panel_recommends_and_explains(mock_list, client):
     body = client.get("/settings/models").get_data(as_text=True)
     assert "recommended" in body
@@ -339,7 +339,7 @@ def test_the_panel_recommends_and_explains(mock_list, client):
     assert "not a reasoning model" in body       # a per-job reason
 
 
-@patch("app.routes.ollama_client.list_models", return_value=INSTALLED)
+@patch("app.views.settings.ollama_client.list_models", return_value=INSTALLED)
 def test_the_panel_warns_when_a_reasoning_model_is_used_for_json(mock_list, client, app):
     from app.db import get_db_direct
     with app.app_context():
@@ -352,7 +352,7 @@ def test_the_panel_warns_when_a_reasoning_model_is_used_for_json(mock_list, clie
     assert "action-suggestion-warn" in body
 
 
-@patch("app.routes.ollama_client.list_models", return_value=INSTALLED)
+@patch("app.views.settings.ollama_client.list_models", return_value=INSTALLED)
 def test_applying_every_recommendation(mock_list, client, app):
     r = client.post("/settings/models/recommended")
     assert r.status_code == 200
@@ -364,7 +364,7 @@ def test_applying_every_recommendation(mock_list, client, app):
         db.close()
 
 
-@patch("app.routes.ollama_client.list_models", return_value=[])
+@patch("app.views.settings.ollama_client.list_models", return_value=[])
 def test_applying_recommendations_without_ollama_changes_nothing(mock_list, client, app):
     client.post("/settings/models/recommended")
     from app.db import get_db_direct

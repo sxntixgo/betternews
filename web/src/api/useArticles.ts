@@ -1,0 +1,65 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { Article, ListQuery } from '@shared/api';
+import { api } from './client';
+
+/**
+ * The reading list, paged.
+ *
+ * `next_offset` from the API is exact -- duplicate stories are collapsed in SQL
+ * before LIMIT/OFFSET -- so appending pages cannot show the same article twice.
+ * There is no client-side de-duplication here on purpose; if one is ever
+ * needed, the server has regressed.
+ */
+export function useArticles(query: ListQuery, enabled = true) {
+  const [articles, setArticles] = useState<Article[]>([]);
+  const [nextOffset, setNextOffset] = useState<number | null>(0);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Identifies the active query, so a slow response from a previous filter
+  // cannot land on top of a newer one.
+  const key = JSON.stringify(query);
+  const active = useRef(key);
+
+  const loadPage = useCallback(
+    async (offset: number, replace: boolean) => {
+      const mine = active.current;
+      setLoading(true);
+      setError(null);
+      try {
+        const page = await api.articles({ ...query, offset });
+        if (active.current !== mine) return;
+        setArticles((prev) => (replace ? page.articles : [...prev, ...page.articles]));
+        setNextOffset(page.next_offset);
+      } catch (e) {
+        if (active.current === mine) setError((e as Error).message);
+      } finally {
+        if (active.current === mine) setLoading(false);
+      }
+    },
+    [key],  // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
+  useEffect(() => {
+    // Hooks cannot sit behind the shell's `if (!signedIn) return <SignIn/>`, so
+    // without this guard a cold load fires two requests that are certain to
+    // 401 -- and the 401 handler then clears a token that was never set.
+    if (!enabled) return;
+    active.current = key;
+    setArticles([]);
+    setNextOffset(0);
+    void loadPage(0, true);
+  }, [key, loadPage, enabled]);
+
+  const loadMore = useCallback(() => {
+    if (loading || nextOffset === null) return;
+    void loadPage(nextOffset, false);
+  }, [loading, nextOffset, loadPage]);
+
+  /** Replace one article in place, for optimistic vote/save updates. */
+  const patch = useCallback((updated: Article) => {
+    setArticles((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
+  }, []);
+
+  return { articles, loading, error, loadMore, hasMore: nextOffset !== null, patch };
+}

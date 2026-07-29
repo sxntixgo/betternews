@@ -11,7 +11,8 @@ unverified. Treat this as a reviewed scaffold, not a working app.
 ```sh
 npm install
 npx expo start          # then press i / a, or scan the QR with Expo Go
-npx tsc --noEmit        # type-check, including ../shared
+npm run typecheck       # tsc, including ../shared
+npm test                # the pure decision logic
 ```
 
 Sign in by pasting the server URL and an API token. Create the token in the web
@@ -48,6 +49,21 @@ a toggle and is never dropped, matching the web reader.
 enabled, so `expo start` resolves `@shared/api` while `expo export` fails
 claiming the file does not exist. Changing any one of the three breaks the
 export but not the dev server.
+
+## Tests, and what they do not cover
+
+`npm test` covers the logic that decides *what* happens, which is pure and is
+where the mistakes live: whether an action toggles or sets, whether an error is
+a 401 (including one that lost its prototype crossing a bundler boundary), what
+`fetch`'s single opaque failure string should say to a reader, and base-URL
+normalisation.
+
+**There are no component tests.** `@testing-library/react-native` 14 renders
+nothing under `jest-expo` with React 19 -- `render(<Text/>)` fails, so it is not
+this app's code at fault. Screens, touch targets, gestures, scrolling and
+keychain storage stay unverified until the app runs on a device. Rather than pin
+versions around a broken renderer, the decision logic was made pure and tested
+directly; `optimisticState` is exported for exactly that reason.
 
 ## Known gaps
 

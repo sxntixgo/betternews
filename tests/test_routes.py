@@ -452,28 +452,28 @@ def test_manual_poll_spawns_thread(mock_thread, client):
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 def test_extract_reading_time_english():
-    from app.routes import _extract_reading_time
-    assert _extract_reading_time("This article is 7 min read.") == "7"
+    from app.presenters import extract_reading_time
+    assert extract_reading_time("This article is 7 min read.") == "7"
 
 
 def test_extract_reading_time_spanish():
-    from app.routes import _extract_reading_time
-    assert _extract_reading_time("- 4 minutos de lectura") == "4"
+    from app.presenters import extract_reading_time
+    assert extract_reading_time("- 4 minutos de lectura") == "4"
 
 
 def test_extract_reading_time_none():
-    from app.routes import _extract_reading_time
-    assert _extract_reading_time("no reading time here") is None
+    from app.presenters import extract_reading_time
+    assert extract_reading_time("no reading time here") is None
 
 
 def test_clean_content_strips_reading_time():
-    from app.routes import _clean_content
+    from app.presenters import clean_content
     text = (
         "Real first paragraph " * 20 + "\n"
         "- 4 minutos de lectura\n"
         "Otras noticias\n"
     )
-    out = _clean_content(text, title="Real first paragraph")
+    out = clean_content(text, title="Real first paragraph")
     assert "lectura" not in out.lower()
     # Junk is no longer deleted here — content_filter classifies it instead, so
     # the reader can fold it recoverably rather than truncating the body.
@@ -481,60 +481,60 @@ def test_clean_content_strips_reading_time():
 
 
 def test_clean_content_skips_duplicate_title_line():
-    from app.routes import _clean_content
-    out = _clean_content("Some Title\nFirst paragraph.", title="Some Title")
+    from app.presenters import clean_content
+    out = clean_content("Some Title\nFirst paragraph.", title="Some Title")
     assert out.startswith("First paragraph")
 
 
 def test_clean_content_skips_duplicate_description_line():
-    from app.routes import _clean_content
+    from app.presenters import clean_content
     desc = "This is the description that leads the article and should not repeat."
-    out = _clean_content(desc + "\nReal body line.", description=desc)
+    out = clean_content(desc + "\nReal body line.", description=desc)
     assert out.startswith("Real body line")
 
 
 def test_clean_content_keeps_pagination_for_the_filter_to_classify():
-    from app.routes import _clean_content
+    from app.presenters import clean_content
     body = ("Real first paragraph " * 30).strip() + "\n- 1\nrelated thing"
-    out = _clean_content(body)
+    out = clean_content(body)
     assert "- 1" in out
     assert "related thing" in out
 
 
 def test_to_blocks_groups_consecutive_dash_bullets():
-    from app.routes import _to_blocks
+    from app.presenters import to_blocks
     text = "Intro paragraph.\n- first\n- second\n- third\nClosing line."
-    blocks = _to_blocks(text)
+    blocks = to_blocks(text)
     assert blocks[0] == {"type": "p", "text": "Intro paragraph."}
     assert blocks[1] == {"type": "ul", "items": ["first", "second", "third"]}
     assert blocks[2] == {"type": "p", "text": "Closing line."}
 
 
 def test_to_blocks_supports_star_and_unicode_bullets():
-    from app.routes import _to_blocks
-    blocks = _to_blocks("* alpha\n• beta\n– gamma\nplain")
+    from app.presenters import to_blocks
+    blocks = to_blocks("* alpha\n• beta\n– gamma\nplain")
     assert blocks[0]["type"] == "ul"
     assert blocks[0]["items"] == ["alpha", "beta", "gamma"]
     assert blocks[1] == {"type": "p", "text": "plain"}
 
 
 def test_to_blocks_separate_bullet_groups():
-    from app.routes import _to_blocks
-    blocks = _to_blocks("- a\n- b\nbreak\n- c")
+    from app.presenters import to_blocks
+    blocks = to_blocks("- a\n- b\nbreak\n- c")
     assert [b["type"] for b in blocks] == ["ul", "p", "ul"]
     assert blocks[0]["items"] == ["a", "b"]
     assert blocks[2]["items"] == ["c"]
 
 
 def test_to_blocks_ignores_empty_input():
-    from app.routes import _to_blocks
-    assert _to_blocks("") == []
+    from app.presenters import to_blocks
+    assert to_blocks("") == []
 
 
 def test_to_blocks_emits_twitter_embed_when_enabled():
-    from app.routes import _to_blocks
+    from app.presenters import to_blocks
     text = "Setup line.\nhttps://twitter.com/jack/status/20\nFollow-up."
-    blocks = _to_blocks(text, embeds_enabled=True)
+    blocks = to_blocks(text, embeds_enabled=True)
     assert blocks[1] == {
         "type": "embed",
         "platform": "twitter",
@@ -543,36 +543,36 @@ def test_to_blocks_emits_twitter_embed_when_enabled():
 
 
 def test_to_blocks_recognises_x_com_and_instagram():
-    from app.routes import _to_blocks
+    from app.presenters import to_blocks
     text = (
         "https://x.com/elon/status/1234567890\n"
         "https://www.instagram.com/p/AbCdEf-12_/\n"
         "https://www.instagram.com/reel/XyZ123/"
     )
-    blocks = _to_blocks(text, embeds_enabled=True)
+    blocks = to_blocks(text, embeds_enabled=True)
     assert [b["platform"] for b in blocks] == ["twitter", "instagram", "instagram"]
     assert all(b["type"] == "embed" for b in blocks)
 
 
 def test_to_blocks_embed_disabled_keeps_url_as_paragraph():
-    from app.routes import _to_blocks
+    from app.presenters import to_blocks
     url = "https://twitter.com/jack/status/20"
-    blocks = _to_blocks(url)
+    blocks = to_blocks(url)
     assert blocks == [{"type": "p", "text": url}]
 
 
 def test_to_blocks_inline_url_is_not_an_embed():
-    from app.routes import _to_blocks
+    from app.presenters import to_blocks
     text = "Check https://twitter.com/jack/status/20 — interesting."
-    blocks = _to_blocks(text, embeds_enabled=True)
+    blocks = to_blocks(text, embeds_enabled=True)
     assert blocks[0]["type"] == "p"
     assert "twitter.com" in blocks[0]["text"]
 
 
 def test_to_blocks_embed_breaks_running_bullet_list():
-    from app.routes import _to_blocks
+    from app.presenters import to_blocks
     text = "- one\n- two\nhttps://twitter.com/u/status/9\n- three"
-    blocks = _to_blocks(text, embeds_enabled=True)
+    blocks = to_blocks(text, embeds_enabled=True)
     assert [b["type"] for b in blocks] == ["ul", "embed", "ul"]
     assert blocks[0]["items"] == ["one", "two"]
     assert blocks[2]["items"] == ["three"]
@@ -1718,8 +1718,8 @@ def test_corrupt_aside_spans_degrade_to_pattern_pass(client, app):
 
 
 def test_group_blocks_merges_runs():
-    from app.routes import _group_blocks
-    groups = _group_blocks([
+    from app.presenters import group_blocks
+    groups = group_blocks([
         {"type": "p", "text": "a"},
         {"type": "p", "text": "b", "aside": "promo"},
         {"type": "p", "text": "c", "aside": "promo"},
@@ -1783,11 +1783,11 @@ def test_bullet_list_inside_a_rail_is_marked_aside(client, app):
 
 def test_bullet_run_splits_when_a_rail_starts_mid_list():
     """A rail heading inside a list must not drag the real items in with it."""
-    from app.routes import _to_blocks
+    from app.presenters import to_blocks
     from app import content_filter as cf
     lines = ["- real one", "- real two", "Related", "- other story"]
     kinds = cf.classify_lines(lines)
-    blocks = _to_blocks("\n".join(lines), aside_kinds=kinds)
+    blocks = to_blocks("\n".join(lines), aside_kinds=kinds)
     uls = [b for b in blocks if b["type"] == "ul"]
     assert len(uls) == 2
     assert uls[0]["items"] == ["real one", "real two"]

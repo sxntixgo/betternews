@@ -15,6 +15,7 @@ Flask app in Docker; Ollama on Windows host; **Postgres 16** in the `db` compose
 - `app/llm_config.py` — **the registry of every Ollama job** and which model runs it. Adding a `generate()` call means adding an Action here; `tests/test_llm_config.py` fails if a prompt builder is not registered.
 - `app/content_filter.py` — Detects article padding (related rails, promos, older-news recaps). Pass 1 is regex at render time; pass 2 is an optional LLM call stored as fingerprints.
 - `app/routes.py` — Flask routes. HTMX-first: most return HTML fragments.
+- `app/presenters.py` — **what the reader sees**, decided once for every client: which headline after de-clickbait (`resolve_title`), which passages fold as older-news padding (`content_blocks`), reading time, the row → card mapping. Imports no Flask and touches no request context, enforced by `tests/test_presenters.py`, because a mobile client has neither. Put anything here that decides *what* is shown; leave *how* it is marked up to the templates. A view function that formats for display is in the wrong file.
 - `app/auth.py` — accounts, sessions, `@login_required` / `@admin_required`.
 - `app/feeds.py` — feedparser polling. `poll_all_feeds(app)` is the entry point.
 - `app/scheduler.py` — APScheduler wiring. Jobs registered here.

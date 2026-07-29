@@ -1,6 +1,8 @@
 {
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
+    // Jest globals for the tests in src/__tests__.
+    "types": ["jest"],
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,

@@ -22,8 +22,13 @@ export interface ArticleActions {
   clearError: () => void;
 }
 
-/** What the API will do, applied locally first so the tap feels instant. */
-function optimisticState(state: ArticleState, kind: ActionKind): ArticleState {
+/**
+ * What the API will do, applied locally first so the tap feels instant.
+ *
+ * Exported so it can be tested without a renderer: whether an action toggles or
+ * sets is the detail most likely to be got wrong, and it is pure.
+ */
+export function optimisticState(state: ArticleState, kind: ActionKind): ArticleState {
   switch (kind) {
     // POST /save toggles; the other two set.
     case 'save':

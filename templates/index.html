@@ -156,13 +156,18 @@
   var showHidden = _qp.get('hidden') === '1';
   var showSaved = _qp.get('saved') === '1';
   var currentFeed = _qp.get('feed') || '';
+  // Read from the URL because a topic chip links to /?topic=x. Without
+  // carrying it here, refreshList() refetched the whole list on load and
+  // the filter was gone before the reader saw it.
+  var currentTopic = _qp.get('topic') || '';
   var searchQuery = '';
   function buildQs() {
     if (searchQuery) return '/search?q=' + encodeURIComponent(searchQuery);
     return '/articles?sort=' + currentSort
       + (showHidden ? '&hidden=1' : '')
       + (showSaved ? '&saved=1' : '')
-      + (currentFeed ? '&feed=' + encodeURIComponent(currentFeed) : '');
+      + (currentFeed ? '&feed=' + encodeURIComponent(currentFeed) : '')
+      + (currentTopic ? '&topic=' + encodeURIComponent(currentTopic) : '');
   }
   function refreshList() {
     // Deliberately NOT setting hx-get on #article-list. htmx gives an element
@@ -207,6 +212,7 @@
     showHidden = !!hidden;
     showSaved = !!saved;
     searchQuery = '';
+    currentTopic = '';
     var s = document.getElementById('search');
     if (s) s.value = '';
     applySidebarActive();
@@ -218,7 +224,14 @@
     // and starring one keeps it indefinitely. A prompt for something you can
     // still see is just asking you to dismiss twice -- and animating the rows
     // away when they are about to come back greyed would only flash.
-    var qs = currentFeed ? '?feed=' + encodeURIComponent(currentFeed) : '';
+    // Send the whole view, not just the feed. Dismiss all used to dismiss the
+    // main list no matter which list you were looking at.
+    var parts = [];
+    if (currentFeed) parts.push('feed=' + encodeURIComponent(currentFeed));
+    if (showHidden) parts.push('hidden=1');
+    if (showSaved) parts.push('saved=1');
+    if (currentTopic) parts.push('topic=' + encodeURIComponent(currentTopic));
+    var qs = parts.length ? '?' + parts.join('&') : '';
     fetch('/dismiss-all' + qs, { method: 'POST' })
       .then(function() {
         refreshList();

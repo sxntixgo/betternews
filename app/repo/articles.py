@@ -53,6 +53,23 @@ def _visible(stmt):
     return stmt
 
 
+# Fetch three pages' worth so cluster collapsing cannot leave a short page.
+OVER_FETCH = 3
+
+
+class Page(list):
+    """Rows for one page, plus where the next page actually starts.
+
+    A list subclass rather than a tuple because the offset is only interesting
+    to the one route that paginates; every other caller wants the rows and
+    nothing else, and keeps working unchanged.
+
+    `next_offset` is None at the end of the list.
+    """
+    next_offset: int | None = None
+    consumed: int = 0
+
+
 def list_for_user(db, user_id: int, *, hidden: bool = False, saved: bool = False,
                   feed_id: int | None = None, sort: str = "date",
                   topic: str | None = None, limit: int = 50, offset: int = 0):
@@ -76,34 +93,48 @@ def list_for_user(db, user_id: int, *, hidden: bool = False, saved: bool = False
     order = ([A.c.published_at.desc().nullslast()] if sort == "date"
              else [text("effective_score DESC"), A.c.published_at.desc().nullslast()])
     rows = db.execute(
-        stmt.order_by(*order).limit(limit * 3).offset(offset),
+        stmt.order_by(*order).limit(limit * OVER_FETCH).offset(offset),
         {"pref_uid": user_id},
     ).mappings().all()
-    return _collapse_clusters(db, rows, limit)
+    page = _collapse_clusters(db, rows, limit)
+    # Advance by the rows *consumed*, not the rows returned. Collapsing eats
+    # duplicates, so filling a 50-row page can take 60 source rows; advancing by
+    # 50 would start the next page inside what this one already showed, and the
+    # reader sees the same articles twice. The two counts are only equal when
+    # nothing collapsed, which is why this went unnoticed.
+    page.next_offset = offset + page.consumed if len(page) == limit else None
+    return page
 
 
 def _collapse_clusters(db, rows, limit: int):
     """Keep the best-scoring member of each cluster, noting the others.
 
-    Over-fetches so collapsing does not leave a short page.
+    Over-fetches so collapsing does not leave a short page, and reports how many
+    source rows that took. The two numbers differ whenever duplicates collapse,
+    and paginating on the wrong one silently repeats articles -- see
+    `list_for_user`.
     """
     seen: dict[str, dict] = {}
     out: list[dict] = []
+    consumed = 0
     for row in rows:
+        consumed += 1
         key = row["cluster_id"]
         if not key:
             out.append(dict(row))
-            continue
-        if key in seen:
+        elif key in seen:
             seen[key]["duplicate_count"] = seen[key].get("duplicate_count", 0) + 1
             continue
-        d = dict(row)
-        d["duplicate_count"] = 0
-        seen[key] = d
-        out.append(d)
+        else:
+            d = dict(row)
+            d["duplicate_count"] = 0
+            seen[key] = d
+            out.append(d)
         if len(out) >= limit:
             break
-    return out[:limit]
+    page = Page(out[:limit])
+    page.consumed = consumed
+    return page
 
 
 def get_card(db, user_id: int, article_id: int):
@@ -164,15 +195,42 @@ def dismiss(db, user_id: int, article_id: int) -> None:
     _upsert_state(db, user_id, article_id, dismissed_at=func.now())
 
 
-def dismiss_all(db, user_id: int, feed_id: int | None = None) -> int:
-    """Dismiss everything currently listed for this user."""
-    stmt = select(A.c.id).where(A.c.status.in_(VISIBLE_STATUSES))
+def dismiss_all(db, user_id: int, feed_id: int | None = None, *,
+                hidden: bool = False, saved: bool = False,
+                topic: str | None = None) -> int:
+    """Dismiss everything currently listed for this user.
+
+    "Currently listed" has to mean the list actually on screen. This only ever
+    matched VISIBLE_STATUSES, so pressing Dismiss all while viewing Hidden
+    dismissed the *main* list instead: the hidden articles stayed, their count
+    did not move, and the articles that did get dismissed were somewhere the
+    reader could not see. The filters here mirror `list_for_user`.
+    """
+    stmt = select(A.c.id).where(
+        A.c.status.in_(HIDDEN_STATUSES if hidden else VISIBLE_STATUSES))
     if feed_id is not None:
         stmt = stmt.where(A.c.feed_id == feed_id)
-    ids = [r[0] for r in db.execute(stmt).all()]
-    for aid in ids:
-        _upsert_state(db, user_id, aid, dismissed_at=func.now())
-    return len(ids)
+    if topic:
+        stmt = stmt.where(A.c.topics.any(topic))
+    if saved:
+        stmt = stmt.where(select(literal(1)).where(and_(
+            S.c.article_id == A.c.id, S.c.user_id == user_id,
+            S.c.saved_at.isnot(None))).exists())
+    # One statement, not one per article. Dismissing 6,128 hidden articles was
+    # 6,128 round trips and took long enough that the sidebar refreshed before
+    # the write finished, so the count appeared not to have changed at all.
+    ins = pg_insert(S).from_select(
+        ["user_id", "article_id", "dismissed_at"],
+        select(literal(user_id), A.c.id, func.now()).select_from(A)
+        .where(A.c.id.in_(stmt)),
+    )
+    # RETURNING rather than rowcount: psycopg reports -1 for INSERT ... FROM
+    # SELECT, and the caller shows this number to the reader.
+    result = db.execute(ins.on_conflict_do_update(
+        index_elements=[S.c.user_id, S.c.article_id],
+        set_={"dismissed_at": func.now()},
+    ).returning(S.c.article_id))
+    return len(result.fetchall())
 
 
 def record_vote(db, user_id: int, article_id: int, value: int) -> None:
@@ -245,7 +303,13 @@ def sidebar_counts(db, user_id: int):
                 (and_(A.c.status == "summarized", S.c.read_at.is_(None),
                       S.c.dismissed_at.is_(None)), 1), else_=0
             ).cast(Integer)).label("unread"),
-            func.sum(case((A.c.status == "hidden", 1), else_=0).cast(Integer)).label("hidden"),
+            # Dismissed articles drop out of this tally for the same reason they
+            # drop out of `unread`: the badge counts what still wants attention,
+            # while the list below shows everything, greyed. Without the
+            # condition the Hidden count never moved, whatever you dismissed.
+            func.sum(case(
+                (and_(A.c.status == "hidden", S.c.dismissed_at.is_(None)), 1), else_=0
+            ).cast(Integer)).label("hidden"),
             func.sum(case((S.c.saved_at.isnot(None), 1), else_=0).cast(Integer)).label("saved"),
         )
         .select_from(joined)

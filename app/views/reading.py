@@ -57,7 +57,7 @@ def articles():
         sort=sort, topic=topic,
         limit=_PAGE_SIZE, offset=offset,
     )
-    next_offset = offset + _PAGE_SIZE if len(rows) == _PAGE_SIZE else None
+    next_offset = rows.next_offset
     next_qs = ""
     if next_offset is not None:
         parts = [f"sort={sort}", f"offset={next_offset}"]
@@ -263,6 +263,11 @@ def dismiss_all():
     db = get_db()
     feed_arg = request.args.get("feed", "").strip()
     feed_id = int(feed_arg) if feed_arg.isdigit() else None
-    n = art_repo.dismiss_all(db, current_user_id(db), feed_id)
+    n = art_repo.dismiss_all(
+        db, current_user_id(db), feed_id,
+        hidden=request.args.get("hidden") == "1",
+        saved=request.args.get("saved") == "1",
+        topic=request.args.get("topic", "").strip() or None,
+    )
     db.commit()
     return Response(f"dismissed {n} articles", status=200)

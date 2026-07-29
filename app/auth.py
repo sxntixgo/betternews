@@ -183,7 +183,21 @@ def install(app) -> None:
     app.before_request(_force_password_change)
 
 
+def _is_api_request() -> bool:
+    """The JSON API authenticates itself and must never be redirected.
+
+    These hooks run app-wide, before any blueprint. Without this the session
+    guard answered every /api/v1 call with a 302 to /login -- even one carrying
+    a perfectly good bearer token -- and a native client saw a redirect to an
+    HTML page instead of its data.
+    """
+    return (request.blueprint == "api"
+            or request.path.startswith("/api/"))
+
+
 def _require_session():
+    if _is_api_request():
+        return None
     if request.endpoint in PUBLIC_ENDPOINTS or request.endpoint is None:
         return None
     if current_user() is None:
@@ -193,6 +207,10 @@ def _require_session():
 
 def _force_password_change():
     """After an admin reset, nothing else is reachable until it's changed."""
+    if _is_api_request():
+        # A token client cannot complete a password change, and bouncing it to
+        # an HTML form would be a redirect it cannot follow.
+        return None
     u = current_user()
     if not u or not u["must_change_password"]:
         return None

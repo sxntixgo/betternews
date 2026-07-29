@@ -30,6 +30,15 @@
     <p class="loading">Loading topics…</p>
   </div>
 
+  <h3>API tokens</h3>
+  <p class="muted">
+    For apps that are not this browser. A token is shown once, acts as your
+    password, and can be revoked for one device without signing out elsewhere.
+  </p>
+  <div id="token-panel">
+    {% include "_api_tokens.html" with context %}
+  </div>
+
   <h3>Password</h3>
   <div id="password-panel">
     {% include "_profile_password.html" with context %}

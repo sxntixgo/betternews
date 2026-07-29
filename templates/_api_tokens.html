@@ -1,0 +1,36 @@
+{% if new_token %}
+  <div class="token-new">
+    <p><strong>Copy this now — it is not shown again.</strong></p>
+    <code class="token-value">{{ new_token }}</code>
+  </div>
+{% endif %}
+{% if error %}<p class="form-error">{{ error }}</p>{% endif %}
+
+{% if tokens %}
+  <table class="token-table">
+    <thead><tr><th>Device</th><th>Created</th><th>Last used</th><th></th></tr></thead>
+    <tbody>
+      {% for t in tokens %}
+        <tr>
+          <td>{{ t.name }}</td>
+          <td>{{ t.created_at.strftime('%Y-%m-%d') }}</td>
+          <td>{{ t.last_used_at.strftime('%Y-%m-%d %H:%M') if t.last_used_at else 'never' }}</td>
+          <td>
+            <button class="btn-icon" title="Revoke this device"
+                    hx-post="/profile/tokens/{{ t.id }}/revoke"
+                    hx-target="#token-panel" hx-swap="innerHTML">Revoke</button>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <p class="muted">No devices yet.</p>
+{% endif %}
+
+<form hx-post="/profile/tokens" hx-target="#token-panel" hx-swap="innerHTML"
+      class="token-form">
+  <input type="text" name="name" placeholder="Device name, e.g. iPhone" required
+         maxlength="60">
+  <button type="submit">Create token</button>
+</form>

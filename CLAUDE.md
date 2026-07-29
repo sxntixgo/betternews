@@ -158,6 +158,12 @@ Four suites, and it matters which is which:
 | Web (live) | `export BN_E2E_TOKEN=$(scripts/e2e-token.sh) && cd web && npm run e2e:live` | **Yes** — browser → proxy → Flask → Postgres |
 | Mobile | `cd mobile && npm test` | No — pure functions only |
 
+CI runs the first, second and fourth on every push and pull request
+(`.github/workflows/ci.yml`). Actions is free without a minute limit here
+because the repository is public — the 2,000-minute allowance applies to private
+ones. The live suite is not in CI: it needs a running stack and a real token,
+and faking either would defeat the only thing it is for.
+
 **The live suite exists because the others share a blind spot.** An app-wide
 session guard once answered every `/api/v1` call with a 302 to `/login`, valid
 token and all, and a thousand passing tests saw nothing: the Python test client

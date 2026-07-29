@@ -1,0 +1,110 @@
+name: CI
+
+# Free on this repository: Actions has no minute limit for public repos. The
+# 2,000-minute allowance people worry about applies to private ones.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  # A second push to the same branch cancels the first; no point paying for a
+  # run whose result is already stale.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: backend (pytest)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        # Matches the compose stack. The suite creates and drops a throwaway
+        # database per test, so there is no in-memory shortcut and no fixture
+        # database to keep in step.
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: betterread
+          POSTGRES_PASSWORD: betterread
+          POSTGRES_DB: betterread
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U betterread"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'          # the version the Dockerfile builds on
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: pytest
+        env:
+          TEST_DATABASE_URL: postgresql+psycopg://betterread:betterread@localhost:5432/betterread
+          # Pinned, not inherited. Seven tests read these and assert on what the
+          # pipeline reports; leaving them unset made them fail against whatever
+          # Ollama the environment happened to describe.
+          OLLAMA_HOST: http://127.0.0.1:1
+          SCORING_MODEL: llama3.2:3b
+          SUMMARY_MODEL: llama3.2:3b
+          FLASK_SECRET_KEY: ci-not-a-secret
+        run: pytest tests/ -q --cov=app --cov-report=term-missing --cov-fail-under=100
+
+  web:
+    name: web (typecheck + playwright)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+      # Type-checks ../shared too, so a contract change that breaks the SPA
+      # fails here rather than in someone's browser.
+      - run: npm run typecheck
+
+      - name: install chromium
+        # Only chromium: the phone project runs iPhone metrics on it rather than
+        # WebKit, so there is nothing else to download.
+        run: npx playwright install --with-deps chromium
+
+      # The live project is skipped automatically: it needs BN_E2E_TOKEN and a
+      # running stack, neither of which exists here. See web/e2e/live.spec.ts.
+      - run: npm run e2e
+
+      - uses: actions/upload-artifact@v5
+        if: failure()
+        with:
+          name: playwright-report
+          path: web/playwright-report/
+          retention-days: 7
+
+  mobile:
+    name: mobile (typecheck + jest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test

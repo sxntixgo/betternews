@@ -7,22 +7,29 @@ import { defineConfig, devices } from '@playwright/test';
  *
  * Uses the installed Chrome rather than downloading a browser.
  */
+// Locally, use the Chrome that is already installed rather than downloading a
+// second browser. CI has no Chrome, so it installs Playwright's own chromium and
+// leaves the channel unset -- one env var instead of two configs.
+const channel = process.env.CI ? undefined : 'chrome';
+
 export default defineConfig({
   testDir: './e2e',
   // The mocked projects must not pick up the live spec, and vice versa.
   testIgnore: process.env.BN_E2E_TOKEN ? [] : ['**/live.spec.ts'],
   fullyParallel: true,
   reporter: process.env.CI ? 'dot' : 'list',
-  use: { baseURL: 'http://localhost:5175', channel: 'chrome' },
+  forbidOnly: !!process.env.CI,
+  retries: process.env.CI ? 1 : 0,
+  use: { baseURL: 'http://localhost:5175', channel },
   projects: [
     // The iPhone descriptor defaults to WebKit, which cannot use the Chrome
     // channel. Keep its metrics -- viewport, DPR, touch, isMobile -- and run
     // them on the Chrome that is already installed.
     {
       name: 'phone',
-      use: { ...devices['iPhone 13'], browserName: 'chromium', channel: 'chrome' },
+      use: { ...devices['iPhone 13'], browserName: 'chromium', channel },
     },
-    { name: 'desktop', use: { ...devices['Desktop Chrome'], channel: 'chrome' } },
+    { name: 'desktop', use: { ...devices['Desktop Chrome'], channel } },
 
     // The live suite. Everything else mocks the API at the network layer, which
     // means no committed test has ever crossed browser -> proxy -> Flask ->
@@ -32,7 +39,7 @@ export default defineConfig({
     {
       name: 'live',
       testMatch: /live\.spec\.ts/,
-      use: { ...devices['Desktop Chrome'], channel: 'chrome' },
+      use: { ...devices['Desktop Chrome'], channel },
     },
   ],
   webServer: {

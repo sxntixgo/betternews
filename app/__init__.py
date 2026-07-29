@@ -58,7 +58,7 @@ def create_app() -> Flask:
     app.jinja_env.globals["current_user"] = auth.current_user
     app.jinja_env.globals["is_admin"] = auth.is_admin
 
-    from app.routes import bp
+    from app.views import bp
     app.register_blueprint(bp)
 
     # The scheduler normally runs as its own process (`python -m app.worker`),

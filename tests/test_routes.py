@@ -694,7 +694,7 @@ def test_article_content_skips_description_when_full_text_repeats_it(client, app
 def test_preferences_regenerate_thread_handles_exception(client, app, caplog):
     """Cover the except-branch in the inline _run() helper."""
     import logging
-    caplog.set_level(logging.ERROR, logger="app.routes")
+    caplog.set_level(logging.ERROR, logger="app.views.settings")
     with patch("app.pipeline.regenerate_preferences", side_effect=RuntimeError("boom")):
         # Force the spawned thread to run inline so the except path is exercised.
         with patch("threading.Thread") as mock_thread:
@@ -710,7 +710,7 @@ def test_preferences_regenerate_thread_handles_exception(client, app, caplog):
 
 def test_manual_poll_thread_handles_exception(client, app, caplog):
     import logging
-    caplog.set_level(logging.ERROR, logger="app.routes")
+    caplog.set_level(logging.ERROR, logger="app.views.ops")
     with patch("app.feeds.poll_all_feeds", side_effect=RuntimeError("netdown")):
         with patch("threading.Thread") as mock_thread:
             def fake_thread(target, daemon=False):
@@ -1230,7 +1230,7 @@ def test_sidebar_feeds_includes_saved_count(client, app):
 
 def test_rescore_hidden_thread_handles_exception(client, app, caplog):
     import logging
-    caplog.set_level(logging.ERROR, logger="app.routes")
+    caplog.set_level(logging.ERROR, logger="app.views.ops")
     with patch("app.pipeline.run_pipeline", side_effect=RuntimeError("boom")):
         with patch("threading.Thread") as mock_thread:
             def fake_thread(target, daemon=False):
@@ -1247,7 +1247,7 @@ def test_rescore_hidden_thread_handles_exception(client, app, caplog):
 
 
 def test_normalize_tags_lowercases_trims_dedupes_sorts():
-    from app.routes import _normalize_tags
+    from app.views.feeds import _normalize_tags
     assert _normalize_tags("") == ""
     assert _normalize_tags(None) == ""
     assert _normalize_tags("Tech") == "tech"
@@ -1257,7 +1257,7 @@ def test_normalize_tags_lowercases_trims_dedupes_sorts():
 
 
 def test_split_tags_handles_empty_and_missing():
-    from app.routes import _split_tags
+    from app.views.feeds import _split_tags
     assert _split_tags(None) == []
     assert _split_tags("") == []
     assert _split_tags("tech,news") == ["tech", "news"]
@@ -1470,7 +1470,7 @@ def test_ollama_save_blank_reverts_to_env(client, app):
         db.close()
 
 
-@patch("app.routes.ollama_client.probe")
+@patch("app.views.settings.ollama_client.probe")
 def test_ollama_test_uses_entered_values_without_saving(mock_probe, client, app):
     mock_probe.return_value = (True, "Connected to http://9.9.9.9:1234 — 1 model(s) installed.", ["a:1"])
     r = client.post("/settings/ollama/test",
@@ -1486,7 +1486,7 @@ def test_ollama_test_uses_entered_values_without_saving(mock_probe, client, app)
         db.close()
 
 
-@patch("app.routes.ollama_client.probe")
+@patch("app.views.settings.ollama_client.probe")
 def test_ollama_test_reports_failure(mock_probe, client):
     mock_probe.return_value = (False, "Connection refused — nothing listening on http://9.9.9.9:1234.", [])
     r = client.post("/settings/ollama/test",
@@ -1501,7 +1501,7 @@ def test_ollama_test_validates_before_probing(client):
     assert b"not a valid hostname" in r.data
 
 
-@patch("app.routes.ollama_client.probe")
+@patch("app.views.settings.ollama_client.probe")
 def test_ollama_test_with_blank_fields_probes_env_default(mock_probe, client):
     mock_probe.return_value = (True, "ok", [])
     client.post("/settings/ollama/test", data={"ollama_host": "", "ollama_port": ""})
@@ -1799,7 +1799,7 @@ def test_bullet_run_splits_when_a_rail_starts_mid_list():
 def test_search_survives_backend_failure(client, app, monkeypatch, caplog):
     """A search backend error returns an empty list, not a 500."""
     import logging
-    caplog.set_level(logging.WARNING, logger="app.routes")
+    caplog.set_level(logging.WARNING, logger="app.views.reading")
     from app.repo import articles as art_repo
     monkeypatch.setattr(art_repo, "search",
                         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))

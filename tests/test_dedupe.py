@@ -169,3 +169,75 @@ def test_collapsing_stops_at_the_page_limit(client, app):
         rows = list_for_user(db, uid, limit=3)
         db.close()
     assert len(rows) == 3
+
+
+# ── paging past collapsed duplicates ──────────────────────────────────────────
+
+def test_the_next_page_starts_past_what_collapsing_consumed(db_conn):
+    """Filling a page can take more source rows than it emits.
+
+    Advancing the offset by the rows *returned* starts page 2 inside page 1 and
+    the reader sees the same articles twice. The two counts are equal only when
+    nothing collapsed, which is why this survived so long.
+    """
+    from app.repo.articles import list_for_user
+    from app.repo.users import ensure_bootstrap_user
+    uid = ensure_bootstrap_user(db_conn)
+    fid = add_feed(db_conn)
+    # Every article duplicated, so collapsing eats two source rows per output row.
+    for i in range(12):
+        for copy in range(2):
+            add_article(db_conn, fid, seq=i * 2 + copy, guid=f"g{i}-{copy}",
+                        title=f"Story {i}", cluster_id=f"c{i}")
+    db_conn.commit()
+
+    page = list_for_user(db_conn, uid, limit=4)
+    assert len(page) == 4
+    assert page.consumed > len(page), "collapsing must have eaten duplicates"
+    assert page.next_offset == page.consumed, \
+        f"offset must follow rows read, not rows shown ({len(page)})"
+
+    # Page two no longer restarts inside page one, which is what the old
+    # `offset + limit` did: it repeated most of the page.
+    second = list_for_user(db_conn, uid, limit=4, offset=page.next_offset)
+    overlap = {r["title"] for r in page} & {r["title"] for r in second}
+    assert len(overlap) <= 1, f"page two largely repeated page one: {overlap}"
+
+
+def test_the_last_page_reports_no_next_offset(db_conn):
+    from app.repo.articles import list_for_user
+    from app.repo.users import ensure_bootstrap_user
+    uid = ensure_bootstrap_user(db_conn)
+    fid = add_feed(db_conn)
+    for i in range(3):
+        add_article(db_conn, fid, seq=i, guid=f"g{i}")
+    db_conn.commit()
+    page = list_for_user(db_conn, uid, limit=10)
+    assert len(page) == 3
+    assert page.next_offset is None
+
+
+@pytest.mark.xfail(reason=(
+    "Known limitation, not a regression. Collapsing happens in Python over an "
+    "offset window, so a cluster whose copies straddle the page boundary is "
+    "emitted again on the next page -- page two starts with an empty `seen` "
+    "map and cannot know the cluster was already shown. Advancing by rows "
+    "consumed (which this suite does cover) removes the wholesale repeat the "
+    "old `offset + limit` caused, but not this. The real fix is to collapse in "
+    "SQL -- DISTINCT ON (cluster_id) in a subquery, with the duplicate tally as "
+    "a window function -- so LIMIT/OFFSET applies to already-collapsed rows."),
+    strict=True)
+def test_a_cluster_straddling_the_page_boundary_is_not_repeated(db_conn):
+    from app.repo.articles import list_for_user
+    from app.repo.users import ensure_bootstrap_user
+    uid = ensure_bootstrap_user(db_conn)
+    fid = add_feed(db_conn)
+    for i in range(12):
+        for copy in range(2):
+            add_article(db_conn, fid, seq=i * 2 + copy, guid=f"s{i}-{copy}",
+                        title=f"Story {i}", cluster_id=f"k{i}")
+    db_conn.commit()
+
+    page = list_for_user(db_conn, uid, limit=4)
+    second = list_for_user(db_conn, uid, limit=4, offset=page.next_offset)
+    assert not ({r["title"] for r in page} & {r["title"] for r in second})

@@ -1810,3 +1810,94 @@ def test_search_survives_backend_failure(client, app, monkeypatch, caplog):
 
 def test_vote_on_unknown_article_returns_404(client):
     assert client.post("/vote/999999/1").status_code == 404
+
+
+# ── Dismiss all acts on the list you are actually looking at ──────────────────
+
+def test_dismiss_all_in_the_hidden_view_dismisses_hidden_articles(client, app):
+    """It only ever matched 'summarized', so pressing it while viewing Hidden
+    dismissed the main list instead and the Hidden count never moved."""
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        fid = add_feed(db)
+        add_article(db, fid, seq=1, guid="vis", title="Visible")
+        add_article(db, fid, seq=2, guid="hid", status="hidden", title="Hidden one")
+        db.close()
+
+    client.post("/dismiss-all?hidden=1")
+
+    hidden = client.get("/articles?hidden=1").data
+    main = client.get("/articles").data
+    assert b"dismissed" in hidden, "the hidden article should now be dismissed"
+    assert b"Visible" in main and b"summarized dismissed" not in main, \
+        "the main list must be left alone"
+
+
+def test_dismiss_all_respects_the_topic_filter(client, app):
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        fid = add_feed(db)
+        add_article(db, fid, seq=1, guid="a", title="Space one", topics=["space"])
+        add_article(db, fid, seq=2, guid="b", title="Other one", topics=["economy"])
+        db.close()
+
+    client.post("/dismiss-all?topic=space")
+
+    cards = client.get("/articles").data.decode().split('<div class="article-row ')[1:]
+    by_title = {("Space one" if "Space one" in c else "Other one"): c for c in cards}
+    assert "dismissed" in by_title["Space one"].split(">")[0]
+    assert "dismissed" not in by_title["Other one"].split(">")[0]
+
+
+def test_the_hidden_count_drops_when_hidden_articles_are_dismissed(client, app):
+    """The reported symptom: the number beside Hidden did not change."""
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        fid = add_feed(db)
+        for i in range(3):
+            add_article(db, fid, seq=i, guid=f"h{i}", status="hidden")
+        db.close()
+
+    assert b">3<" in client.get("/sidebar/feeds").data
+    client.post("/dismiss-all?hidden=1")
+    assert b">3<" not in client.get("/sidebar/feeds").data
+
+
+def test_a_topic_view_only_lists_that_topic(client, app):
+    """/?topic=x rendered, then refreshList refetched without it."""
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        fid = add_feed(db)
+        add_article(db, fid, seq=1, guid="a", title="Tagged one", topics=["argentina"])
+        add_article(db, fid, seq=2, guid="b", title="Untagged one", topics=["space"])
+        db.close()
+    body = client.get("/articles?topic=argentina").data
+    assert b"Tagged one" in body
+    assert b"Untagged one" not in body
+
+
+def test_dismiss_all_in_the_saved_view_only_touches_saved_articles(client, app):
+    """Starring keeps an article past retention; dismissing it is still allowed,
+    but it must not take the rest of the list with it."""
+    from app.db import get_db_direct
+    from app.repo.articles import toggle_saved
+    from app.repo.users import ensure_bootstrap_user
+    with app.app_context():
+        db = get_db_direct()
+        fid = add_feed(db)
+        keep = add_article(db, fid, seq=1, guid="s", title="Starred one")
+        add_article(db, fid, seq=2, guid="p", title="Plain one")
+        toggle_saved(db, ensure_bootstrap_user(db), keep)
+        db.commit()
+        db.close()
+
+    client.post("/dismiss-all?saved=1")
+
+    cards = client.get("/articles").data.decode().split('<div class="article-row ')[1:]
+    by_title = {("Starred one" if "Starred one" in c else "Plain one"): c for c in cards}
+    assert "dismissed" in by_title["Starred one"].split(">")[0]
+    assert "dismissed" not in by_title["Plain one"].split(">")[0]

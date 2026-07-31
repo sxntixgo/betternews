@@ -413,20 +413,20 @@ def test_status_json(client, app):
 
 
 def test_preferences_get_default(client):
-    r = client.get("/preferences")
+    r = client.get("/profile/preferences")
     assert r.status_code == 200
     assert b"Never updated" in r.data or b"profile" in r.data.lower()
 
 
 def test_preferences_save(client, app):
-    r = client.post("/preferences", data={"profile_text": "Loves Rust news."})
+    r = client.post("/profile/preferences", data={"profile_text": "Loves Rust news."})
     assert r.status_code == 200
     assert b"Loves Rust news." in r.data
     assert b"Saved" in r.data
     from app.db import get_db_direct
     with app.app_context():
         db = get_db_direct()
-        row = db.execute(text("SELECT profile_text FROM preferences WHERE id=1")).mappings().first()
+        row = db.execute(text("SELECT profile_text FROM preferences ORDER BY user_id LIMIT 1")).mappings().first()
         assert row["profile_text"] == "Loves Rust news."
         db.close()
 
@@ -434,7 +434,7 @@ def test_preferences_save(client, app):
 @patch("threading.Thread")
 def test_preferences_regenerate_spawns_thread(mock_thread, client):
     inst = mock_thread.return_value
-    r = client.post("/preferences/regenerate")
+    r = client.post("/profile/preferences/regenerate")
     assert r.status_code == 200
     inst.start.assert_called_once()
 
@@ -703,7 +703,7 @@ def test_preferences_regenerate_thread_handles_exception(client, app, caplog):
                 t.start = lambda: target()
                 return t
             mock_thread.side_effect = fake_thread
-            r = client.post("/preferences/regenerate")
+            r = client.post("/profile/preferences/regenerate")
             assert r.status_code == 200
     assert "Manual preference regeneration failed" in caplog.text
 

@@ -30,6 +30,16 @@
     <p class="loading">Loading topics…</p>
   </div>
 
+  <h3>What you like</h3>
+  <p class="muted">
+    Built from your own votes and topic choices, and used to rank what you see.
+    Edit it if it has you wrong — it is prose, not a setting.
+  </p>
+  <div id="preferences-panel"
+       hx-get="/profile/preferences" hx-trigger="load" hx-swap="innerHTML">
+    <p class="loading">Loading…</p>
+  </div>
+
   <h3>API tokens</h3>
   <p class="muted">
     For apps that are not this browser. A token is shown once, acts as your

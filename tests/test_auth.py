@@ -216,11 +216,54 @@ def test_plain_users_may_vote_and_save(login_as, app):
     assert c.post(f"/article/{aid}/save").status_code == 200
 
 
-def test_shared_profile_is_readable_by_all_but_writable_by_admins(login_as, client):
-    c, _ = login_as()
-    assert c.get("/preferences").status_code == 200
-    assert c.post("/preferences", data={"profile_text": "sneaky"}).status_code == 403
-    assert client.post("/preferences", data={"profile_text": "ok"}).status_code == 200
+def test_each_reader_has_their_own_profile(login_as, client, app):
+    """It used to be one shared paragraph, readable by all and writable by
+    admins. That meant one person's likes and dislikes shaped what everybody
+    else was shown, and nobody could tell which taste was theirs."""
+    other, _ = login_as()
+
+    # Writing is no longer an admin power: it is your own profile.
+    assert other.post("/profile/preferences",
+                      data={"profile_text": "I like trains."}).status_code == 200
+    assert client.post("/profile/preferences",
+                       data={"profile_text": "I like boats."}).status_code == 200
+
+    assert b"I like trains." in other.get("/profile/preferences").data
+    assert b"I like boats." in client.get("/profile/preferences").data
+    # The decisive part: neither can see the other's.
+    assert b"boats" not in other.get("/profile/preferences").data
+
+
+def test_a_readers_profile_is_built_from_their_own_votes_only(app):
+    """The regeneration read the whole votes table with no user filter."""
+    from unittest.mock import patch
+    from app.db import get_db_direct
+    from app.pipeline import regenerate_preferences
+    from app.repo.articles import record_vote
+    from app.repo.users import ensure_bootstrap_user
+    from tests.conftest import add_article, add_feed, add_user
+    from sqlalchemy import text
+
+    with app.app_context():
+        db = get_db_direct()
+        owner = ensure_bootstrap_user(db)
+        stranger = add_user(db, "stranger")
+        fid = add_feed(db)
+        mine = add_article(db, fid, seq=1, guid="mine", title="Mine")
+        theirs = add_article(db, fid, seq=2, guid="theirs", title="Theirs")
+        record_vote(db, owner, mine, 1)
+        record_vote(db, stranger, theirs, 1)
+        db.commit()
+        db.close()
+
+    seen = []
+    with patch("app.ollama_client.generate",
+               side_effect=lambda **kw: seen.append(kw["prompt"]) or "a profile"):
+        regenerate_preferences(app, user_id=1 if False else None)
+
+    assert len(seen) == 2, "one profile per voting reader"
+    owners_prompt = next(p for p in seen if "Mine" in p)
+    assert "Theirs" not in owners_prompt, "another reader's votes leaked in"
 
 
 # ── HTMX behaviour ─────────────────────────────────────────────────────────────

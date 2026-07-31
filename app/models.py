@@ -193,12 +193,18 @@ seen_guids = Table(
 )
 
 
+# One per reader. It was a singleton, which meant one person's likes and
+# dislikes shaped what everyone was shown -- and votes have been per-user since
+# accounts arrived, so the profile derived from them had no business being
+# shared.
 preferences = Table(
     "preferences", metadata,
-    Column("id", Integer, primary_key=True, autoincrement=False),
+    # user_id is the key: one profile per reader, so a surrogate id would only
+    # ever be a second way to say the same thing.
+    Column("user_id", Integer, ForeignKey("users.id", ondelete="CASCADE"),
+           primary_key=True),
     Column("profile_text", Text, nullable=False, server_default=""),
     _ts(name="updated_at", nullable=False, server_default=func.now()),
-    CheckConstraint("id = 1", name="singleton"),
 )
 
 

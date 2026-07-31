@@ -24,63 +24,6 @@ def settings():
     return render_template("settings.html")
 
 
-@bp.get("/preferences")
-@auth.login_required
-def preferences_get():
-    db = get_db()
-    row = db.execute(sql(
-        "SELECT profile_text, updated_at FROM preferences WHERE id=1"
-    )).mappings().first()
-    return render_template(
-        "_preferences.html",
-        profile_text=row["profile_text"] if row else "",
-        updated_at=row["updated_at"] if row else None,
-    )
-
-
-@bp.post("/preferences")
-@auth.admin_required
-def preferences_save():
-    text = request.form.get("profile_text", "").strip()
-    db = get_db()
-    db.execute(
-        sql("""INSERT INTO preferences (id, profile_text, updated_at)
-               VALUES (1, :profile, now())
-               ON CONFLICT (id) DO UPDATE
-                 SET profile_text = EXCLUDED.profile_text,
-                     updated_at   = EXCLUDED.updated_at"""),
-        {"profile": text},
-    )
-    db.commit()
-    row = db.execute(sql(
-        "SELECT profile_text, updated_at FROM preferences WHERE id=1"
-    )).mappings().first()
-    return render_template(
-        "_preferences.html",
-        profile_text=row["profile_text"],
-        updated_at=row["updated_at"],
-        saved=True,
-    )
-
-
-@bp.post("/preferences/regenerate")
-@auth.admin_required
-def preferences_regenerate():
-    import threading
-    from app.pipeline import regenerate_preferences
-
-    app = current_app._get_current_object()
-
-    def _run():
-        try:
-            regenerate_preferences(app)
-        except Exception as exc:
-            log.error("Manual preference regeneration failed: %s", exc)
-
-    threading.Thread(target=_run, daemon=True).start()
-    return Response("ok", status=200)
-
-
 def _ollama_form_state(db, **overrides) -> dict:
     """Values for _ollama_setting.html: saved settings, or the env default."""
     host = (get_setting(db, "ollama_host", "") or "").strip()

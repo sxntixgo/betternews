@@ -175,3 +175,29 @@ def test_the_digest_forbids_other_scripts():
     p = prompts.digest_prompt([{"id": 1, "title": "t", "summary": "s"}])
     assert "only the Latin alphabet" in p
     assert "Chinese" in p
+
+
+# ── the profile knows what the reader chose, not just what they clicked ───────
+
+def test_the_profile_prompt_includes_stated_topic_stances():
+    """A stance is stronger evidence than a vote -- it was said outright rather
+    than inferred from one headline -- and it was previously ignored."""
+    p = prompts.profile_prompt(["A: x"], ["B: y"],
+                               boosted=["formula-1", "argentina"],
+                               hidden=["crypto"])
+    assert "CHOSE EXPLICITLY" in p
+    assert "argentina, formula-1" in p, "boosted topics, sorted"
+    assert "crypto" in p
+    assert "outranks anything inferred" in p
+
+
+def test_the_profile_prompt_omits_the_section_when_nothing_was_chosen():
+    p = prompts.profile_prompt(["A: x"], [])
+    assert "CHOSE EXPLICITLY" not in p
+
+
+def test_the_profile_prompt_demands_named_subjects():
+    """"technology and world news" describes nobody and scores everything the
+    same, which is what a vague profile actually costs."""
+    p = prompts.profile_prompt(["A: x"], [])
+    assert "Name the actual subjects" in p

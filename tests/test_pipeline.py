@@ -216,15 +216,41 @@ def test_regenerate_preferences_writes_profile(mock_gen, app):
     regenerate_preferences(app)
     with app.app_context():
         db = get_db_direct()
-        row = db.execute(text("SELECT profile_text FROM preferences WHERE id=1")).mappings().first()
+        row = db.execute(text("SELECT profile_text FROM preferences ORDER BY user_id LIMIT 1")).mappings().first()
         assert "Rust news" in row["profile_text"]
         db.close()
 
 
-def test_regenerate_preferences_no_votes_short_circuits(app, caplog):
+def test_regenerate_preferences_no_votes_costs_nothing(app):
+    """No votes means no reader to build a profile from, and no LLM call.
+
+    The sweep is driven by who has actually voted, so with an empty votes table
+    there is nobody to iterate -- which is why this asserts the call count
+    rather than a log line the old singleton version emitted."""
+    from unittest.mock import patch
+    with patch("app.ollama_client.generate") as gen:
+        assert regenerate_preferences(app) == 0
+    gen.assert_not_called()
+
+
+def test_regenerating_one_reader_without_votes_says_so(app, caplog):
+    """Asking for a specific reader is different: they exist, they just have
+    nothing to go on, and the button they pressed should explain itself."""
     import logging
+    from unittest.mock import patch
+    from app.db import get_db_direct
+    from app.repo.users import ensure_bootstrap_user
+
+    with app.app_context():
+        db = get_db_direct()
+        uid = ensure_bootstrap_user(db)
+        db.commit()
+        db.close()
+
     caplog.set_level(logging.INFO, logger="app.pipeline")
-    regenerate_preferences(app)
+    with patch("app.ollama_client.generate") as gen:
+        assert regenerate_preferences(app, user_id=uid) == 0
+    gen.assert_not_called()
     assert "skipping preference regeneration" in caplog.text
 
 

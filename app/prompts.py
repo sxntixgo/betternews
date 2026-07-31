@@ -263,20 +263,31 @@ INSTRUCTIONS:
 - Output ONLY the briefing. No preamble, no closing remarks, no markdown headers other than the bold theme names."""
 
 
-def profile_prompt(liked: list[str], disliked: list[str]) -> str:
+def profile_prompt(liked: list[str], disliked: list[str],
+                   boosted: list[str] | None = None,
+                   hidden: list[str] | None = None) -> str:
     liked_block = (
         "\n".join(f"- {item}" for item in liked[:100]) or "None yet."
     )
     disliked_block = (
         "\n".join(f"- {item}" for item in disliked[:100]) or "None yet."
     )
+    # Stances are stated outright rather than inferred from a headline, so they
+    # are the strongest evidence available and were previously ignored entirely.
+    stance_block = ""
+    if boosted or hidden:
+        stance_block = "\n\nTOPICS THE READER CHOSE EXPLICITLY:\n"
+        if boosted:
+            stance_block += f"- Wants more of: {', '.join(sorted(boosted))}\n"
+        if hidden:
+            stance_block += f"- Asked to hide: {', '.join(sorted(hidden))}\n"
     return f"""You are building a reader interest profile based on their feedback on news articles.
 
 ARTICLES THE READER LIKED (found valuable):
 {liked_block}
 
 ARTICLES THE READER DISLIKED (did not find valuable):
-{disliked_block}
+{disliked_block}{stance_block}
 
 Write a concise paragraph of 3-5 sentences describing:
 1. What topics, domains, and types of content this reader values
@@ -284,6 +295,12 @@ Write a concise paragraph of 3-5 sentences describing:
 3. Any patterns in writing style or depth they seem to prefer
 
 Be specific — this profile will be used to score future articles.
+Name the actual subjects, competitions, companies and places in the evidence
+above. A profile that says "technology and world news" describes nobody and
+scores everything the same; one that names what the reader actually voted on is
+the whole point.
+A topic the reader chose explicitly outranks anything inferred from a single
+headline — say so plainly, and never contradict a stance they stated.
 Write the profile in the language most of these articles are in; the reader sees
 it and edits it, so it should be in the language they actually read.
 Output ONLY the profile paragraph. No preamble, no headers."""

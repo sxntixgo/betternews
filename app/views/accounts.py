@@ -199,3 +199,82 @@ def profile_token_revoke(token_id: int):
     api_tokens.revoke(db, uid, token_id)
     db.commit()
     return _token_panel(db, uid)
+
+
+# ── the reader's own interest profile ─────────────────────────────────────────
+
+def _profile_panel(db, uid, **kw):
+    """The profile plus the evidence behind it.
+
+    Prose alone reads as vague however specific it is, because there is no way
+    to tell what produced it. Showing the counts and the stances next to it is
+    the difference between "a paragraph appeared" and "this is what my 38 votes
+    and my stated topics add up to".
+    """
+    row = db.execute(sql(
+        "SELECT profile_text, updated_at FROM preferences WHERE user_id = :u"
+    ), {"u": uid}).mappings().first()
+    counts = db.execute(sql(
+        "SELECT count(*) FILTER (WHERE value = 1)  AS liked, "
+        "       count(*) FILTER (WHERE value = -1) AS disliked "
+        "FROM votes WHERE user_id = :u"), {"u": uid}).mappings().first()
+    stances = db.execute(sql(
+        "SELECT topic, stance FROM user_topic_prefs WHERE user_id = :u "
+        "ORDER BY topic"), {"u": uid}).mappings().all()
+    return render_template(
+        "_preferences.html",
+        profile_text=row["profile_text"] if row else "",
+        updated_at=row["updated_at"] if row else None,
+        liked=counts["liked"], disliked=counts["disliked"],
+        boosted=[r["topic"] for r in stances if r["stance"] == "more"],
+        hidden=[r["topic"] for r in stances if r["stance"] == "hide"],
+        **kw,
+    )
+
+
+@bp.get("/profile/preferences")
+@auth.login_required
+def preferences_get():
+    db = get_db()
+    return _profile_panel(db, current_user_id(db))
+
+
+@bp.post("/profile/preferences")
+@auth.login_required
+def preferences_save():
+    """Anyone may edit their own. It used to be admin-only because there was
+    one profile for everybody; now it is nobody else's business."""
+    db = get_db()
+    uid = current_user_id(db)
+    body = request.form.get("profile_text", "").strip()
+    db.execute(sql(
+        """INSERT INTO preferences (user_id, profile_text, updated_at)
+           VALUES (:u, :profile, now())
+           ON CONFLICT (user_id) DO UPDATE
+             SET profile_text = EXCLUDED.profile_text,
+                 updated_at   = EXCLUDED.updated_at"""),
+        {"u": uid, "profile": body},
+    )
+    db.commit()
+    return _profile_panel(db, uid, saved=True)
+
+
+@bp.post("/profile/preferences/regenerate")
+@auth.login_required
+def preferences_regenerate():
+    import threading
+    from app.pipeline import regenerate_preferences
+
+    app = current_app._get_current_object()
+    uid = current_user_id(get_db())
+
+    def _run():
+        try:
+            # Scoped to this reader: regenerating everyone's from one button
+            # would rewrite a profile its owner never asked to change.
+            regenerate_preferences(app, user_id=uid)
+        except Exception as exc:
+            log.error("Manual preference regeneration failed: %s", exc)
+
+    threading.Thread(target=_run, daemon=True).start()
+    return Response("ok", status=200)

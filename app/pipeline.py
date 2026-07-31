@@ -88,8 +88,16 @@ def run_pipeline(app: flask.Flask) -> bool:
                     "INSERT INTO pipeline_runs (started_at) VALUES (now()) "
                     "RETURNING id")).scalar()
                 db.commit()
+                # articles.score is one shared column, so scoring can only be
+                # driven by one profile: the owner's, the lowest user id. Every
+                # reader now has their own profile, and it shapes what they see
+                # through their topic stances at read time -- but a second
+                # reader's profile does not move the shared score. Making it do
+                # so means scoring every article once per reader, which is a
+                # real cost decision and not a detail to slip in here.
                 row = db.execute(text(
-                    "SELECT profile_text FROM preferences WHERE id=1"
+                    "SELECT profile_text FROM preferences "
+                    "ORDER BY user_id LIMIT 1"
                 )).mappings().first()
                 profile_text = row["profile_text"] if row else ""
                 scored = score_new_articles(db, profile_text)
@@ -434,55 +442,81 @@ def summarize_scored_articles(db) -> int:
     return done
 
 
-def regenerate_preferences(app: flask.Flask) -> None:
-    """Rebuild the user preference profile from recent votes. Called by APScheduler."""
+def regenerate_preferences(app: flask.Flask, user_id: int | None = None) -> int:
+    """Rebuild each reader's profile from their own votes.
+
+    Per user, because votes are. Reading every vote in the table and writing one
+    profile meant a second reader's dislikes quietly reshaped the first one's
+    list, and neither could see which taste was theirs.
+
+    Returns how many profiles were written. `user_id` limits it to one, which is
+    what the "Regenerate" button on a profile page uses.
+    """
     with app.app_context():
         db = get_db_direct()
         try:
-            rows = db.execute(text(
-                """SELECT value,
-                          COALESCE(title_snapshot, '')   AS title,
-                          COALESCE(summary_snapshot, '') AS summary
-                   FROM votes
-                   ORDER BY created_at DESC LIMIT 200"""
-            )).mappings().all()
+            if user_id is not None:
+                ids = [user_id]
+            else:
+                ids = [r[0] for r in db.execute(text(
+                    "SELECT DISTINCT user_id FROM votes ORDER BY user_id")).all()]
 
-            liked = [
-                f"{r['title']}: {r['summary'] or ''}"
-                for r in rows if r["value"] == 1
-            ]
-            disliked = [
-                f"{r['title']}: {r['summary'] or ''}"
-                for r in rows if r["value"] == -1
-            ]
-
-            if not liked and not disliked:
-                log.info("No votes yet — skipping preference regeneration")
-                return
-
-            prompt = prompts.profile_prompt(liked, disliked)
-            new_profile = ollama_client.generate(
-                model=llm_config.model_for(db, "profile"), prompt=prompt,
-                expect_json=False,
-                base_url=ollama_base(db),
-            )
-            if new_profile is None:
-                log.error("Preference regeneration failed — LLM returned None")
-                return
-
-            db.execute(
-                text("""INSERT INTO preferences (id, profile_text, updated_at)
-                        VALUES (1, :profile, now())
-                        ON CONFLICT (id) DO UPDATE
-                        SET profile_text = EXCLUDED.profile_text,
-                            updated_at   = EXCLUDED.updated_at"""),
-                {"profile": new_profile.strip()},
-            )
-            db.commit()
-            log.info("Preference profile updated (%d chars)", len(new_profile))
+            written = 0
+            for uid in ids:
+                if _regenerate_one(db, uid):
+                    written += 1
+            return written
         finally:
             db.close()
 
+
+def _regenerate_one(db, user_id: int) -> bool:
+    rows = db.execute(text(
+        """SELECT value,
+                  COALESCE(title_snapshot, '')   AS title,
+                  COALESCE(summary_snapshot, '') AS summary
+           FROM votes
+           WHERE user_id = :uid
+           ORDER BY created_at DESC LIMIT 200"""
+    ), {"uid": user_id}).mappings().all()
+
+    liked = [f"{r['title']}: {r['summary'] or ''}" for r in rows if r["value"] == 1]
+    disliked = [f"{r['title']}: {r['summary'] or ''}" for r in rows if r["value"] == -1]
+
+    if not liked and not disliked:
+        log.info("User %d has no votes yet — skipping preference regeneration", user_id)
+        return False
+
+    # The reader's own topic stances are evidence too, and stronger evidence
+    # than a vote: they were stated deliberately rather than inferred from a
+    # headline. Without them the profile ignored the one place a reader can say
+    # outright what they want.
+    stances = db.execute(text(
+        "SELECT topic, stance FROM user_topic_prefs WHERE user_id = :uid"
+    ), {"uid": user_id}).mappings().all()
+    boosted = [r["topic"] for r in stances if r["stance"] == "more"]
+    hidden = [r["topic"] for r in stances if r["stance"] == "hide"]
+
+    prompt = prompts.profile_prompt(liked, disliked, boosted=boosted, hidden=hidden)
+    new_profile = ollama_client.generate(
+        model=llm_config.model_for(db, "profile"), prompt=prompt,
+        expect_json=False, base_url=ollama_base(db),
+    )
+    if new_profile is None:
+        log.error("Preference regeneration failed for user %d — LLM returned None", user_id)
+        return False
+
+    db.execute(text(
+        """INSERT INTO preferences (user_id, profile_text, updated_at)
+           VALUES (:uid, :profile, now())
+           ON CONFLICT (user_id) DO UPDATE
+           SET profile_text = EXCLUDED.profile_text,
+               updated_at   = EXCLUDED.updated_at"""),
+        {"uid": user_id, "profile": new_profile.strip()},
+    )
+    db.commit()
+    log.info("Preference profile updated for user %d (%d chars)", user_id, len(new_profile))
+    return True
 
 
 # Tweet permalink: `https://twitter.com/<user>/status/<id>` or the `x.com`

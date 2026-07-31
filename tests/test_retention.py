@@ -198,8 +198,9 @@ def test_retention_touches_articles_and_nothing_else(db_conn):
     mark_read(db_conn, uid, aid)
     set_setting(db_conn, "some_key", "some_value")
     db_conn.execute(text(
-        "INSERT INTO preferences (id, profile_text) VALUES (1, 'profile') "
-        "ON CONFLICT (id) DO UPDATE SET profile_text='profile'"))
+        "INSERT INTO preferences (user_id, profile_text) "
+        "SELECT id, 'profile' FROM users ORDER BY id LIMIT 1 "
+        "ON CONFLICT (user_id) DO UPDATE SET profile_text='profile'"))
     # The fixture inserts directly rather than via poll, so seed the tombstone.
     db_conn.execute(text(
         "INSERT INTO seen_guids (feed_id, guid) VALUES (:f, 'seeded')"), {"f": fid})

@@ -35,12 +35,12 @@
   <h2>Ranking</h2>
 
   <h3>Preference profile</h3>
-  <div id="preferences-panel"
-       hx-get="/preferences"
-       hx-trigger="load"
-       hx-swap="innerHTML">
-    <p class="loading">Loading profile…</p>
-  </div>
+  <p class="muted">
+    Each reader has their own now, built from their own votes and topic choices,
+    and it lives on their <a href="/profile">profile page</a>. It used to be one
+    shared paragraph here, which meant one person's likes and dislikes quietly
+    shaped what everybody else was shown.
+  </p>
 
   <h3>Topics</h3>
   <div id="topics-panel" hx-get="/settings/topics" hx-trigger="load" hx-swap="innerHTML">

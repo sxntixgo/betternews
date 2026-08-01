@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { Article, FeedList } from '@shared/api';
-import { api, getToken, setAuthFailureHandler } from './api/client';
+import { api, setAuthFailureHandler } from './api/client';
 import { useArticles } from './api/useArticles';
 import { ArticleCard } from './components/ArticleCard';
 import { Reader } from './components/Reader';
@@ -8,7 +8,12 @@ import { SignIn } from './screens/SignIn';
 import './App.css';
 
 export default function App() {
-  const [signedIn, setSignedIn] = useState(() => getToken() !== null);
+  // The cookie is HttpOnly, so the page cannot tell whether it is signed in by
+  // looking. Ask the server once instead.
+  const [signedIn, setSignedIn] = useState<boolean | null>(null);
+  useEffect(() => {
+    api.me().then(() => setSignedIn(true)).catch(() => setSignedIn(false));
+  }, []);
   const [feeds, setFeeds] = useState<FeedList | null>(null);
   const [feed, setFeed] = useState<number | undefined>();
   const [saved, setSaved] = useState(false);
@@ -26,7 +31,7 @@ export default function App() {
 
   const { articles, loading, error, loadMore, hasMore, patch } = useArticles(
     { feed, saved: saved || undefined, sort, limit: 50 },
-    signedIn,
+    signedIn === true,
   );
 
   useEffect(() => {
@@ -46,6 +51,7 @@ export default function App() {
     [hasMore, loadMore],
   );
 
+  if (signedIn === null) return <p className="loading">Loading…</p>;
   if (!signedIn) return <SignIn onDone={() => setSignedIn(true)} />;
 
   const vote = (a: Article, value: 1 | -1) =>

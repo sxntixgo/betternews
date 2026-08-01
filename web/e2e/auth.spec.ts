@@ -1,29 +1,34 @@
 import { expect, test } from '@playwright/test';
-import { mockApi, signedIn } from './fixtures';
+import { mockApi, signInFlow, signedIn } from './fixtures';
 
 /**
  * The first screen every reader meets, and the one they meet again when a token
  * is revoked. Neither was covered: the layout tests all start signed in.
  */
 test.describe('signing in', () => {
-  test('a bad token is refused at the form, not as an empty list', async ({ page }) => {
+  test('a wrong password is refused at the form, not as an empty list', async ({ page }) => {
     await page.route('**/api/v1/me', (r) =>
-      r.fulfill({ status: 401, json: { error: 'That token is not valid, or has been revoked.', status: 401 } }));
+      r.fulfill({ status: 401, json: { error: 'Not signed in.', status: 401 } }));
+    await page.route('**/api/v1/auth/login', (r) =>
+      r.fulfill({ status: 401, json: { error: 'Wrong username or password.', status: 401 } }));
     await page.goto('/');
 
-    await page.locator('.signin input').fill('bn_wrong');
+    await page.locator('input[name=username]').fill('reader');
+    await page.locator('input[name=password]').fill('wrong');
     await page.locator('.signin button').click();
 
     // The message has to arrive here. Letting a bad token through and showing an
     // empty reading list is indistinguishable from having read everything.
-    await expect(page.locator('.signin .error')).toContainText(/not valid|revoked/i);
+    await expect(page.locator('.signin .error')).toContainText(/wrong username or password/i);
     await expect(page.locator('.article-row')).toHaveCount(0);
   });
 
-  test('a good token starts the app and survives a reload', async ({ page }) => {
+  test('correct credentials start the app and survive a reload', async ({ page }) => {
     await mockApi(page);
+    await signInFlow(page);
     await page.goto('/');
-    await page.locator('.signin input').fill('bn_good');
+    await page.locator('input[name=username]').fill('reader');
+    await page.locator('input[name=password]').fill('right');
     await page.locator('.signin button').click();
     await expect(page.locator('.article-row').first()).toBeVisible();
 
@@ -33,20 +38,29 @@ test.describe('signing in', () => {
     await expect(page.locator('.signin')).toHaveCount(0);
   });
 
-  test('the token is never shown once accepted', async ({ page }) => {
+  test('no credential is left anywhere JavaScript can read', async ({ page }) => {
+    // The whole point of the change: an HttpOnly cookie cannot be read by
+    // injected script, and nothing else is stored. theme is the one sanctioned
+    // localStorage key.
     await mockApi(page);
+    await signInFlow(page);
     await page.goto('/');
-    await page.locator('.signin input').fill('bn_secret-value');
+    await page.locator('input[name=username]').fill('reader');
+    await page.locator('input[name=password]').fill('hunter2');
     await page.locator('.signin button').click();
     await expect(page.locator('.article-row').first()).toBeVisible();
-    expect(await page.content()).not.toContain('bn_secret-value');
+
+    const keys = await page.evaluate(() => Object.keys(localStorage));
+    expect(keys.filter((k) => k !== 'theme')).toEqual([]);
+    expect(await page.content()).not.toContain('hunter2');
   });
 
-  test('the field is a password field', async ({ page }) => {
+  test('the password field is a password field', async ({ page }) => {
+    await page.route('**/api/v1/me', (r) => r.fulfill({ status: 401, json: { error: 'no', status: 401 } }));
     await page.goto('/');
     // Shoulder-surfing aside, this keeps it out of autofill and out of
     // screenshots taken while debugging.
-    await expect(page.locator('.signin input')).toHaveAttribute('type', 'password');
+    await expect(page.locator('input[name=password]')).toHaveAttribute('type', 'password');
   });
 });
 
@@ -68,8 +82,9 @@ test.describe('losing the session', () => {
     await page.locator('.btn-like').first().click();
 
     await expect(page.locator('.signin')).toBeVisible();
-    // Keeping a dead token means the next reload silently fails again.
-    expect(await page.evaluate(() => localStorage.getItem('bn.token'))).toBeNull();
+    // Nothing to clear: the credential was never in the page's reach.
+    const keys = await page.evaluate(() => Object.keys(localStorage));
+    expect(keys.filter((k) => k !== 'theme')).toEqual([]);
   });
 
   test('a server error is shown, and does not sign the reader out', async ({ page }) => {

@@ -93,6 +93,15 @@ export interface Topic {
   dislikes: number;
 }
 
+/** What a successful password login returns. Deliberately not a credential. */
+export interface LoginResult {
+  id: number;
+  username: string;
+  role: 'admin' | 'user';
+  /** An admin reset this password; the reader should be asked to change it. */
+  must_change_password: boolean;
+}
+
 export interface Me {
   id: number;
   username: string;
@@ -140,13 +149,19 @@ export class ApiError extends Error {
 export interface ClientOptions {
   baseUrl: string;
   /**
+   * Bearer token, for clients that cannot hold a cookie -- the native app.
+   *
+   * Optional: a browser signs in with `login()` and is authenticated by an
+   * HttpOnly session cookie it never sees. Omit this there, and nothing
+   * credential-shaped is ever in reach of JavaScript.
+   */
+  getToken?: () => string | null | Promise<string | null>;
+  /**
    * Abandon a request after this long. `fetch` has no timeout of its own, so
    * without one a server that is up but wedged hangs the client forever -- on a
    * phone that means force-quit. 0 disables it.
    */
   timeoutMs?: number;
-  /** Read lazily so a client survives the token changing under it. */
-  getToken: () => string | null | Promise<string | null>;
   /** Called on 401 so the app can clear the stored token and show sign-in. */
   onAuthFailure?: () => void;
   fetchImpl?: typeof fetch;
@@ -160,7 +175,7 @@ export class BetterNewsClient {
   }
 
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
-    const token = await this.opts.getToken();
+    const token = this.opts.getToken ? await this.opts.getToken() : null;
     const doFetch = this.opts.fetchImpl ?? fetch;
 
     // Callers pass their own signal to cancel on unmount; the timeout gets its
@@ -203,6 +218,21 @@ export class BetterNewsClient {
 
   me() {
     return this.request<Me>('/me');
+  }
+
+  /**
+   * Sign in with a password. The server replies with a session cookie; there is
+   * no token here and nothing for the caller to store.
+   */
+  login(username: string, password: string) {
+    return this.request<LoginResult>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    });
+  }
+
+  logout() {
+    return this.request<{ ok: boolean }>('/auth/logout', { method: 'POST' });
   }
 
   articles(q: ListQuery = {}, init?: RequestInit) {

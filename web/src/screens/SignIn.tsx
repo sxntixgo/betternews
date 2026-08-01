@@ -1,15 +1,16 @@
 import { useState } from 'react';
-import { api, setToken } from '../api/client';
+import { api } from '../api/client';
 
 /**
- * Sign-in for the SPA is pasting a token, not a password.
+ * Username and password.
  *
- * The API only accepts bearer tokens -- deliberately, so that a cookie riding
- * along on a cross-site request can never authenticate it. Tokens are created
- * in the server UI under Profile -> API tokens.
+ * It used to ask for an API token, which is a developer's sign-in: you had to
+ * visit the server UI, mint one, and paste it. The server sets a session cookie
+ * now and this screen never handles a credential.
  */
 export function SignIn({ onDone }: { onDone: () => void }) {
-  const [value, setValue] = useState('');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -17,9 +18,14 @@ export function SignIn({ onDone }: { onDone: () => void }) {
     e.preventDefault();
     setBusy(true);
     setError(null);
-    setToken(value.trim());
     try {
-      await api.me();          // prove it works before letting the app start
+      const me = await api.login(username.trim(), password);
+      if (me.must_change_password) {
+        // An admin reset this password. The server UI blocks everything until
+        // it changes; here there is nowhere to send them yet, so say so rather
+        // than let them wonder why the server keeps asking.
+        setError('Your password was reset — change it in the server UI.');
+      }
       onDone();
     } catch (err) {
       setError((err as Error).message);
@@ -31,21 +37,27 @@ export function SignIn({ onDone }: { onDone: () => void }) {
   return (
     <form className="signin" onSubmit={submit}>
       <h1>Better News</h1>
-      <p className="muted">
-        Paste an API token. Create one in the server under{' '}
-        <strong>Profile → API tokens</strong>.
-      </p>
       <input
-        type="password"
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        placeholder="bn_…"
+        name="username"
+        value={username}
+        onChange={(e) => setUsername(e.target.value)}
+        placeholder="Username"
+        autoComplete="username"
         autoFocus
         required
       />
+      <input
+        name="password"
+        type="password"
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        placeholder="Password"
+        autoComplete="current-password"
+        required
+      />
       {error && <p className="error">{error}</p>}
-      <button type="submit" disabled={busy || !value.trim()}>
-        {busy ? 'Checking…' : 'Continue'}
+      <button type="submit" disabled={busy || !username.trim() || !password}>
+        {busy ? 'Signing in…' : 'Sign in'}
       </button>
     </form>
   );

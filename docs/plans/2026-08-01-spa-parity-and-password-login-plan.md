@@ -33,61 +33,122 @@ expensive migration.
 
 ---
 
+## Design philosophy, borrowed from `job-application-tracker`
+
+That project's conventions are deliberate and written down; three of them change
+this plan rather than decorate it.
+
+**No auth token in `localStorage`.** Its rule is explicit — *"No auth
+tokens/secrets in localStorage. Sanctioned exception: the `theme` UI
+preference."* Auth is an `HttpOnly`, `SameSite=Strict`, `Secure` cookie set by
+the server, and its client says so at the top of `api.ts`: *"there is no token
+to manage here."*
+
+This **reverses Phase 1 below**, and it dissolves the objection I had raised.
+I argued the API should stay bearer-only so a cookie could never authenticate a
+cross-site request. `SameSite=Strict` is a better answer to the same problem:
+the browser does not send the cookie cross-site at all, so there is nothing to
+confuse the deputy with. The tracker gets CSRF safety without a CSRF token.
+
+**Zero UI dependencies.** `react` and `react-dom`, nothing else — no component
+library, no CSS framework. 123 CSS custom properties carry the design instead,
+with semantic names (`--color-ink`, `--color-hairline`, `--stage-*`) and themes
+switched by `data-theme` on `<html>`. Betternews is already here: the SPA has
+the same two dependencies, and `static/style.css` already themes through
+`--bg`, `--fg`, `--muted`, `--accent`, `--border`. **This also settles the
+insights charts in Phase 8 — hand-rolled SVG, not a charting dependency.**
+
+**Keyboard-first, and taught rather than hidden.** A command palette, a
+shortcuts overlay on `?`, a global-shortcuts hook, and an `isEditableTarget`
+guard so typing in a field never fires a shortcut. Betternews has `j`/`k`/`l`/
+`o`/`r` and no way to discover them. **Phase 4 gains a palette and an overlay.**
+
+Two more worth keeping: *"keep modules small and auditable"* — a stated goal,
+not an aspiration — and theme as **System / Light / Dark**, where system follows
+the OS. Betternews offers only a light/dark toggle today.
+
+---
+
 ## Phase 1 — Password login  ·  **Opus** (auth) → **Sonnet** (screen)
 
 The smallest slice that delivers real behavior, and independent of everything
 else. Ships alone.
 
-### 1.1 `POST /api/v1/auth/login`  ·  **Opus**
+**Revised after reading the tracker.** The original version of this phase minted
+a bearer token and put it in `localStorage`. It does not any more: the browser
+gets an `HttpOnly` session cookie and never handles a credential at all. The
+native app keeps bearer tokens, because a phone cannot use a cookie sensibly —
+so the API ends up accepting **two** mechanisms, which is right, and is only one
+in the tracker because it has no native client.
 
-**What.** Username and password in, `{token, user}` out. Mints an `api_tokens`
-row named after the client (`"web app"`), so it appears on the profile page
-beside any others and can be revoked per device.
+### 1.1 The API accepts a session cookie as well as a bearer token  ·  **Opus**
 
-**Where.** New `app/api/auth.py`, registered like the other API modules.
+**What.** `@api_auth` currently reads `Authorization: Bearer` and *deliberately
+never falls back to the session*. It now accepts either: bearer first, then the
+Flask session.
+
+**Where.** `app/api/__init__.py`, and `app/auth.py` for the cookie flags.
+
+**The reason bearer-only existed is now handled better.** The worry was that a
+browser sends cookies on cross-site requests, so a cookie-authenticated API is a
+confused deputy. `SameSite=Strict` means the cookie is not sent cross-site at
+all. Betternews is on `Lax` today, which already blocks cross-site POSTs;
+**move it to `Strict`**, which costs nothing here — the SPA is same-origin, and
+a cross-site *navigation* into a static page still works, it just arrives
+logged-out until the page's own same-site fetches run.
+
+**Verify.** Extend `tests/test_api.py`: the `anon` fixture (no cookie, no token)
+still gets 401 from every endpoint; a session-authenticated client now gets 200
+where it previously got 401 — **this is the assertion that inverts**, so update
+`test_a_browser_session_does_not_authenticate_the_api` rather than delete it,
+and say in its name what the new rule is. A bearer token still works with no
+cookie present. `SESSION_COOKIE_SAMESITE` is asserted to be `Strict`.
+
+### 1.2 `POST /api/v1/auth/login`  ·  **Opus**
+
+**What.** Username and password in; sets the session cookie; returns the user,
+**never a token**.
+
+**Where.** New `app/api/auth.py`.
 
 **Reuse, do not reimplement.** `auth.is_locked_out`, `auth.record_failure`,
-`auth.clear_failures`, `auth.verify_password` already exist and already back the
-HTML login. A second password path that forgets the lockout is how brute-force
-protection quietly stops applying.
+`auth.clear_failures`, `auth.verify_password`, `auth.login_user` already back
+the HTML login. A second password path that forgets the lockout is how
+brute-force protection quietly stops applying.
 
 - 401 on bad credentials, **429 when locked out** (15 minutes, `LOCKOUT_MINUTES`)
-- Never say whether the username exists — the HTML form already gets this right
-- `POST /api/v1/auth/logout` revokes the calling token, so signing out on a
-  device actually invalidates it rather than only forgetting it locally
+- Never reveal whether the username exists — the HTML form already gets this right
+- `POST /api/v1/auth/logout` clears the session
 
-**Verify.** `tests/test_api.py`: correct credentials return a usable token that
-authenticates a subsequent `/me`; wrong password 401s; six failures return 429;
-a logged-out token stops working. Extend the anonymous-endpoint parametrisation
-so login itself is reachable without a token — it must be the one exception.
-
-### 1.2 Reuse-or-mint  ·  **Opus**
-
-**What.** Decide whether login mints a new token every time or reuses one.
-
-**Recommendation: mint one per login, named `web app`, and revoke the previous
-`web app` token for that user.** Otherwise a reader who signs in weekly
-accumulates a token list they will never prune, and revoking "the browser"
-becomes guesswork.
-
-**Verify.** Logging in twice leaves exactly one live `web app` token, and the
-first token no longer authenticates.
+**Verify.** Correct credentials set a cookie and a later `/me` succeeds with no
+`Authorization` header; wrong password 401s; repeated failures 429; logout makes
+the next call 401. Login and register are the only endpoints reachable
+anonymously — extend the anonymous parametrisation to prove the rest still are
+not.
 
 ### 1.3 SPA sign-in screen  ·  **Sonnet**
 
-**What.** Replace the paste-a-token field with username and password. On
-success store the returned token exactly as now.
+**What.** Username and password. Delete the token field, `getToken`, `setToken`
+and `clearToken` — with a cookie there is nothing for the client to hold.
 
 **Where.** `web/src/screens/SignIn.tsx`, `web/src/api/client.ts`,
-`shared/api.ts` (add `login`/`logout` to the client).
+`shared/api.ts`.
 
-**Verify.** `web/e2e/auth.spec.ts` — wrong password shows the error at the form;
-correct credentials reach the list; the password field is `type="password"`;
-the token never appears in the DOM. Then `live.spec.ts` against the real stack
-with real credentials.
+**`shared/api.ts` needs care — the native app imports it.** Add
+`credentials: 'include'` and make `getToken` optional rather than required, so
+the browser client passes no token and the native client still passes one. Both
+must keep type-checking; `cd mobile && npx tsc --noEmit` is part of this task,
+not an afterthought.
+
+**Verify.** `web/e2e/auth.spec.ts`, rewritten: wrong password shows the error at
+the form; correct credentials reach the list; the password field is
+`type="password"`; **`localStorage` is empty afterwards except `theme`** — the
+tracker's rule, asserted rather than assumed. Then `live.spec.ts` with real
+credentials against the real stack.
 
 ### ⛔ Gate 1
-Ship it. A reader can sign in properly, and everything below is additive.
+Ship it. A reader signs in properly, nothing sensitive is in `localStorage`, and
+everything below is additive.
 
 ---
 
@@ -144,8 +205,16 @@ not scaffolding. Each needs a port-or-drop decision, made explicitly:
 | swipe gestures | swipe-right like, swipe-left dismiss, pull-to-refresh |
 | favicon badge | canvas-drawn unread count, `setAppBadge` for the PWA |
 | notifications | high-score alerts, permission asked on first real click |
-| theme | light/dark, persisted, redraws the favicon |
+| theme | **System / Light / Dark**, persisted, redraws the favicon |
 | reader embeds | lazy Twitter/Instagram hydration |
+| **command palette** | new — the tracker's, and the reason its shortcuts get used |
+| **shortcuts overlay** | new — `?` lists them; betternews has five nobody can discover |
+
+The last two are not parity items; they are the tracker's answer to the problem
+that `j`/`k`/`l`/`o`/`r` exist today and nothing announces them. Port
+`isEditableTarget` with them, or typing a search query starts firing shortcuts.
+Theme gains **System**, which betternews lacks — a light/dark toggle cannot
+follow the OS.
 
 **Verify.** Playwright can drive keyboard and (via `page.touchscreen`) swipe.
 The favicon is assertable the way the theme fix was — its `href` becomes a
@@ -235,7 +304,9 @@ score histogram, agreement, threshold suggestion, per-feed, per-topic, recent
 runs, pipeline health — currently rendered as server-side HTML. In the SPA they
 need charts. Decide before starting: a small hand-rolled SVG bar chart is
 probably enough and adds no dependency; a charting library is 100 KB+ for six
-charts. **Recommendation: hand-rolled.**
+charts. **Recommendation: hand-rolled** — and the tracker settles it rather than leaving
+it to taste: `react` and `react-dom` are its only dependencies, and 123 CSS
+custom properties carry a design far more elaborate than six charts.
 
 **Verify.** A plain user gets 403 from every admin endpoint. The insights
 numbers match the HTML page for the same database.
@@ -265,12 +336,18 @@ against `/`. Coverage stays at 100% after the deletions.
 
 ## Risks and assumptions
 
-**The token lives in `localStorage`, which XSS can read.** A session cookie
-marked `HttpOnly` cannot be. The API is bearer-only by design — that is what
-keeps a cookie from authenticating a cross-site request — so switching would
-mean two auth models. For a self-hosted reader on a LAN, behind a private CA,
-with one account, the bearer token is the right trade. **It is a trade, not a
-non-issue**, and worth revisiting if this is ever exposed to the internet.
+**~~The token lives in `localStorage`~~ — resolved.** The original plan accepted
+a bearer token in `localStorage` and called it a reasonable trade for a LAN-only
+reader. The tracker's rule is better and costs nothing: an `HttpOnly` cookie
+cannot be read by injected script at all, and `SameSite=Strict` closes the
+cross-site hole that made me choose bearer in the first place. The remaining
+`localStorage` key is `theme`, which is the tracker's own sanctioned exception.
+
+**The API now has two auth mechanisms.** Cookie for the browser, bearer for the
+phone. That is a real cost — two paths to keep correct, and a test matrix that
+has to cover both — but a native client cannot use cookies, so the alternative
+is not one mechanism, it is a worse one. Every endpoint test should run under
+both.
 
 **Two frontends until Phase 9.** Every settings change must work in both, and
 they share the `settings` table, so a bug in one is visible in the other. This

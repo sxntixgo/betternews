@@ -15,6 +15,8 @@ import { expect, test } from '@playwright/test';
  * quietly passes with nothing running is worse than no live suite.
  */
 const TOKEN = process.env.BN_E2E_TOKEN;
+const USER = process.env.BN_E2E_USER;
+const PASS = process.env.BN_E2E_PASS;
 
 test.describe('live stack', () => {
   test.skip(!TOKEN, 'set BN_E2E_TOKEN — see scripts/e2e-token.sh');
@@ -38,9 +40,11 @@ test.describe('live stack', () => {
     expect((await res.json()).username).toBeTruthy();
   });
 
-  test('signing in reaches real articles', async ({ page }) => {
+  test('signing in with a password reaches real articles', async ({ page }) => {
+    test.skip(!USER || !PASS, 'set BN_E2E_USER and BN_E2E_PASS');
     await page.goto('/');
-    await page.locator('.signin input').fill(TOKEN!);
+    await page.locator('input[name=username]').fill(USER!);
+    await page.locator('input[name=password]').fill(PASS!);
     await page.locator('.signin button').click();
     await expect(page.locator('.article-row').first()).toBeVisible({ timeout: 30_000 });
 
@@ -50,9 +54,8 @@ test.describe('live stack', () => {
   });
 
   test('a vote survives a reload', async ({ page }) => {
-    await page.addInitScript((t) => localStorage.setItem('bn.token', t), TOKEN!);
-    await page.goto('/');
-    await page.waitForSelector('.article-row', { timeout: 30_000 });
+    test.skip(!USER || !PASS, 'set BN_E2E_USER and BN_E2E_PASS');
+    await signIn(page);
 
     // Pin the row by id before clicking. Filtering on
     // `.btn-like:not([disabled])` is fine for *finding* one, but voting
@@ -98,9 +101,8 @@ test.describe('live stack', () => {
   });
 
   test('the reader gets a real body, with padding folded not dropped', async ({ page }) => {
-    await page.addInitScript((t) => localStorage.setItem('bn.token', t), TOKEN!);
-    await page.goto('/');
-    await page.waitForSelector('.article-row', { timeout: 30_000 });
+    test.skip(!USER || !PASS, 'set BN_E2E_USER and BN_E2E_PASS');
+    await signIn(page);
     await page.locator('.article-title').first().click();
 
     const modal = page.locator('.modal-body');
@@ -108,3 +110,12 @@ test.describe('live stack', () => {
     await expect(modal.locator('p').first()).not.toBeEmpty();
   });
 });
+
+/** Sign in for real, since there is no token to seed into the page any more. */
+async function signIn(page: import('@playwright/test').Page) {
+  await page.goto('/');
+  await page.locator('input[name=username]').fill(USER!);
+  await page.locator('input[name=password]').fill(PASS!);
+  await page.locator('.signin button').click();
+  await page.waitForSelector('.article-row', { timeout: 30_000 });
+}

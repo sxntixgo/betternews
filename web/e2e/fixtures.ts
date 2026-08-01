@@ -72,7 +72,37 @@ export async function mockApi(page: Page) {
     r.fulfill({ json: article(1, { state: { read: false, saved: false, dismissed: false, opinion: 'liked' } }) }));
 }
 
-/** Skip the sign-in screen by pre-seeding the token the app looks for. */
+/**
+ * Skip the sign-in screen.
+ *
+ * There is no token to seed any more -- auth is an HttpOnly cookie the page
+ * cannot see, and the app decides by asking /me. Answering that is what makes
+ * it think it is signed in.
+ */
 export async function signedIn(page: Page) {
-  await page.addInitScript(() => localStorage.setItem('bn.token', 'bn_test-token'));
+  await page.route('**/api/v1/me', (r) => r.fulfill({ json: ME }));
+}
+
+
+/**
+ * Start signed out, and let a successful login flip it.
+ *
+ * The app asks `/me` whether it is signed in, because an HttpOnly cookie is
+ * invisible to the page. A test that wants to exercise the form has to answer
+ * 401 first and 200 afterwards -- the flag here stands in for the cookie the
+ * server would have set.
+ */
+export async function signInFlow(page: Page, opts: { mustChangePassword?: boolean } = {}) {
+  let ok = false;
+  await page.route('**/api/v1/me', (r) =>
+    ok ? r.fulfill({ json: ME }) : r.fulfill({ status: 401, json: { error: 'Not signed in.', status: 401 } }));
+  await page.route('**/api/v1/auth/login', (r) => {
+    ok = true;
+    return r.fulfill({
+      json: {
+        id: 1, username: 'reader', role: 'admin',
+        must_change_password: opts.mustChangePassword ?? false,
+      },
+    });
+  });
 }

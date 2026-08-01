@@ -175,8 +175,17 @@ def admin_required(fn):
 # ── request hooks ──────────────────────────────────────────────────────────────
 
 def install(app) -> None:
-    app.config.setdefault("SESSION_COOKIE_HTTPONLY", True)
-    app.config.setdefault("SESSION_COOKIE_SAMESITE", "Lax")
+    # Assigned, not setdefault. Flask's default config already *contains* these
+    # keys, so setdefault never fired and the SameSite value it appeared to set
+    # was silently dropped -- the cookie went out with no SameSite attribute at
+    # all. HttpOnly only looked correct because Flask's own default is True.
+    app.config["SESSION_COOKIE_HTTPONLY"] = True
+    # Strict, not Lax. This is what lets the JSON API accept a session cookie
+    # at all: a cross-site request does not carry the cookie, so there is no
+    # confused deputy to protect against and no CSRF token to manage. Lax would
+    # already block cross-site POSTs, but the API is read-heavy and a GET that
+    # returns a reader's articles is worth the same protection.
+    app.config["SESSION_COOKIE_SAMESITE"] = "Strict"
     # Long-lived so the phone stays signed in between reading sessions.
     app.config.setdefault("PERMANENT_SESSION_LIFETIME", timedelta(days=90))
     app.before_request(_require_session)

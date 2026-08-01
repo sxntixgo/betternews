@@ -69,12 +69,17 @@ def test_a_token_works_without_any_session(anon, token):
 
 
 @pytest.mark.parametrize("method,path", EVERY_ENDPOINT)
-def test_a_browser_session_does_not_authenticate_the_api(client, app, method, path):
-    """`client` is signed in via the session fixture. That must not be enough:
-    cookies ride along on cross-site requests, which is the whole reason the
-    HTML side has CSRF protection the API does not inherit."""
+def test_a_browser_session_now_authenticates_the_api(client, app, method, path):
+    """This assertion is the inverse of what it used to be, deliberately.
+
+    The API was bearer-only so that a cookie could never authenticate a
+    cross-site request. SameSite=Strict answers that better -- the browser does
+    not send the cookie cross-site at all -- and it lets the SPA sign in with a
+    password and hold no credential in JavaScript. `client` is session-signed-in,
+    so every endpoint must now accept it.
+    """
     r = getattr(client, method)(path)
-    assert r.status_code == 401
+    assert r.status_code != 401, f"{method} {path} rejected a valid session"
 
 
 def test_a_revoked_token_stops_working(client, app, token):
@@ -361,3 +366,97 @@ def test_marking_read_explicitly(client, app, token):
         db.close()
     r = client.post(f"{API}/articles/{aid}/read", headers=auth(token))
     assert r.get_json()["state"]["read"] is True
+
+
+# ── signing in with a password ────────────────────────────────────────────────
+
+LOGIN = f"{API}/auth/login"
+
+CREDS = {"username": "reader", "password": "correct horse battery staple"}
+
+
+@pytest.fixture
+def registered(app):
+    """A user with a real password hash.
+
+    conftest's add_user stores password_hash="x" and its client fakes the
+    session, so neither can exercise a password check.
+    """
+    from app import auth as auth_mod
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        uid = auth_mod.register_user(db, CREDS["username"], CREDS["password"])
+        db.commit()
+        db.close()
+    return uid
+
+
+def test_login_sets_a_cookie_and_returns_no_credential(anon, registered, app):
+    """The point of the whole phase: the browser never handles a token."""
+    r = anon.post(LOGIN, json=CREDS)
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["username"] == CREDS["username"]
+    # Nothing token-shaped anywhere in the response.
+    assert "token" not in str(body).lower()
+    # And the session now works with no Authorization header at all.
+    assert anon.get(f"{API}/me").status_code == 200
+
+
+def test_the_session_cookie_is_httponly_and_strict(anon, registered, app):
+    r = anon.post(LOGIN, json=CREDS)
+    cookie = r.headers.get("Set-Cookie", "")
+    assert "HttpOnly" in cookie, "injected script must not be able to read it"
+    assert "SameSite=Strict" in cookie, "this is what replaces bearer-only for CSRF"
+
+
+def test_a_wrong_password_is_refused_without_saying_why(anon, registered):
+    r = anon.post(LOGIN, json={**CREDS, "password": "wrong"})
+    assert r.status_code == 401
+    # Must not distinguish a bad password from a missing account, or the form
+    # becomes a way to enumerate usernames.
+    other = anon.post(LOGIN, json={"username": "nobody", "password": "wrong"})
+    assert other.status_code == 401
+    assert r.get_json()["error"] == other.get_json()["error"]
+
+
+def test_repeated_failures_lock_the_account_out(anon, registered, app):
+    """The HTML login already does this. A second password path that forgets it
+    is how brute-force protection quietly stops applying."""
+    codes = [anon.post(LOGIN, json={**CREDS, "password": "no"}).status_code
+             for _ in range(8)]
+    assert 429 in codes, f"never locked out: {codes}"
+
+
+def test_logging_out_ends_the_session(anon, registered, app):
+    anon.post(LOGIN, json=CREDS)
+    assert anon.get(f"{API}/me").status_code == 200
+    assert anon.post(f"{API}/auth/logout").status_code == 200
+    assert anon.get(f"{API}/me").status_code == 401
+
+
+def test_login_is_the_only_endpoint_reachable_anonymously(anon):
+    assert anon.post(LOGIN, json={}).status_code in (400, 401)
+    for method, path in EVERY_ENDPOINT:
+        assert getattr(anon, method)(path).status_code == 401, path
+
+
+def test_a_bearer_token_still_works_with_no_cookie(anon, token):
+    """The phone cannot use a cookie, so this path must not regress."""
+    assert anon.get(f"{API}/me", headers=auth(token)).status_code == 200
+
+
+def test_login_reports_a_forced_password_change(anon, registered, app):
+    """After an admin reset the HTML UI blocks everything until the password is
+    changed; the API cannot show that form, so it reports the flag instead and
+    the client decides. Phase 5 adds the endpoint to act on it."""
+    from app.db import get_db_direct
+    from sqlalchemy import text
+    with app.app_context():
+        db = get_db_direct()
+        db.execute(text("UPDATE users SET must_change_password = true"))
+        db.commit()
+        db.close()
+    body = anon.post(LOGIN, json=CREDS).get_json()
+    assert body["must_change_password"] is True

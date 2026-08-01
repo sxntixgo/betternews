@@ -20,6 +20,12 @@ from functools import wraps
 from flask import Blueprint, g, jsonify, request
 
 from app import api_tokens
+# Imported under a different name on purpose. Binding `auth` here would put
+# `app.auth` in this *package's* namespace, so `from app.api import auth` at the
+# bottom would resolve to it instead of app/api/auth.py -- the submodule would
+# never be imported and its routes would never register. The symptom is a 404
+# from an endpoint whose file plainly exists.
+from app import auth as session_auth
 from app.db import get_db
 
 log = logging.getLogger(__name__)
@@ -37,23 +43,43 @@ def error(message: str, status: int):
 
 
 def api_auth(fn):
-    """Require a bearer token. Never falls back to the session.
+    """Require a bearer token, or a browser session.
 
-    A cookie that happens to ride along on an API request must not authenticate
-    it: the browser sends cookies on cross-site requests, which is exactly the
-    confused-deputy problem CSRF tokens exist for on the HTML side.
+    Two mechanisms because there are two kinds of client. A phone cannot hold a
+    cookie usefully, so it sends a bearer token. A browser should not hold a
+    token at all -- anything JavaScript can read, injected JavaScript can steal
+    -- so it sends an HttpOnly session cookie it never sees.
+
+    This used to refuse the cookie, on the grounds that browsers attach cookies
+    to cross-site requests and a cookie-authenticated API is a confused deputy.
+    SameSite=Strict answers that better: the cookie is not sent cross-site at
+    all. See auth.install().
+
+    Bearer is checked first, so an explicit credential always wins over an
+    ambient one -- a client that sends a token means to use *that* identity.
     """
     @wraps(fn)
     def wrapper(*args, **kwargs):
         header = request.headers.get("Authorization", "")
         scheme, _, token = header.partition(" ")
-        if scheme.lower() != "bearer" or not token:
-            return error("Send an Authorization: Bearer <token> header.", 401)
         db = get_db()
-        user_id = api_tokens.resolve(db, token.strip())
-        if user_id is None:
-            return error("That token is not valid, or has been revoked.", 401)
-        db.commit()            # persist last_used_at even on a read-only call
+
+        if header:
+            # A present-but-malformed Authorization header is an error, not a
+            # cue to fall back to the cookie. A client that tried to
+            # authenticate with a token and got it wrong should be told so,
+            # rather than silently acting as whoever the session says.
+            if scheme.lower() != "bearer" or not token:
+                return error("Send an Authorization: Bearer <token> header.", 401)
+            user_id = api_tokens.resolve(db, token.strip())
+            if user_id is None:
+                return error("That token is not valid, or has been revoked.", 401)
+            db.commit()        # persist last_used_at even on a read-only call
+        else:
+            user_id = session_auth.current_user_id()
+            if user_id is None:
+                return error("Sign in, or send an Authorization: Bearer header.", 401)
+
         g.api_user_id = user_id
         return fn(*args, **kwargs)
     return wrapper
@@ -95,4 +121,4 @@ def _unhandled(exc):
 
 # Registers the routes on `bp`. Must come last; see app/views/__init__.py for
 # the same pattern and the same reason.
-from app.api import articles, meta  # noqa: E402,F401
+from app.api import articles, auth as auth_routes, meta  # noqa: E402,F401

@@ -1,0 +1,22 @@
+# Serves the built SPA. TLS and routing are the stack's Caddy in front; this one
+# only hands out files.
+:8080 {
+	root * /srv
+	encode gzip
+
+	# The app is one page with no client-side router, so this is only needed for
+	# a refresh on a path the browser invented -- it costs nothing and prevents a
+	# 404 that looks like the app is broken.
+	try_files {path} /index.html
+	file_server
+
+	# Hashed filenames, so they can be cached hard. index.html must not be, or a
+	# deploy leaves browsers on the old bundle indefinitely.
+	@assets path /assets/*
+	header @assets Cache-Control "public, max-age=31536000, immutable"
+	# Both spellings: the browser asks for "/", not "/index.html", so matching
+	# only the filename left the entry point cacheable and a deploy would leave
+	# people on the previous bundle until they cleared it themselves.
+	@html path / /index.html
+	header @html Cache-Control "no-cache"
+}

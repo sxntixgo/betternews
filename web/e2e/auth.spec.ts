@@ -58,7 +58,12 @@ test.describe('losing the session', () => {
     await expect(page.locator('.article-row').first()).toBeVisible();
 
     // The token is revoked on the server while the app is open.
-    await page.route('**/api/v1/**', (r) =>
+    //
+    // Only the vote endpoint. Intercepting **/api/v1/** also catches the
+    // background feeds poll, and on a slower machine that 401s first, swaps in
+    // the sign-in screen, and the button this test wants to click no longer
+    // exists -- which is exactly how this passed locally and failed in CI.
+    await page.route('**/api/v1/articles/*/vote', (r) =>
       r.fulfill({ status: 401, json: { error: 'revoked', status: 401 } }));
     await page.locator('.btn-like').first().click();
 

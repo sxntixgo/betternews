@@ -91,6 +91,10 @@ test.describe('losing the session', () => {
     await signedIn(page);
     await page.route('**/api/v1/me', (r) => r.fulfill({ json: { id: 1, username: 'r', role: 'user', declickbait: false, content_filter_mode: 'off' } }));
     await page.route('**/api/v1/feeds', (r) => r.fulfill({ status: 500, json: { error: 'Internal error.', status: 500 } }));
+    // Every call the shell makes has to be answered, or an unmocked one reaches
+    // the real server, 401s, and signs the reader out -- which is correct
+    // behaviour and would make this test look like a regression.
+    await page.route('**/api/v1/digest', (r) => r.fulfill({ status: 500, json: { error: 'Internal error.', status: 500 } }));
     await page.route('**/api/v1/articles?*', (r) =>
       r.fulfill({ status: 500, json: { error: 'Internal error.', status: 500 } }));
     await page.goto('/');

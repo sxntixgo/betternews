@@ -10,7 +10,7 @@ import { api } from './client';
  * There is no client-side de-duplication here on purpose; if one is ever
  * needed, the server has regressed.
  */
-export function useArticles(query: ListQuery, enabled = true) {
+export function useArticles(query: ListQuery, enabled = true, search = '') {
   const [articles, setArticles] = useState<Article[]>([]);
   const [nextOffset, setNextOffset] = useState<number | null>(0);
   const [loading, setLoading] = useState(false);
@@ -18,7 +18,7 @@ export function useArticles(query: ListQuery, enabled = true) {
 
   // Identifies the active query, so a slow response from a previous filter
   // cannot land on top of a newer one.
-  const key = JSON.stringify(query);
+  const key = JSON.stringify({ query, search });
   const active = useRef(key);
 
   const loadPage = useCallback(
@@ -27,6 +27,15 @@ export function useArticles(query: ListQuery, enabled = true) {
       setLoading(true);
       setError(null);
       try {
+        // Search is a different endpoint with no paging: it returns the best
+        // matches and stops. Treating it as page one keeps one code path.
+        if (search) {
+          const found = await api.search(search);
+          if (active.current !== mine) return;
+          setArticles(found.articles);
+          setNextOffset(null);
+          return;
+        }
         const page = await api.articles({ ...query, offset });
         if (active.current !== mine) return;
         setArticles((prev) => (replace ? page.articles : [...prev, ...page.articles]));

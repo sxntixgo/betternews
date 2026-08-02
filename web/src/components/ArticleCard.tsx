@@ -13,11 +13,13 @@ export function ArticleCard({
   onOpen,
   onVote,
   onSave,
+  onTopic,
 }: {
   article: Article;
   onOpen: (a: Article) => void;
   onVote: (a: Article, value: 1 | -1) => void;
   onSave: (a: Article) => void;
+  onTopic?: (topic: string) => void;
 }) {
   const s = article.state;
   const classes = [
@@ -67,9 +69,9 @@ export function ArticleCard({
         {article.topics.length > 0 && (
           <p className="topic-chips">
             {article.topics.map((t) => (
-              <span className="topic-chip" key={t}>
+              <button className="topic-chip" key={t} onClick={() => onTopic?.(t)}>
                 {t}
-              </span>
+              </button>
             ))}
           </p>
         )}

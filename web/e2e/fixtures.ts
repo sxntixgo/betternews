@@ -50,15 +50,47 @@ export const DETAIL: ArticleDetail = {
   ],
 };
 
+export const DIGEST = {
+  body: '**Argentina** — three stories on the peso.\n**Tech** — one on chips.',
+  article_count: 7,
+  cached: false,
+  articles: [{ id: 1, url: 'https://example.com/1' }],
+};
+
 /** 25 articles over two pages, so infinite scroll has something to do. */
 export async function mockApi(page: Page) {
+  await page.route('**/api/v1/digest', (r) => r.fulfill({ json: DIGEST }));
+  await page.route('**/api/v1/digest/dismiss', (r) => r.fulfill({ json: { ok: true } }));
+  await page.route('**/api/v1/status', (r) => r.fulfill({
+    json: {
+      high_score: [], last_poll_at: null, last_pipeline_run_at: '2026-08-01T10:00:00+00:00',
+      feed_count: 2, article_counts: { summarized: 25, hidden: 4 },
+    },
+  }));
+  await page.route('**/api/v1/search?*', (r) => {
+    const q = new URL(r.request().url()).searchParams.get('q') ?? '';
+    // Only the first article matches, so a narrowing assertion means something.
+    return r.fulfill({ json: { articles: q ? [article(1)] : [] } });
+  });
+  // Dismiss-all has to change what the list returns afterwards, or a test can
+  // only see the count and not the thing that matters: the rows stay, greyed.
+  let allDismissed = false;
+  await page.route('**/api/v1/articles/dismiss-all*', (r) => {
+    allDismissed = true;
+    return r.fulfill({ json: { dismissed: 10 } });
+  });
   await page.route('**/api/v1/me', (r) => r.fulfill({ json: ME }));
   await page.route('**/api/v1/feeds', (r) => r.fulfill({ json: FEEDS }));
   await page.route('**/api/v1/articles?*', (r) => {
     const offset = Number(new URL(r.request().url()).searchParams.get('offset') ?? 0);
     const ids = Array.from({ length: 10 }, (_, i) => offset + i + 1).filter((n) => n <= 25);
     r.fulfill({
-      json: { articles: ids.map((n) => article(n)), next_offset: offset + 10 <= 25 ? offset + 10 : null },
+      json: {
+        articles: ids.map((n) => article(n, allDismissed
+          ? { state: { read: false, saved: false, dismissed: true, opinion: null } }
+          : {})),
+        next_offset: offset + 10 <= 25 ? offset + 10 : null,
+      },
     });
   });
   await page.route('**/api/v1/articles/*', (r) => {

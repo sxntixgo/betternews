@@ -136,3 +136,46 @@ def test_opinion_values_match_the_declared_union(client, token, seeded):
 def test_status_fields_match_the_contract(client, token, seeded):
     got = client.get("/api/v1/status", headers=token).get_json()
     assert set(got) == declared_fields("Status")
+
+
+# ── settings ──────────────────────────────────────────────────────────────────
+# Seven panels behind bespoke endpoints, so seven shapes a client can rely on.
+# These are the ones most likely to drift: nothing else reads them.
+
+def test_ollama_settings_fields_match_the_contract(client, token):
+    got = client.get("/api/v1/settings/ollama", headers=token).get_json()
+    assert set(got) == declared_fields("OllamaSettings")
+
+
+def test_ollama_probe_fields_match_the_contract(client, token):
+    got = client.post("/api/v1/settings/ollama/test", headers=token,
+                      json={"host": "127.0.0.1", "port": "1"}).get_json()
+    assert set(got) == declared_fields("OllamaProbe")
+
+
+def test_model_settings_fields_match_the_contract(client, token):
+    got = client.get("/api/v1/settings/models", headers=token).get_json()
+    assert set(got) == declared_fields("ModelSettings")
+    assert got["actions"], "every Ollama job should be listed"
+    assert set(got["actions"][0]) == declared_fields("ModelAction")
+
+
+def test_reader_settings_fields_match_the_contract(client, token):
+    got = client.get("/api/v1/settings/reader", headers=token).get_json()
+    assert set(got) == declared_fields("ReaderSettings")
+
+
+def test_retention_settings_fields_match_the_contract(client, token):
+    got = client.get("/api/v1/settings/retention", headers=token).get_json()
+    assert set(got) == declared_fields("RetentionSettings")
+
+
+def test_topic_rule_fields_match_the_contract(client, token, seeded):
+    got = client.get("/api/v1/settings/topics", headers=token).get_json()["topics"]
+    assert got, "seed an article with topics or this asserts nothing"
+    assert set(got[0]) == declared_fields("TopicRule")
+
+
+def test_managed_feed_fields_match_the_contract(client, token, seeded):
+    got = client.get("/api/v1/feeds/manage", headers=token).get_json()["feeds"][0]
+    assert set(got) == declared_fields("ManagedFeed")

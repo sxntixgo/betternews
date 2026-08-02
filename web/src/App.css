@@ -1121,3 +1121,25 @@ kbd {
 .opml-actions { display: flex; gap: 8px; align-items: center; }
 .opml-import input[type="file"] { display: none; }
 .opml-import { cursor: pointer; display: inline-block; padding: 6px 10px; }
+
+/* ── settings ─────────────────────────────────────────────────────────────── */
+/* Seven panels on one scroll rather than seven pages: they are visited rarely
+   and together, and the HTML UI's page-per-panel split was navigation for the
+   server's benefit, not the reader's. */
+.settings-screen .modal-body h3 {
+  margin: 22px 0 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.settings-screen .modal-body h3:first-child { border-top: 0; padding-top: 0; margin-top: 0; }
+.settings-panel { display: flex; flex-direction: column; gap: 10px; }
+.settings-row { display: flex; gap: 8px; align-items: center; }
+.settings-row input { flex: 1; padding: 8px; min-width: 0; }
+.settings-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.settings-toggle { display: flex; gap: 8px; align-items: center; cursor: pointer; }
+.settings-toggle input[type="checkbox"] { flex: none; }
+.settings-toggle select { margin-left: auto; padding: 4px; }
+.settings-table { width: 100%; border-collapse: collapse; }
+.settings-table td { padding: 8px 6px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.settings-table td:last-child { text-align: right; white-space: nowrap; }
+.settings-table select { max-width: 200px; padding: 4px; }

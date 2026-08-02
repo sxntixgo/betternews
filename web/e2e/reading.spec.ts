@@ -91,3 +91,29 @@ test('refresh is offered to an admin and withheld from a plain reader', async ({
   await page.waitForSelector('.article-row');
   await expect(page.locator('#poll-btn')).toHaveCount(0);
 });
+
+test('scrolling to the end never shows the same article twice', async ({ page }) => {
+  // `nextOffset` starts at 0, so if the sentinel intersects before page one
+  // lands, `loadMore` appends page one to itself -- React logs duplicate keys
+  // and the reader sees the same story twice. The `loading` state could not
+  // prevent it (batched, so stale in the callback's closure); `inFlight` can.
+  // This asserts the invariant, not the race: it is timing-dependent and does
+  // not fail reliably with the guard removed.
+  let first = true;
+  await page.route('**/api/v1/articles?*', async (r) => {
+    if (first) {
+      first = false;
+      await new Promise((res) => setTimeout(res, 400));
+    }
+    return r.fallback();
+  });
+  await page.reload();
+  await page.waitForSelector('.article-row');
+
+  for (let i = 0; i < 4; i++) {
+    await page.mouse.wheel(0, 4000);
+    await page.waitForTimeout(200);
+  }
+  const titles = await page.locator('.article-row .article-title').allInnerTexts();
+  expect(new Set(titles).size).toBe(titles.length);
+});

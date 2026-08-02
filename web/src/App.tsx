@@ -1,10 +1,16 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Article, FeedList, ListQuery, Me } from '@shared/api';
 import { api, setAuthFailureHandler } from './api/client';
 import { useArticles } from './api/useArticles';
 import { ArticleCard } from './components/ArticleCard';
 import { Reader } from './components/Reader';
+import { CommandPalette, type Command } from './components/CommandPalette';
 import { Digest } from './components/Digest';
+import { ShortcutsOverlay } from './components/ShortcutsOverlay';
+import { drawFavicon, askForNotificationsOnce, notifyHighScores } from './favicon';
+import { isEditableTarget } from './keyboard';
+import { useSwipe } from './useSwipe';
+import { applyTheme, loadTheme, setTheme, watchSystemTheme, type ThemePreference } from './theme';
 import { Toolbar } from './components/Toolbar';
 import { SignIn } from './screens/SignIn';
 import './App.css';
@@ -30,6 +36,10 @@ export default function App() {
   const [me, setMe] = useState<Me | null>(null);
   // Bumped to force the list to refetch after a poll or a dismiss-all.
   const [reloads, setReloads] = useState(0);
+  const [focused, setFocused] = useState(-1);
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showPalette, setShowPalette] = useState(false);
+  const [theme, setThemeState] = useState<ThemePreference>(() => loadTheme());
   const [reading, setReading] = useState<number | null>(null);
   // At <=720px the carried-over stylesheet parks the sidebar off-screen and
   // waits for `.open`. Carrying CSS across does not carry the JavaScript its
@@ -41,6 +51,13 @@ export default function App() {
   // reader staring at an empty list.
   useEffect(() => setAuthFailureHandler(() => setSignedIn(false)), []);
 
+  const themeRef = useRef(theme);
+  themeRef.current = theme;
+  useEffect(() => {
+    applyTheme(theme);
+    return watchSystemTheme(() => themeRef.current);
+  }, [theme]);
+
   const { articles, loading, error, loadMore, hasMore, patch } = useArticles(
     { feed, saved: saved || undefined, hidden: hidden || undefined, topic,
       sort, limit: 50, reloads } as ListQuery & { reloads: number },
@@ -50,7 +67,23 @@ export default function App() {
 
   useEffect(() => {
     if (signedIn) void api.feeds().then(setFeeds).catch(() => {});
-  }, [signedIn, articles.length]);
+  }, [signedIn, articles.length, reloads]);
+
+  useEffect(() => {
+    if (feeds) drawFavicon(feeds.unread);
+  }, [feeds, theme]);
+
+  useEffect(() => {
+    if (signedIn !== true) return;
+    askForNotificationsOnce();
+    // The server returns each high scorer once per reader, so polling it is
+    // enough -- there is nothing to remember here.
+    const tick = () =>
+      api.status().then((st) => notifyHighScores(st.high_score)).catch(() => {});
+    void tick();
+    const id = window.setInterval(tick, 120_000);
+    return () => window.clearInterval(id);
+  }, [signedIn]);
 
   // Infinite scroll: load the next page when the sentinel scrolls into view.
   const sentinel = useCallback(
@@ -64,6 +97,90 @@ export default function App() {
     },
     [hasMore, loadMore],
   );
+
+  const rows = articles;
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      // Ctrl/Cmd-K works while typing; everything else must not.
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setShowPalette(true);
+        return;
+      }
+      if (e.key === 'Escape') {
+        setShowPalette(false);
+        setShowShortcuts(false);
+        setReading(null);
+        return;
+      }
+      if (isEditableTarget(e.target)) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+      const current = rows[focused];
+      switch (e.key) {
+        case 'j':
+          e.preventDefault();
+          setFocused((i) => Math.min(i + 1, rows.length - 1));
+          break;
+        case 'k':
+          e.preventDefault();
+          setFocused((i) => Math.max(i - 1, 0));
+          break;
+        case 'l':
+          if (current) void api.vote(current.id, 1).then(patch).catch(() => {});
+          break;
+        case 's':
+          if (current) void api.save(current.id).then(patch).catch(() => {});
+          break;
+        case 'o':
+          if (current) window.open(current.url, '_blank', 'noopener,noreferrer');
+          break;
+        case 'r':
+          if (current) setReading(current.id);
+          break;
+        case '/':
+          e.preventDefault();
+          document.getElementById('search')?.focus();
+          break;
+        case '?':
+          setShowShortcuts(true);
+          break;
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [rows, focused, patch]);
+
+  useSwipe(
+    useCallback((id: number) => { void api.vote(id, 1).then(patch).catch(() => {}); }, [patch]),
+    useCallback((id: number) => { void api.dismiss(id).then(patch).catch(() => {}); }, [patch]),
+    signedIn === true,
+  );
+
+  // A filter change makes the old index meaningless.
+  useEffect(() => setFocused(-1), [feed, saved, hidden, topic, search]);
+
+  const commands = useMemo<Command[]>(() => [
+    { id: 'all', label: 'Go to all feeds',
+      run: () => { setFeed(undefined); setSaved(false); setHidden(false); } },
+    { id: 'saved', label: 'Go to saved articles',
+      run: () => { setSaved(true); setFeed(undefined); setHidden(false); } },
+    { id: 'hidden', label: 'Go to hidden articles',
+      run: () => { setHidden(true); setSaved(false); setFeed(undefined); } },
+    { id: 'search', label: 'Search articles',
+      run: () => document.getElementById('search')?.focus() },
+    { id: 'sort-date', label: 'Sort by date', run: () => setSort('date') },
+    { id: 'sort-score', label: 'Sort by score', run: () => setSort('score') },
+    { id: 'theme-light', label: 'Theme: light', run: () => { setTheme('light'); setThemeState('light'); } },
+    { id: 'theme-dark', label: 'Theme: dark', run: () => { setTheme('dark'); setThemeState('dark'); } },
+    { id: 'theme-system', label: 'Theme: follow the system', run: () => { setTheme('system'); setThemeState('system'); } },
+    { id: 'shortcuts', label: 'Show keyboard shortcuts', run: () => setShowShortcuts(true) },
+    ...(feeds?.feeds ?? []).map((f) => ({
+      id: `feed-${f.id}`, label: `Go to ${f.title}`,
+      run: () => { setFeed(f.id); setSaved(false); setHidden(false); },
+    })),
+  ], [feeds]);
 
   if (signedIn === null) return <p className="loading">Loading…</p>;
   if (!signedIn) return <SignIn onDone={() => setSignedIn(true)} />;
@@ -147,6 +264,22 @@ export default function App() {
           Hidden
           {feeds && feeds.hidden > 0 && <span className="sidebar-feed-count">{feeds.hidden}</span>}
         </button>
+        <div className="sidebar-footer">
+          <label className="muted" htmlFor="theme-select">Theme</label>
+          <select
+            id="theme-select"
+            value={theme}
+            onChange={(e) => {
+              const next = e.target.value as ThemePreference;
+              setTheme(next);
+              setThemeState(next);
+            }}
+          >
+            <option value="system">System</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select>
+        </div>
       </aside>
 
       <main className="site-content">
@@ -170,10 +303,11 @@ export default function App() {
 
         <div id="article-list">
           {error && <p className="error">{error}</p>}
-          {articles.map((a) => (
+          {articles.map((a, i) => (
             <ArticleCard
               key={a.id}
               article={a}
+              focused={i === focused}
               onOpen={(x) => setReading(x.id)}
               onVote={vote}
               onSave={save}
@@ -189,6 +323,10 @@ export default function App() {
       </main>
 
       {reading !== null && <Reader id={reading} onClose={() => setReading(null)} />}
+      {showShortcuts && <ShortcutsOverlay onClose={() => setShowShortcuts(false)} />}
+      {showPalette && (
+        <CommandPalette commands={commands} onClose={() => setShowPalette(false)} />
+      )}
     </div>
   );
 }

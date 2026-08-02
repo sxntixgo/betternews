@@ -1035,3 +1035,70 @@ dialog[open] { display: flex; flex-direction: column; }
 @media (max-width: 720px) {
   .modal { width: 100vw; }
 }
+
+/* ── Phase 4: palette, shortcuts, theme picker ─────────────────────────────── */
+
+.command-palette,
+.shortcuts-overlay {
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28);
+  margin-top: 12vh;
+  width: min(520px, 92vw);
+  max-height: 70vh;
+  overflow: auto;
+  padding: 12px;
+  box-sizing: border-box;
+}
+
+.command-palette input {
+  width: 100%;
+  padding: 10px;
+  font-size: 15px;
+  box-sizing: border-box;
+}
+.command-palette ul { list-style: none; margin: 8px 0 0; padding: 0; }
+.command-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  background: none;
+  border: none;
+  color: var(--fg);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.command-item.active,
+.command-item:hover { background: var(--focus-bg); }
+
+.shortcuts-overlay h2 { margin: 0 0 10px; font-size: 16px; }
+.shortcuts-overlay table { width: 100%; border-collapse: collapse; }
+.shortcuts-overlay td { padding: 5px 8px; font-size: 14px; }
+.shortcuts-overlay td:first-child { width: 96px; }
+kbd {
+  font: inherit;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 1px 6px;
+  background: var(--focus-bg);
+}
+
+.sidebar-footer {
+  margin-top: auto;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sidebar-footer select { flex: 1; padding: 4px; }
+
+/* Swipe affordances: the row follows the finger, and the intent is coloured in
+   once it passes the threshold that would act on release. */
+.article-row.swipe-like-active { background: var(--like-bg); }
+.article-row.swipe-dismiss-active { background: var(--dislike-bg); }

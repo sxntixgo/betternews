@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { Article, FeedList } from '@shared/api';
+import type { Article, FeedList, ListQuery, Me } from '@shared/api';
 import { api, setAuthFailureHandler } from './api/client';
 import { useArticles } from './api/useArticles';
 import { ArticleCard } from './components/ArticleCard';
 import { Reader } from './components/Reader';
+import { Digest } from './components/Digest';
+import { Toolbar } from './components/Toolbar';
 import { SignIn } from './screens/SignIn';
 import './App.css';
 
@@ -12,12 +14,22 @@ export default function App() {
   // looking. Ask the server once instead.
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
   useEffect(() => {
-    api.me().then(() => setSignedIn(true)).catch(() => setSignedIn(false));
-  }, []);
+    // Re-runs when signedIn flips, not just on mount: the first call 401s while
+    // signed out, and without asking again after login the app never learns who
+    // the reader is -- so admin-only controls stay hidden for an admin.
+    if (signedIn === false) return;
+    api.me().then((u) => { setMe(u); setSignedIn(true); }).catch(() => setSignedIn(false));
+  }, [signedIn]);
   const [feeds, setFeeds] = useState<FeedList | null>(null);
   const [feed, setFeed] = useState<number | undefined>();
   const [saved, setSaved] = useState(false);
   const [sort, setSort] = useState<'date' | 'score'>('date');
+  const [hidden, setHidden] = useState(false);
+  const [topic, setTopic] = useState<string | undefined>();
+  const [search, setSearch] = useState('');
+  const [me, setMe] = useState<Me | null>(null);
+  // Bumped to force the list to refetch after a poll or a dismiss-all.
+  const [reloads, setReloads] = useState(0);
   const [reading, setReading] = useState<number | null>(null);
   // At <=720px the carried-over stylesheet parks the sidebar off-screen and
   // waits for `.open`. Carrying CSS across does not carry the JavaScript its
@@ -30,8 +42,10 @@ export default function App() {
   useEffect(() => setAuthFailureHandler(() => setSignedIn(false)), []);
 
   const { articles, loading, error, loadMore, hasMore, patch } = useArticles(
-    { feed, saved: saved || undefined, sort, limit: 50 },
+    { feed, saved: saved || undefined, hidden: hidden || undefined, topic,
+      sort, limit: 50, reloads } as ListQuery & { reloads: number },
     signedIn === true,
+    search,
   );
 
   useEffect(() => {
@@ -61,6 +75,8 @@ export default function App() {
   // Choosing anything closes the drawer: on a phone the list is behind it.
   const choose = (fn: () => void) => {
     fn();
+    setTopic(undefined);
+    setSearch('');
     setDrawerOpen(false);
   };
 
@@ -89,6 +105,7 @@ export default function App() {
           onClick={() => choose(() => {
             setFeed(undefined);
             setSaved(false);
+            setHidden(false);
           })}
         >
           All feeds
@@ -101,6 +118,7 @@ export default function App() {
             onClick={() => choose(() => {
               setFeed(f.id);
               setSaved(false);
+              setHidden(false);
             })}
           >
             {f.title}
@@ -112,24 +130,43 @@ export default function App() {
           onClick={() => choose(() => {
             setSaved(true);
             setFeed(undefined);
+            setHidden(false);
           })}
         >
           Saved
           {feeds && feeds.saved > 0 && <span className="sidebar-feed-count">{feeds.saved}</span>}
         </button>
+        <button
+          className={`sidebar-feed ${hidden ? 'active' : ''}`}
+          onClick={() => choose(() => {
+            setHidden(true);
+            setSaved(false);
+            setFeed(undefined);
+          })}
+        >
+          Hidden
+          {feeds && feeds.hidden > 0 && <span className="sidebar-feed-count">{feeds.hidden}</span>}
+        </button>
       </aside>
 
       <main className="site-content">
         <header className="site-header">
-          <div className="sort-toggle">
-            <button className={sort === 'score' ? 'active' : ''} onClick={() => setSort('score')}>
-              Score
-            </button>
-            <button className={sort === 'date' ? 'active' : ''} onClick={() => setSort('date')}>
-              Date
-            </button>
-          </div>
+          <Toolbar
+            search={search}
+            onSearch={setSearch}
+            sort={sort}
+            onSort={setSort}
+            canPoll={me?.role === 'admin'}
+            onRefreshed={() => setReloads((n) => n + 1)}
+            onDismissAll={async () => {
+              await api.dismissAll({ feed, saved: saved || undefined,
+                                     hidden: hidden || undefined, topic });
+              setReloads((n) => n + 1);
+            }}
+          />
         </header>
+
+        <div id="digest-panel">{!search && !topic && <Digest />}</div>
 
         <div id="article-list">
           {error && <p className="error">{error}</p>}
@@ -140,6 +177,7 @@ export default function App() {
               onOpen={(x) => setReading(x.id)}
               onVote={vote}
               onSave={save}
+              onTopic={(t) => { setTopic(t); setSearch(''); }}
             />
           ))}
           {loading && <p className="loading">Loading…</p>}

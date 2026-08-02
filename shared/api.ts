@@ -139,6 +139,22 @@ export interface Preferences {
   stances: Record<string, string>;
 }
 
+/** A feed as the management screen needs it, health included. */
+export interface ManagedFeed {
+  id: number;
+  url: string;
+  title: string | null;
+  paused: boolean;
+  last_polled_at: string | null;
+  last_success_at: string | null;
+  /** Why the last poll failed. A silent outage is what this exists to prevent. */
+  last_error: string | null;
+  consecutive_failures: number;
+  /** null means "use the global threshold". */
+  score_threshold: number | null;
+  tags: string[];
+}
+
 export interface Digest {
   body: string | null;
   article_count: number;
@@ -220,7 +236,9 @@ export class BetterNewsClient {
       ...init,
       signal,
       headers: {
-        ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+        // Only JSON string bodies: a FormData upload must keep the
+        // browser-set multipart boundary.
+        ...(typeof init.body === 'string' ? { 'Content-Type': 'application/json' } : {}),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...(init.headers ?? {}),
       },
@@ -247,6 +265,25 @@ export class BetterNewsClient {
 
   me() {
     return this.request<Me>('/me');
+  }
+
+  /**
+   * Fetch a file body, with the same auth and error handling as everything
+   * else. The filename comes from Content-Disposition when the server sends
+   * one, because the URL does not carry it.
+   */
+  private async download(path: string, fallbackName: string) {
+    const token = this.opts.getToken ? await this.opts.getToken() : null;
+    const doFetch = this.opts.fetchImpl ?? fetch;
+    const res = await doFetch(`${this.opts.baseUrl}/api/v1${path}`, {
+      credentials: 'include',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (res.status === 401) this.opts.onAuthFailure?.();
+    if (!res.ok) throw new ApiError(res.status, `HTTP ${res.status}`);
+    const disposition = res.headers.get('Content-Disposition') ?? '';
+    const match = /filename="([^"]+)"/.exec(disposition);
+    return { blob: await res.blob(), filename: match?.[1] ?? fallbackName };
   }
 
   /**
@@ -354,6 +391,58 @@ export class BetterNewsClient {
 
   status() {
     return this.request<Status>('/status');
+  }
+
+  manageFeeds() {
+    return this.request<{ feeds: ManagedFeed[] }>('/feeds/manage');
+  }
+
+  addFeed(url: string) {
+    return this.request<ManagedFeed>('/feeds', {
+      method: 'POST', body: JSON.stringify({ url }),
+    });
+  }
+
+  deleteFeed(id: number) {
+    return this.request<{ deleted: number }>(`/feeds/${id}`, { method: 'DELETE' });
+  }
+
+  pauseFeed(id: number) {
+    return this.request<ManagedFeed>(`/feeds/${id}/pause`, { method: 'POST' });
+  }
+
+  resumeFeed(id: number) {
+    return this.request<ManagedFeed>(`/feeds/${id}/resume`, { method: 'POST' });
+  }
+
+  /** null clears it, falling back to the global threshold. */
+  setFeedThreshold(id: number, threshold: number | null) {
+    return this.request<ManagedFeed>(`/feeds/${id}/threshold`, {
+      method: 'POST', body: JSON.stringify({ threshold }),
+    });
+  }
+
+  setFeedTags(id: number, tags: string | string[]) {
+    return this.request<ManagedFeed>(`/feeds/${id}/tags`, {
+      method: 'POST', body: JSON.stringify({ tags }),
+    });
+  }
+
+  /** Returns the bytes, not a URL: a download cannot carry the auth header. */
+  async exportOpml(): Promise<{ blob: Blob; filename: string }> {
+    return this.download('/feeds/opml', 'feeds.opml');
+  }
+
+  /** Markdown export, same reasoning. */
+  async exportMarkdown(scope: 'saved' | 'liked' | 'all' = 'saved') {
+    return this.download(`/export?scope=${scope}`, `betternews-${scope}.zip`);
+  }
+
+  async importOpml(file: File) {
+    const form = new FormData();
+    form.append('file', file);
+    // No Content-Type: the browser must set the multipart boundary itself.
+    return this.request<{ added: number }>('/feeds/opml', { method: 'POST', body: form });
   }
 
   register(username: string, password: string) {

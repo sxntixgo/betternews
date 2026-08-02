@@ -12,6 +12,7 @@ import { isEditableTarget } from './keyboard';
 import { useSwipe } from './useSwipe';
 import { applyTheme, loadTheme, setTheme, watchSystemTheme, type ThemePreference } from './theme';
 import { Toolbar } from './components/Toolbar';
+import { ManageFeeds } from './screens/ManageFeeds';
 import { Profile } from './screens/Profile';
 import { SignIn } from './screens/SignIn';
 import './App.css';
@@ -41,6 +42,7 @@ export default function App() {
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showPalette, setShowPalette] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  const [showFeeds, setShowFeeds] = useState(false);
   const [theme, setThemeState] = useState<ThemePreference>(() => loadTheme());
   const [reading, setReading] = useState<number | null>(null);
   // At <=720px the carried-over stylesheet parks the sidebar off-screen and
@@ -178,6 +180,7 @@ export default function App() {
     { id: 'theme-dark', label: 'Theme: dark', run: () => { setTheme('dark'); setThemeState('dark'); } },
     { id: 'theme-system', label: 'Theme: follow the system', run: () => { setTheme('system'); setThemeState('system'); } },
     { id: 'profile', label: 'Open your profile', run: () => setShowProfile(true) },
+    { id: 'feeds', label: 'Manage feeds', run: () => setShowFeeds(true) },
     { id: 'signout', label: 'Sign out', run: () => { void api.logout().finally(() => setSignedIn(false)); } },
     { id: 'shortcuts', label: 'Show keyboard shortcuts', run: () => setShowShortcuts(true) },
     ...(feeds?.feeds ?? []).map((f) => ({
@@ -331,6 +334,12 @@ export default function App() {
 
       {reading !== null && <Reader id={reading} onClose={() => setReading(null)} />}
       {showProfile && me && <Profile me={me} onClose={() => setShowProfile(false)} />}
+      {showFeeds && (
+        <ManageFeeds isAdmin={me?.role === 'admin'} onClose={() => {
+          setShowFeeds(false);
+          setReloads((n) => n + 1);   // feeds may have changed the list
+        }} />
+      )}
       {showShortcuts && <ShortcutsOverlay onClose={() => setShowShortcuts(false)} />}
       {showPalette && (
         <CommandPalette commands={commands} onClose={() => setShowPalette(false)} />

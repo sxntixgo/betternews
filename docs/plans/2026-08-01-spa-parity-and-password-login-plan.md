@@ -264,7 +264,13 @@ covers the ingest, and this proves it).
 
 ---
 
-## Phase 7 — Settings  ·  **Opus** (shape) → **Sonnet** (screens)
+## Phase 7 — Settings  ·  **Opus** (shape) → **Sonnet** (screens)  ·  ✅ done (#41)
+
+Landed as 14 endpoints, not 21: the four reader-behaviour panels (headlines,
+padding, notifications, embeds) collapsed into one `GET/POST /settings/reader`,
+since they are one screen's worth of toggles and the page-per-panel split in the
+HTML UI was navigation for the server's benefit. The SPA renders all of them on
+one scroll.
 
 The largest phase: 21 routes over seven panels.
 

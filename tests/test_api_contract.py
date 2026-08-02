@@ -131,3 +131,8 @@ def test_opinion_values_match_the_declared_union(client, token, seeded):
                           headers=token).get_json()
         assert got["state"]["opinion"] == expected
         assert expected in allowed
+
+
+def test_status_fields_match_the_contract(client, token, seeded):
+    got = client.get("/api/v1/status", headers=token).get_json()
+    assert set(got) == declared_fields("Status")

@@ -12,6 +12,7 @@ import { isEditableTarget } from './keyboard';
 import { useSwipe } from './useSwipe';
 import { applyTheme, loadTheme, setTheme, watchSystemTheme, type ThemePreference } from './theme';
 import { Toolbar } from './components/Toolbar';
+import { Profile } from './screens/Profile';
 import { SignIn } from './screens/SignIn';
 import './App.css';
 
@@ -39,6 +40,7 @@ export default function App() {
   const [focused, setFocused] = useState(-1);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showPalette, setShowPalette] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
   const [theme, setThemeState] = useState<ThemePreference>(() => loadTheme());
   const [reading, setReading] = useState<number | null>(null);
   // At <=720px the carried-over stylesheet parks the sidebar off-screen and
@@ -175,6 +177,8 @@ export default function App() {
     { id: 'theme-light', label: 'Theme: light', run: () => { setTheme('light'); setThemeState('light'); } },
     { id: 'theme-dark', label: 'Theme: dark', run: () => { setTheme('dark'); setThemeState('dark'); } },
     { id: 'theme-system', label: 'Theme: follow the system', run: () => { setTheme('system'); setThemeState('system'); } },
+    { id: 'profile', label: 'Open your profile', run: () => setShowProfile(true) },
+    { id: 'signout', label: 'Sign out', run: () => { void api.logout().finally(() => setSignedIn(false)); } },
     { id: 'shortcuts', label: 'Show keyboard shortcuts', run: () => setShowShortcuts(true) },
     ...(feeds?.feeds ?? []).map((f) => ({
       id: `feed-${f.id}`, label: `Go to ${f.title}`,
@@ -265,6 +269,9 @@ export default function App() {
           {feeds && feeds.hidden > 0 && <span className="sidebar-feed-count">{feeds.hidden}</span>}
         </button>
         <div className="sidebar-footer">
+          <button className="btn-icon" title="Your profile" onClick={() => setShowProfile(true)}>
+            {me?.username ?? 'Profile'}
+          </button>
           <label className="muted" htmlFor="theme-select">Theme</label>
           <select
             id="theme-select"
@@ -323,6 +330,7 @@ export default function App() {
       </main>
 
       {reading !== null && <Reader id={reading} onClose={() => setReading(null)} />}
+      {showProfile && me && <Profile me={me} onClose={() => setShowProfile(false)} />}
       {showShortcuts && <ShortcutsOverlay onClose={() => setShowShortcuts(false)} />}
       {showPalette && (
         <CommandPalette commands={commands} onClose={() => setShowPalette(false)} />

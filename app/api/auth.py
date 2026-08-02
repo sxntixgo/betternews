@@ -56,6 +56,41 @@ def login():
     })
 
 
+@bp.post("/auth/register")
+def register():
+    """Create an account. The first one on an empty instance is the admin.
+
+    Same rules as the HTML form, and the same lock inside register_user so the
+    "am I first?" check cannot interleave with a concurrent registration.
+    """
+    db = get_db()
+    body = request.get_json(silent=True) or {}
+    username = (body.get("username") or "").strip()
+    password = body.get("password") or ""
+    confirm = body.get("confirm", password)
+
+    if not username:
+        return error("Username is required.", 400)
+    if len(username) > 60:
+        return error("Username is too long.", 400)
+    problem = auth_mod.password_problem(password, confirm)
+    if problem:
+        return error(problem, 400)
+    if user_repo.by_username(db, username):
+        return error("That username is taken.", 409)
+
+    uid = auth_mod.register_user(db, username, password)
+    auth_mod.login_user(db, uid)
+    db.commit()
+    user = user_repo.get(db, uid)
+    return jsonify({
+        "id": user["id"],
+        "username": user["username"],
+        "role": user["role"],
+        "must_change_password": bool(user["must_change_password"]),
+    })
+
+
 @bp.post("/auth/logout")
 def logout():
     """Ends the session. Safe to call when not signed in."""

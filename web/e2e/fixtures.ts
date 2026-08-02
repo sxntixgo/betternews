@@ -59,6 +59,26 @@ export const DIGEST = {
 
 /** 25 articles over two pages, so infinite scroll has something to do. */
 export async function mockApi(page: Page) {
+  await page.route('**/api/v1/me/preferences', (r) => r.fulfill({
+    json: { profile_text: 'You like rockets and Argentine politics.',
+            updated_at: '2026-08-01T09:00:00+00:00', liked: 34, disliked: 4,
+            stances: { 'formula-1': 'more', crypto: 'hide' } },
+  }));
+  await page.route('**/api/v1/me/tokens', (r) => r.request().method() === 'POST'
+    ? r.fulfill({ json: { token: 'bn_brand-new-value', name: 'iPhone' } })
+    : r.fulfill({ json: { tokens: [
+        { id: 7, name: 'Old phone', created_at: '2026-07-01T00:00:00+00:00',
+          last_used_at: '2026-07-30T00:00:00+00:00' },
+      ] } }));
+  await page.route('**/api/v1/me/tokens/*/revoke', (r) => r.fulfill({ json: { ok: true } }));
+  await page.route('**/api/v1/me/password', (r) => r.fulfill({ json: { ok: true } }));
+  await page.route('**/api/v1/topics', (r) => r.fulfill({
+    json: { topics: [
+      { topic: 'formula-1', stance: 'more', articles: 12, likes: 3, dislikes: 0 },
+      { topic: 'crypto', stance: 'hide', articles: 5, likes: 0, dislikes: 2 },
+    ] },
+  }));
+  await page.route('**/api/v1/topics/*/stance', (r) => r.fulfill({ json: { topic: 'x', stance: 'more' } }));
   await page.route('**/api/v1/digest', (r) => r.fulfill({ json: DIGEST }));
   await page.route('**/api/v1/digest/dismiss', (r) => r.fulfill({ json: { ok: true } }));
   await page.route('**/api/v1/status', (r) => r.fulfill({

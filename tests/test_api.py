@@ -674,3 +674,192 @@ def test_status_returns_high_scorers_once(client, app, token):
     assert [n["title"] for n in first] == ["Big one"]
     again = client.get(f"{API}/status", headers=auth(token)).get_json()["high_score"]
     assert again == [], "notifying twice is how an alert becomes noise"
+
+
+# ── phase 5: the reader's own account ─────────────────────────────────────────
+
+def test_register_makes_the_first_account_an_admin(anon, app):
+    """Mirrors the HTML path: an empty instance hands the first arrival the keys."""
+    from app.db import get_db_direct
+    from sqlalchemy import text
+    with app.app_context():
+        db = get_db_direct()
+        db.execute(text("DELETE FROM users"))
+        db.commit()
+        db.close()
+    first = anon.post(f"{API}/auth/register",
+                      json={"username": "owner", "password": "a-long-enough-pw"})
+    assert first.status_code == 200
+    assert first.get_json()["role"] == "admin"
+
+    second = anon.post(f"{API}/auth/register",
+                       json={"username": "second", "password": "a-long-enough-pw"})
+    assert second.get_json()["role"] == "user"
+
+
+def test_register_refuses_a_taken_username(anon, registered):
+    r = anon.post(f"{API}/auth/register",
+                  json={"username": CREDS["username"], "password": "another-long-pw"})
+    assert r.status_code == 409
+
+
+def test_register_enforces_the_same_password_rules_as_the_form(anon, app):
+    r = anon.post(f"{API}/auth/register", json={"username": "shorty", "password": "x"})
+    assert r.status_code == 400
+    assert r.is_json
+
+
+def test_changing_a_password_requires_the_current_one(client, token, app):
+    from app import auth as auth_mod
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        uid = client.application  # noqa: F841
+        from app.repo.users import ensure_bootstrap_user
+        u = ensure_bootstrap_user(db)
+        db.execute(__import__("sqlalchemy").text(
+            "UPDATE users SET password_hash = :h WHERE id = :i"),
+            {"h": auth_mod.hash_password("current-password-1"), "i": u})
+        db.commit()
+        db.close()
+    bad = client.post(f"{API}/me/password", headers=auth(token),
+                      json={"current": "wrong", "new": "new-password-12", "confirm": "new-password-12"})
+    assert bad.status_code == 400
+    ok = client.post(f"{API}/me/password", headers=auth(token),
+                     json={"current": "current-password-1", "new": "new-password-12",
+                           "confirm": "new-password-12"})
+    assert ok.status_code == 200
+
+
+def test_tokens_can_be_listed_created_and_revoked(client, token):
+    made = client.post(f"{API}/me/tokens", headers=auth(token),
+                       json={"name": "iPhone"}).get_json()
+    # Shown exactly once, at creation.
+    assert made["token"].startswith("bn_")
+    assert made["name"] == "iPhone"
+
+    listed = client.get(f"{API}/me/tokens", headers=auth(token)).get_json()["tokens"]
+    assert any(t["name"] == "iPhone" for t in listed)
+    assert all("token" not in t for t in listed), "a list must never re-show the value"
+
+    tid = next(t["id"] for t in listed if t["name"] == "iPhone")
+    assert client.post(f"{API}/me/tokens/{tid}/revoke", headers=auth(token)).status_code == 200
+    after = client.get(f"{API}/me/tokens", headers=auth(token)).get_json()["tokens"]
+    assert not any(t["id"] == tid for t in after)
+
+
+def test_a_reader_cannot_revoke_someone_elses_token(client, token, app):
+    """The id arrives from a client, so the scope has to be enforced server-side."""
+    from app import api_tokens as tok
+    from app.db import get_db_direct
+    from tests.conftest import add_user
+    with app.app_context():
+        db = get_db_direct()
+        other = add_user(db, username="victim", role="user")
+        tok.issue(db, other, "victims phone")
+        db.commit()
+        theirs = tok.for_user(db, other)[0]["id"]
+        db.close()
+    r = client.post(f"{API}/me/tokens/{theirs}/revoke", headers=auth(token))
+    assert r.status_code == 404, "someone else's token should not even be findable"
+
+
+def test_preferences_round_trip_with_their_evidence(client, token, app):
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        fid = add_feed(db)
+        aid = add_article(db, fid, seq=1, guid="pv", topics=["space"])
+        from app.repo.articles import record_vote
+        from app.repo.users import ensure_bootstrap_user
+        record_vote(db, ensure_bootstrap_user(db), aid, 1)
+        db.commit()
+        db.close()
+    body = client.get(f"{API}/me/preferences", headers=auth(token)).get_json()
+    # The evidence is what makes the prose readable as a conclusion.
+    assert set(body) >= {"profile_text", "updated_at", "liked", "disliked", "stances"}
+    assert body["liked"] == 1
+
+    saved = client.post(f"{API}/me/preferences", headers=auth(token),
+                        json={"profile_text": "I like rockets."}).get_json()
+    assert saved["profile_text"] == "I like rockets."
+
+
+def test_a_reader_only_sees_their_own_profile(client, token, app):
+    from app import api_tokens as tok
+    from app.db import get_db_direct
+    from tests.conftest import add_user
+    client.post(f"{API}/me/preferences", headers=auth(token),
+                json={"profile_text": "mine"})
+    with app.app_context():
+        db = get_db_direct()
+        other = add_user(db, username="nosy", role="user")
+        value = tok.issue(db, other, "nosy device")
+        db.commit()
+        db.close()
+    theirs = client.get(f"{API}/me/preferences",
+                        headers={"Authorization": f"Bearer {value}"}).get_json()
+    assert theirs["profile_text"] != "mine"
+
+
+def test_topic_stances_come_back_with_their_counts(client, token, app):
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        add_article(db, add_feed(db), seq=1, guid="ts", topics=["space"])
+        db.close()
+    client.post(f"{API}/topics/space/stance", headers=auth(token), json={"stance": "more"})
+    rows = client.get(f"{API}/topics", headers=auth(token)).get_json()["topics"]
+    space = next(t for t in rows if t["topic"] == "space")
+    assert space["stance"] == "more"
+    assert space["articles"] >= 1
+
+
+@pytest.mark.parametrize("payload,expected", [
+    ({"password": "a-long-enough-pw"}, "Username is required"),
+    ({"username": "x" * 61, "password": "a-long-enough-pw"}, "too long"),
+])
+def test_register_validates_the_username(anon, payload, expected):
+    r = anon.post(f"{API}/auth/register", json=payload)
+    assert r.status_code == 400
+    assert expected.lower() in r.get_json()["error"].lower()
+
+
+def test_a_new_password_must_pass_the_same_rules(client, token, app):
+    """With the wrong current password this returns earlier, so the rules check
+    is only reachable once the current one is right."""
+    from sqlalchemy import text
+    from app import auth as auth_mod
+    from app.db import get_db_direct
+    from app.repo.users import ensure_bootstrap_user
+    with app.app_context():
+        db = get_db_direct()
+        db.execute(text("UPDATE users SET password_hash = :h WHERE id = :i"),
+                   {"h": auth_mod.hash_password("known-current-pw"),
+                    "i": ensure_bootstrap_user(db)})
+        db.commit()
+        db.close()
+    r = client.post(f"{API}/me/password", headers=auth(token),
+                    json={"current": "known-current-pw", "new": "x", "confirm": "x"})
+    assert r.status_code == 400
+    assert "password" in r.get_json()["error"].lower()
+
+
+def test_a_device_needs_a_name(client, token):
+    r = client.post(f"{API}/me/tokens", headers=auth(token), json={"name": "  "})
+    assert r.status_code == 400
+    assert "name" in r.get_json()["error"].lower()
+
+
+def test_regenerating_a_profile_is_scoped_to_the_caller(client, app, token):
+    """Rebuilding everyone's from one button would rewrite a profile its owner
+    never asked to change."""
+    from unittest.mock import patch
+    ctx = _run_threads_inline()
+    try:
+        with patch("app.pipeline.regenerate_preferences") as regen:
+            r = client.post(f"{API}/me/preferences/regenerate", headers=auth(token))
+        assert r.status_code == 200
+        assert regen.call_args.kwargs["user_id"] is not None
+    finally:
+        ctx.__exit__(None, None, None)

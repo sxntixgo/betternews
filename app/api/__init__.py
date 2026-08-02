@@ -144,4 +144,4 @@ def _unhandled(exc):
 
 # Registers the routes on `bp`. Must come last; see app/views/__init__.py for
 # the same pattern and the same reason.
-from app.api import articles, auth as auth_routes, meta  # noqa: E402,F401
+from app.api import articles, auth as auth_routes, me as me_routes, meta  # noqa: E402,F401

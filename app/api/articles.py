@@ -1,12 +1,17 @@
 """Reading: the list, one article, and acting on it."""
 
-from flask import jsonify, request
+import logging
+from datetime import datetime, timezone
+
+from flask import Response, jsonify, request
 from sqlalchemy import text as sql
 
-from app import presenters
+from app import export as export_mod, presenters
 from app.api import api_auth, bp, current_api_user, error, serializers
 from app.db import get_db, get_setting
 from app.repo import articles as art_repo
+
+log = logging.getLogger(__name__)
 
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 200
@@ -134,3 +139,64 @@ def vote(article_id: int):
         return error("value must be 1 or -1.", 400)
     return _state_change(
         article_id, lambda db, uid, aid: art_repo.record_vote(db, uid, aid, value))
+
+
+@bp.get("/search")
+@api_auth
+def search():
+    """Full-text search, scoped to this reader.
+
+    `websearch_to_tsquery` accepts quoted phrases and -exclusions and does not
+    raise on malformed input, so there is nothing to sanitise here.
+    """
+    q = request.args.get("q", "").strip()
+    if not q:
+        return error("q is required.", 400)
+    db = get_db()
+    rows = art_repo.search(db, current_api_user(), q, limit=_limit())
+    declickbait = presenters.declickbait(db)
+    return jsonify({"articles": [serializers.article(r, declickbait) for r in rows]})
+
+
+@bp.post("/articles/dismiss-all")
+@api_auth
+def dismiss_all():
+    """Dismiss everything in the list the caller is looking at.
+
+    Takes the same filters as GET /articles on purpose: dismissing has to mean
+    the list on screen, or it dismisses something the reader cannot see.
+    """
+    db = get_db()
+    feed_arg = request.args.get("feed", "").strip()
+    n = art_repo.dismiss_all(
+        db, current_api_user(),
+        int(feed_arg) if feed_arg.isdigit() else None,
+        hidden=request.args.get("hidden") == "1",
+        saved=request.args.get("saved") == "1",
+        topic=request.args.get("topic", "").strip() or None,
+    )
+    db.commit()
+    return jsonify({"dismissed": n})
+
+
+@bp.get("/export")
+@api_auth
+def export():
+    """Reading as a zip of Markdown, scoped to the caller.
+
+    A bearer client cannot use <a download> -- the header would not travel -- so
+    it fetches this and builds a Blob. The filename therefore has to be in
+    Content-Disposition rather than the URL.
+    """
+    scope = request.args.get("scope", "saved")
+    if scope not in export_mod.SCOPES:
+        return error(f"scope must be one of: {', '.join(sorted(export_mod.SCOPES))}", 400)
+    db = get_db()
+    data, n = export_mod.build_zip(db, current_api_user(), scope)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+    log.info("API export: %d articles (scope=%s)", n, scope)
+    return Response(
+        data, mimetype="application/zip",
+        headers={"Content-Disposition":
+                 f'attachment; filename="betternews-{scope}-{stamp}.zip"'},
+    )

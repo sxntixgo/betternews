@@ -110,6 +110,17 @@ export interface Me {
   content_filter_mode: string;
 }
 
+/** What the reading client polls to know when new articles have landed. */
+export interface Status {
+  /** Returned once per reader per article; the server tracks that. */
+  high_score: { id: number; title: string; score: number | null }[];
+  last_poll_at: string | null;
+  /** Refetch the list when this advances. */
+  last_pipeline_run_at: string | null;
+  feed_count: number;
+  article_counts: Record<string, number>;
+}
+
 export interface Digest {
   body: string | null;
   article_count: number;
@@ -300,6 +311,41 @@ export class BetterNewsClient {
 
   digest() {
     return this.request<Digest>('/digest');
+  }
+
+  dismissDigest() {
+    return this.request<{ ok: boolean }>('/digest/dismiss', { method: 'POST' });
+  }
+
+  search(q: string, init?: RequestInit) {
+    return this.request<{ articles: Article[] }>(
+      `/search?q=${encodeURIComponent(q)}`, init);
+  }
+
+  /** Dismisses the list the caller is looking at, so pass the same filters. */
+  dismissAll(q: ListQuery = {}) {
+    const parts: string[] = [];
+    if (q.feed !== undefined) parts.push(`feed=${encodeURIComponent(String(q.feed))}`);
+    if (q.topic) parts.push(`topic=${encodeURIComponent(q.topic)}`);
+    if (q.hidden) parts.push('hidden=1');
+    if (q.saved) parts.push('saved=1');
+    const qs = parts.join('&');
+    return this.request<{ dismissed: number }>(
+      `/articles/dismiss-all${qs ? `?${qs}` : ''}`, { method: 'POST' });
+  }
+
+  status() {
+    return this.request<Status>('/status');
+  }
+
+  /** Admin only. Kicks feed polling and the pipeline; returns immediately. */
+  poll() {
+    return this.request<{ started: boolean }>('/poll', { method: 'POST' });
+  }
+
+  /** Admin only. Requeues hidden articles and returns how many. */
+  rescoreHidden() {
+    return this.request<{ requeued: number }>('/rescore-hidden', { method: 'POST' });
   }
 }
 

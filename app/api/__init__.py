@@ -27,6 +27,7 @@ from app import api_tokens
 # from an endpoint whose file plainly exists.
 from app import auth as session_auth
 from app.db import get_db
+from app.repo import users as user_repo
 
 log = logging.getLogger(__name__)
 
@@ -81,6 +82,28 @@ def api_auth(fn):
                 return error("Sign in, or send an Authorization: Bearer header.", 401)
 
         g.api_user_id = user_id
+        return fn(*args, **kwargs)
+    return wrapper
+
+
+def api_admin(fn):
+    """Require an admin, on top of being authenticated.
+
+    @api_auth proves *who* is calling, not what they may do. Until now the API
+    exposed nothing that needed the distinction; /poll and /rescore-hidden do --
+    they are @admin_required on the HTML side, and a reader who could kick the
+    pipeline from a phone would be a quiet privilege escalation.
+
+    Mirrors auth.admin_required, but answers 403 as JSON rather than rendering
+    a page a native client cannot read.
+    """
+    @wraps(fn)
+    @api_auth
+    def wrapper(*args, **kwargs):
+        db = get_db()
+        user = user_repo.get(db, current_api_user())
+        if not user or user["role"] != "admin":
+            return error("Admins only.", 403)
         return fn(*args, **kwargs)
     return wrapper
 

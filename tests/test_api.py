@@ -460,3 +460,217 @@ def test_login_reports_a_forced_password_change(anon, registered, app):
         db.close()
     body = anon.post(LOGIN, json=CREDS).get_json()
     assert body["must_change_password"] is True
+
+
+# ── phase 2: the rest of what a reading client needs ──────────────────────────
+
+ADMIN_ENDPOINTS = [("post", f"{API}/poll"), ("post", f"{API}/rescore-hidden")]
+
+
+def test_search_finds_by_title(client, app, token):
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        fid = add_feed(db)
+        add_article(db, fid, seq=1, guid="s1", title="Quantum computing leaps")
+        add_article(db, fid, seq=2, guid="s2", title="Football results")
+        db.close()
+    body = client.get(f"{API}/search?q=quantum", headers=auth(token)).get_json()
+    assert [a["title"] for a in body["articles"]] == ["Quantum computing leaps"]
+
+
+def test_search_survives_a_malformed_query(client, token):
+    """websearch_to_tsquery does not raise where FTS5 MATCH would."""
+    r = client.get(f"{API}/search?q=%22unclosed", headers=auth(token))
+    assert r.status_code == 200
+
+
+def test_search_needs_a_query(client, token):
+    assert client.get(f"{API}/search", headers=auth(token)).status_code == 400
+
+
+def test_dismiss_all_takes_the_same_filters_as_the_list(client, app, token):
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        fid = add_feed(db)
+        add_article(db, fid, seq=1, guid="d1", title="Spacey", topics=["space"])
+        add_article(db, fid, seq=2, guid="d2", title="Other", topics=["economy"])
+        db.close()
+    n = client.post(f"{API}/articles/dismiss-all?topic=space",
+                    headers=auth(token)).get_json()["dismissed"]
+    assert n == 1
+    got = {a["title"]: a["state"]["dismissed"]
+           for a in client.get(f"{API}/articles", headers=auth(token)).get_json()["articles"]}
+    assert got == {"Spacey": True, "Other": False}
+
+
+def test_status_reports_the_pipeline_stamp(client, app, token):
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        add_article(db, add_feed(db), seq=1, guid="st")
+        db.close()
+    body = client.get(f"{API}/status", headers=auth(token)).get_json()
+    # The SPA polls this and refetches when last_pipeline_run_at advances.
+    assert set(body) >= {"last_pipeline_run_at", "last_poll_at", "feed_count",
+                         "article_counts", "high_score"}
+    assert body["feed_count"] == 1
+
+
+def test_digest_dismiss_clears_the_cached_briefing(client, app, token):
+    from unittest.mock import patch
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        fid = add_feed(db)
+        for i in range(6):
+            add_article(db, fid, seq=i, guid=f"dd{i}")
+        db.close()
+    with patch("app.ollama_client.generate", return_value="**Theme**\nBrief."):
+        assert client.get(f"{API}/digest", headers=auth(token)).get_json()["cached"] is False
+        assert client.get(f"{API}/digest", headers=auth(token)).get_json()["cached"] is True
+        assert client.post(f"{API}/digest/dismiss", headers=auth(token)).status_code == 200
+        assert client.get(f"{API}/digest", headers=auth(token)).get_json()["cached"] is False
+
+
+def test_export_returns_a_zip(client, app, token):
+    from app.db import get_db_direct
+    from app.repo.articles import toggle_saved
+    from app.repo.users import ensure_bootstrap_user
+    with app.app_context():
+        db = get_db_direct()
+        aid = add_article(db, add_feed(db), seq=1, guid="ex", title="Kept")
+        toggle_saved(db, ensure_bootstrap_user(db), aid)
+        db.commit()
+        db.close()
+    r = client.get(f"{API}/export?scope=saved", headers=auth(token))
+    assert r.status_code == 200
+    assert r.mimetype == "application/zip"
+    # A client cannot use <a download> with a bearer header, so it fetches the
+    # body and builds a Blob -- the filename has to travel in the header.
+    assert "attachment" in r.headers["Content-Disposition"]
+    import io, zipfile
+    names = zipfile.ZipFile(io.BytesIO(r.data)).namelist()
+    assert any(n.endswith(".md") for n in names)
+
+
+def test_export_rejects_an_unknown_scope(client, token):
+    assert client.get(f"{API}/export?scope=everything",
+                      headers=auth(token)).status_code == 400
+
+
+@pytest.mark.parametrize("method,path", ADMIN_ENDPOINTS)
+def test_admin_only_endpoints_refuse_a_plain_user(app, method, path):
+    """The API had no role check at all -- @api_auth proves who, not what.
+    Without this, any reader could kick the pipeline."""
+    from app.db import get_db_direct
+    from tests.conftest import add_user
+    from app import api_tokens as tok
+    with app.app_context():
+        db = get_db_direct()
+        uid = add_user(db, username="plain", role="user")
+        value = tok.issue(db, uid, "plain device")
+        db.commit()
+        db.close()
+    c = app.test_client()
+    r = getattr(c, method)(path, headers={"Authorization": f"Bearer {value}"})
+    assert r.status_code == 403, path
+    assert r.is_json
+
+
+@pytest.mark.parametrize("method,path", ADMIN_ENDPOINTS)
+def test_admin_only_endpoints_accept_an_admin(client, token, method, path):
+    from unittest.mock import patch
+    with patch("threading.Thread"):
+        assert getattr(client, method)(path, headers=auth(token)).status_code == 200
+
+
+def _run_threads_inline():
+    """Make Thread.start() call the target directly, so the body is covered."""
+    from unittest.mock import MagicMock, patch
+    ctx = patch("threading.Thread")
+    mock = ctx.__enter__()
+
+    def fake(target, daemon=False):
+        t = MagicMock()
+        t.start = lambda: target()
+        return t
+
+    mock.side_effect = fake
+    return ctx
+
+
+def test_poll_runs_the_pipeline_in_its_thread(client, app, token):
+    from unittest.mock import patch
+    ctx = _run_threads_inline()
+    try:
+        with patch("app.feeds.poll_all_feeds") as poll, patch("app.pipeline.run_pipeline") as run:
+            assert client.post(f"{API}/poll", headers=auth(token)).status_code == 200
+        poll.assert_called_once()
+        run.assert_called_once()
+    finally:
+        ctx.__exit__(None, None, None)
+
+
+def test_poll_thread_survives_a_failure(client, app, token, caplog):
+    import logging
+    from unittest.mock import patch
+    caplog.set_level(logging.ERROR, logger="app.api.meta")
+    ctx = _run_threads_inline()
+    try:
+        with patch("app.feeds.poll_all_feeds", side_effect=RuntimeError("netdown")):
+            assert client.post(f"{API}/poll", headers=auth(token)).status_code == 200
+    finally:
+        ctx.__exit__(None, None, None)
+    # The request already returned 200; a thread that dies silently would leave
+    # the reader waiting for articles that are never coming.
+    assert "Manual poll failed" in caplog.text
+
+
+def test_rescore_hidden_requeues_and_reports_the_count(client, app, token):
+    """The requeue is synchronous, so the number returned is one that happened."""
+    from unittest.mock import patch
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        fid = add_feed(db)
+        for i in range(3):
+            add_article(db, fid, seq=i, guid=f"rh{i}", status="hidden")
+        db.close()
+    ctx = _run_threads_inline()
+    try:
+        with patch("app.pipeline.run_pipeline") as run:
+            body = client.post(f"{API}/rescore-hidden", headers=auth(token)).get_json()
+        run.assert_called_once()
+    finally:
+        ctx.__exit__(None, None, None)
+    assert body["requeued"] == 3
+
+
+def test_rescore_thread_survives_a_failure(client, app, token, caplog):
+    import logging
+    from unittest.mock import patch
+    caplog.set_level(logging.ERROR, logger="app.api.meta")
+    ctx = _run_threads_inline()
+    try:
+        with patch("app.pipeline.run_pipeline", side_effect=RuntimeError("boom")):
+            assert client.post(f"{API}/rescore-hidden", headers=auth(token)).status_code == 200
+    finally:
+        ctx.__exit__(None, None, None)
+    assert "Rescore-hidden failed" in caplog.text
+
+
+def test_status_returns_high_scorers_once(client, app, token):
+    """The server tracks who has been told, so a client needs no dedupe."""
+    from app.db import get_db_direct, set_setting
+    with app.app_context():
+        db = get_db_direct()
+        add_article(db, add_feed(db), seq=1, guid="hs", title="Big one", score=0.99)
+        set_setting(db, "notify_high_score", "1")
+        db.commit()
+        db.close()
+    first = client.get(f"{API}/status", headers=auth(token)).get_json()["high_score"]
+    assert [n["title"] for n in first] == ["Big one"]
+    again = client.get(f"{API}/status", headers=auth(token)).get_json()["high_score"]
+    assert again == [], "notifying twice is how an alert becomes noise"

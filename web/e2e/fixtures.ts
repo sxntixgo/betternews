@@ -59,6 +59,19 @@ export const DIGEST = {
 
 /** 25 articles over two pages, so infinite scroll has something to do. */
 export async function mockApi(page: Page) {
+  await page.route('**/api/v1/feeds/manage', (r) => r.fulfill({
+    json: { feeds: [
+      { id: 7, url: 'https://verge.example/rss', title: 'The Verge', paused: false,
+        last_polled_at: null, last_success_at: null, last_error: null,
+        consecutive_failures: 0, score_threshold: null, tags: ['tech'] },
+      { id: 8, url: 'https://broken.example/rss', title: 'Broken', paused: true,
+        last_polled_at: null, last_success_at: null,
+        last_error: 'Name or service not known', consecutive_failures: 5,
+        score_threshold: 0.5, tags: [] },
+    ] },
+  }));
+  await page.route('**/api/v1/feeds/*/pause', (r) => r.fulfill({ json: { id: 7, paused: true, url: '', title: '', last_polled_at: null, last_success_at: null, last_error: null, consecutive_failures: 0, score_threshold: null, tags: [] } }));
+  await page.route('**/api/v1/feeds/*/resume', (r) => r.fulfill({ json: { id: 8, paused: false, url: '', title: '', last_polled_at: null, last_success_at: null, last_error: null, consecutive_failures: 0, score_threshold: null, tags: [] } }));
   await page.route('**/api/v1/me/preferences', (r) => r.fulfill({
     json: { profile_text: 'You like rockets and Argentine politics.',
             updated_at: '2026-08-01T09:00:00+00:00', liked: 34, disliked: 4,

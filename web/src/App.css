@@ -1102,3 +1102,22 @@ kbd {
    once it passes the threshold that would act on release. */
 .article-row.swipe-like-active { background: var(--like-bg); }
 .article-row.swipe-dismiss-active { background: var(--dislike-bg); }
+
+/* ── Feed management ───────────────────────────────────────────────────────── */
+
+.feed-table { width: 100%; border-collapse: collapse; }
+.feed-table td { padding: 8px 6px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.feed-table tr.paused .feed-title { opacity: 0.6; }
+.feed-title { font-weight: 600; }
+.feed-url { font-size: 12px; word-break: break-all; }
+/* A failing feed has to be visible at a glance; the last outage lasted 43 days
+   because nothing said so. */
+.feed-error { font-size: 12px; color: #d14343; margin-top: 3px; }
+.feed-tags, .feed-threshold { width: 100%; padding: 4px; }
+.feed-threshold { max-width: 90px; }
+.feed-actions { white-space: nowrap; }
+.feed-add { display: flex; gap: 8px; margin-bottom: 12px; }
+.feed-add input { flex: 1; padding: 8px; }
+.opml-actions { display: flex; gap: 8px; align-items: center; }
+.opml-import input[type="file"] { display: none; }
+.opml-import { cursor: pointer; display: inline-block; padding: 6px 10px; }

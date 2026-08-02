@@ -4,6 +4,8 @@ The rule this file exists to enforce: a token authenticates the API, a session
 does not, and the two never substitute for one another.
 """
 
+import io
+
 import pytest
 
 from app import api_tokens
@@ -272,7 +274,8 @@ def test_limit_is_clamped(client, app, token):
 # ── the remaining paths ───────────────────────────────────────────────────────
 
 def test_a_wrong_method_is_json(client, token):
-    r = client.post(f"{API}/feeds", headers=auth(token))
+    # /me is GET-only; /feeds accepts POST now, so it stopped being a 405.
+    r = client.post(f"{API}/me", headers=auth(token))
     assert r.status_code == 405
     assert r.is_json
 
@@ -863,3 +866,221 @@ def test_regenerating_a_profile_is_scoped_to_the_caller(client, app, token):
         assert regen.call_args.kwargs["user_id"] is not None
     finally:
         ctx.__exit__(None, None, None)
+
+
+# ── phase 6: feed management ──────────────────────────────────────────────────
+
+FEED_ADMIN_ENDPOINTS = [
+    ("post", f"{API}/feeds"),
+    ("delete", f"{API}/feeds/1"),
+    ("post", f"{API}/feeds/1/pause"),
+    ("post", f"{API}/feeds/1/resume"),
+    ("post", f"{API}/feeds/1/threshold"),
+    ("post", f"{API}/feeds/1/tags"),
+    ("post", f"{API}/feeds/opml"),
+]
+
+
+@pytest.fixture
+def plain_token(app):
+    from app import api_tokens as tok
+    from app.db import get_db_direct
+    from tests.conftest import add_user
+    with app.app_context():
+        db = get_db_direct()
+        uid = add_user(db, username="reader2", role="user")
+        value = tok.issue(db, uid, "reader2 device")
+        db.commit()
+        db.close()
+    return value
+
+
+@pytest.mark.parametrize("method,path", FEED_ADMIN_ENDPOINTS)
+def test_every_feed_mutation_refuses_a_plain_reader(app, plain_token, method, path):
+    """Every one, not a sample -- mirrors the assertion tests/test_auth.py makes
+    about the HTML admin routes."""
+    c = app.test_client()
+    r = getattr(c, method)(path, headers={"Authorization": f"Bearer {plain_token}"})
+    assert r.status_code == 403, path
+    assert r.is_json
+
+
+def test_listing_feeds_for_management_carries_the_health(client, app, token):
+    from app.db import get_db_direct
+    from sqlalchemy import text
+    with app.app_context():
+        db = get_db_direct()
+        fid = add_feed(db, title="Broken")
+        db.execute(text("UPDATE feeds SET last_error = 'DNS went away', "
+                        "consecutive_failures = 3 WHERE id = :i"), {"i": fid})
+        db.commit()
+        db.close()
+    rows = client.get(f"{API}/feeds/manage", headers=auth(token)).get_json()["feeds"]
+    got = rows[0]
+    # A silent 43-day outage is why the error and the failure count are here.
+    assert set(got) >= {"id", "url", "title", "paused", "last_error",
+                        "consecutive_failures", "score_threshold", "tags",
+                        "last_success_at"}
+    assert got["last_error"] == "DNS went away"
+    assert got["consecutive_failures"] == 3
+
+
+def test_adding_a_feed(client, token):
+    r = client.post(f"{API}/feeds", headers=auth(token),
+                    json={"url": "https://example.com/feed.xml"})
+    assert r.status_code == 200
+    assert r.get_json()["url"] == "https://example.com/feed.xml"
+
+
+def test_adding_a_feed_needs_a_url(client, token):
+    assert client.post(f"{API}/feeds", headers=auth(token), json={}).status_code == 400
+
+
+def test_a_duplicate_feed_is_refused(client, app, token):
+    client.post(f"{API}/feeds", headers=auth(token), json={"url": "https://dup.example/f"})
+    r = client.post(f"{API}/feeds", headers=auth(token), json={"url": "https://dup.example/f"})
+    assert r.status_code == 409
+
+
+def test_pause_resume_threshold_and_tags(client, app, token):
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        fid = add_feed(db)
+        db.close()
+    assert client.post(f"{API}/feeds/{fid}/pause", headers=auth(token)).get_json()["paused"] is True
+    assert client.post(f"{API}/feeds/{fid}/resume", headers=auth(token)).get_json()["paused"] is False
+
+    got = client.post(f"{API}/feeds/{fid}/threshold", headers=auth(token),
+                      json={"threshold": 0.6}).get_json()
+    assert got["score_threshold"] == 0.6
+
+    tagged = client.post(f"{API}/feeds/{fid}/tags", headers=auth(token),
+                         json={"tags": "Sports, tech ,, sports"}).get_json()
+    # Normalised the same way the form does: trimmed, deduped, lowercased.
+    assert tagged["tags"] == ["sports", "tech"]
+
+
+def test_a_threshold_outside_zero_to_one_is_refused(client, app, token):
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        fid = add_feed(db)
+        db.close()
+    assert client.post(f"{API}/feeds/{fid}/threshold", headers=auth(token),
+                       json={"threshold": 5}).status_code == 400
+
+
+def test_deleting_a_feed(client, app, token):
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        fid = add_feed(db)
+        db.close()
+    assert client.delete(f"{API}/feeds/{fid}", headers=auth(token)).status_code == 200
+    remaining = client.get(f"{API}/feeds/manage", headers=auth(token)).get_json()["feeds"]
+    assert not any(f["id"] == fid for f in remaining)
+
+
+def test_opml_round_trips_without_duplicating(client, app, token):
+    """Export then import must not double the list -- the ingest is
+    ON CONFLICT DO NOTHING, and this proves it."""
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        add_feed(db, url="https://a.example/rss", title="A")
+        add_feed(db, url="https://b.example/rss", title="B")
+        db.close()
+    exported = client.get(f"{API}/feeds/opml", headers=auth(token))
+    assert exported.status_code == 200
+    assert b"<opml" in exported.data
+    assert "attachment" in exported.headers["Content-Disposition"]
+
+    before = len(client.get(f"{API}/feeds/manage", headers=auth(token)).get_json()["feeds"])
+    r = client.post(f"{API}/feeds/opml", headers=auth(token),
+                    data={"file": (io.BytesIO(exported.data), "feeds.opml")},
+                    content_type="multipart/form-data")
+    assert r.status_code == 200
+    assert r.get_json()["added"] == 0
+    after = len(client.get(f"{API}/feeds/manage", headers=auth(token)).get_json()["feeds"])
+    assert after == before
+
+
+def test_opml_import_adds_new_feeds(client, token):
+    opml = (b'<?xml version="1.0"?><opml version="1.0"><body>'
+            b'<outline type="rss" text="New" xmlUrl="https://new.example/rss"/>'
+            b'</body></opml>')
+    r = client.post(f"{API}/feeds/opml", headers=auth(token),
+                    data={"file": (io.BytesIO(opml), "in.opml")},
+                    content_type="multipart/form-data")
+    assert r.get_json()["added"] == 1
+
+
+@pytest.mark.parametrize("method,path,body", [
+    ("delete", "", None),
+    ("post", "/pause", None),
+    ("post", "/resume", None),
+    ("post", "/threshold", {"threshold": 0.5}),
+    ("post", "/tags", {"tags": "x"}),
+])
+def test_acting_on_a_missing_feed_is_a_json_404(client, token, method, path, body):
+    r = getattr(client, method)(f"{API}/feeds/999999{path}", headers=auth(token), json=body)
+    assert r.status_code == 404
+    assert r.is_json
+
+
+def test_a_non_numeric_threshold_is_refused(client, app, token):
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        fid = add_feed(db)
+        db.close()
+    r = client.post(f"{API}/feeds/{fid}/threshold", headers=auth(token),
+                    json={"threshold": "quite high"})
+    assert r.status_code == 400
+
+
+def test_a_null_threshold_clears_it(client, app, token):
+    """Falling back to the global threshold is a real choice, not an error."""
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        fid = add_feed(db)
+        db.close()
+    client.post(f"{API}/feeds/{fid}/threshold", headers=auth(token), json={"threshold": 0.7})
+    got = client.post(f"{API}/feeds/{fid}/threshold", headers=auth(token),
+                      json={"threshold": None}).get_json()
+    assert got["score_threshold"] is None
+
+
+def test_tags_accept_a_list_as_well_as_a_string(client, app, token):
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        fid = add_feed(db)
+        db.close()
+    got = client.post(f"{API}/feeds/{fid}/tags", headers=auth(token),
+                      json={"tags": ["Tech", "sports"]}).get_json()
+    assert got["tags"] == ["sports", "tech"]
+
+
+def test_opml_import_without_a_file_is_refused(client, token):
+    assert client.post(f"{API}/feeds/opml", headers=auth(token)).status_code == 400
+
+
+def test_opml_import_rejects_something_that_is_not_opml(client, token):
+    r = client.post(f"{API}/feeds/opml", headers=auth(token),
+                    data={"file": (io.BytesIO(b"not xml at all"), "junk.opml")},
+                    content_type="multipart/form-data")
+    assert r.status_code == 400
+    assert "opml" in r.get_json()["error"].lower()
+
+
+def test_opml_import_rejects_xml_with_no_feeds(client, token):
+    """Usually the wrong file rather than an empty subscription list."""
+    empty = b'<?xml version="1.0"?><opml version="2.0"><body></body></opml>'
+    r = client.post(f"{API}/feeds/opml", headers=auth(token),
+                    data={"file": (io.BytesIO(empty), "empty.opml")},
+                    content_type="multipart/form-data")
+    assert r.status_code == 400
+    assert "no feeds" in r.get_json()["error"].lower()

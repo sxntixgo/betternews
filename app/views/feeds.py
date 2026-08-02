@@ -4,6 +4,7 @@ import xml.etree.ElementTree as ET
 from app import (auth, call_log, digest as digest_mod, export as export_mod,
                  extract, health, insights, pipeline_status, retention,
                  topics as topics_mod, user_topics)
+from app import opml
 from app.db import get_db, get_setting, set_setting
 from app.repo import articles as art_repo, users as user_repo
 from flask import (Blueprint, current_app, g, redirect, render_template,
@@ -96,22 +97,8 @@ def feeds_delete(feed_id: int):
 def feeds_export_opml():
     db = get_db()
     rows = db.execute(sql("SELECT url, title FROM feeds ORDER BY id")).mappings().all()
-    body = "\n".join(
-        f'      <outline type="rss" text="{escape(r["title"] or r["url"])}" '
-        f'title="{escape(r["title"] or r["url"])}" xmlUrl="{escape(r["url"])}"/>'
-        for r in rows
-    )
-    xml = (
-        '<?xml version="1.0" encoding="UTF-8"?>\n'
-        '<opml version="2.0">\n'
-        '  <head><title>Better News feeds</title></head>\n'
-        '  <body>\n'
-        f'{body}\n'
-        '  </body>\n'
-        '</opml>\n'
-    )
     return Response(
-        xml,
+        opml.document(rows),
         mimetype="text/x-opml",
         headers={"Content-Disposition": 'attachment; filename="feeds.opml"'},
     )
@@ -123,26 +110,11 @@ def feeds_import_opml():
     upload = request.files.get("file")
     if upload is None or not upload.filename:
         return Response("file required", status=400)
-    try:
-        tree = ET.parse(upload.stream)
-    except ET.ParseError as exc:
-        return Response(f"invalid OPML: {exc}", status=400)
-    urls = [
-        outline.attrib["xmlUrl"].strip()
-        for outline in tree.iter("outline")
-        if outline.attrib.get("xmlUrl")
-    ]
-    if not urls:
-        return Response("no feeds found in OPML", status=400)
     db = get_db()
-    added = 0
-    for url in urls:
-        res = db.execute(
-            sql("INSERT INTO feeds (url) VALUES (:url) ON CONFLICT (url) DO NOTHING"),
-            {"url": url},
-        )
-        added += res.rowcount
-    db.commit()
+    try:
+        added = opml.import_urls(db, opml.urls_from(upload.read()))
+    except ValueError as exc:
+        return Response(str(exc), status=400)
     return render_template("_feeds.html", feeds=_all_feeds(db), opml_added=added,
                            extraction=_feed_extract_health(db))
 

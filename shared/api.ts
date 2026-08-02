@@ -121,6 +121,24 @@ export interface Status {
   article_counts: Record<string, number>;
 }
 
+/** A device that can reach the API. Never carries the token itself. */
+export interface TokenSummary {
+  id: number;
+  name: string;
+  created_at: string | null;
+  last_used_at: string | null;
+}
+
+/** The interest profile, with the evidence that produced it. */
+export interface Preferences {
+  profile_text: string;
+  updated_at: string | null;
+  liked: number;
+  disliked: number;
+  /** topic -> "more" | "hide" */
+  stances: Record<string, string>;
+}
+
 export interface Digest {
   body: string | null;
   article_count: number;
@@ -336,6 +354,53 @@ export class BetterNewsClient {
 
   status() {
     return this.request<Status>('/status');
+  }
+
+  register(username: string, password: string) {
+    return this.request<LoginResult>('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    });
+  }
+
+  changePassword(current: string, next: string, confirm: string) {
+    return this.request<{ ok: boolean }>('/me/password', {
+      method: 'POST',
+      body: JSON.stringify({ current, new: next, confirm }),
+    });
+  }
+
+  tokens() {
+    return this.request<{ tokens: TokenSummary[] }>('/me/tokens');
+  }
+
+  /** The only call that ever returns a token value. */
+  createToken(name: string) {
+    return this.request<{ token: string; name: string }>('/me/tokens', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    });
+  }
+
+  revokeToken(id: number) {
+    return this.request<{ ok: boolean }>(`/me/tokens/${id}/revoke`, { method: 'POST' });
+  }
+
+  preferences() {
+    return this.request<Preferences>('/me/preferences');
+  }
+
+  savePreferences(profileText: string) {
+    return this.request<{ profile_text: string }>('/me/preferences', {
+      method: 'POST',
+      body: JSON.stringify({ profile_text: profileText }),
+    });
+  }
+
+  regeneratePreferences() {
+    return this.request<{ started: boolean }>('/me/preferences/regenerate', {
+      method: 'POST',
+    });
   }
 
   /** Admin only. Kicks feed polling and the pipeline; returns immediately. */

@@ -14,6 +14,7 @@ import { applyTheme, loadTheme, setTheme, watchSystemTheme, type ThemePreference
 import { Toolbar } from './components/Toolbar';
 import { ManageFeeds } from './screens/ManageFeeds';
 import { Profile } from './screens/Profile';
+import { Settings } from './screens/Settings';
 import { SignIn } from './screens/SignIn';
 import './App.css';
 
@@ -43,6 +44,7 @@ export default function App() {
   const [showPalette, setShowPalette] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [showFeeds, setShowFeeds] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [theme, setThemeState] = useState<ThemePreference>(() => loadTheme());
   const [reading, setReading] = useState<number | null>(null);
   // At <=720px the carried-over stylesheet parks the sidebar off-screen and
@@ -181,13 +183,18 @@ export default function App() {
     { id: 'theme-system', label: 'Theme: follow the system', run: () => { setTheme('system'); setThemeState('system'); } },
     { id: 'profile', label: 'Open your profile', run: () => setShowProfile(true) },
     { id: 'feeds', label: 'Manage feeds', run: () => setShowFeeds(true) },
+    // Offered only to an admin. Every endpoint behind it checks again -- this
+    // is about not showing a reader a door that answers 403.
+    ...(me?.role === 'admin'
+      ? [{ id: 'settings', label: 'Open settings', run: () => setShowSettings(true) }]
+      : []),
     { id: 'signout', label: 'Sign out', run: () => { void api.logout().finally(() => setSignedIn(false)); } },
     { id: 'shortcuts', label: 'Show keyboard shortcuts', run: () => setShowShortcuts(true) },
     ...(feeds?.feeds ?? []).map((f) => ({
       id: `feed-${f.id}`, label: `Go to ${f.title}`,
       run: () => { setFeed(f.id); setSaved(false); setHidden(false); },
     })),
-  ], [feeds]);
+  ], [feeds, me]);
 
   if (signedIn === null) return <p className="loading">Loading…</p>;
   if (!signedIn) return <SignIn onDone={() => setSignedIn(true)} />;
@@ -338,6 +345,12 @@ export default function App() {
         <ManageFeeds isAdmin={me?.role === 'admin'} onClose={() => {
           setShowFeeds(false);
           setReloads((n) => n + 1);   // feeds may have changed the list
+        }} />
+      )}
+      {showSettings && me?.role === 'admin' && (
+        <Settings onClose={() => {
+          setShowSettings(false);
+          setReloads((n) => n + 1);   // de-clickbait and padding change the list
         }} />
       )}
       {showShortcuts && <ShortcutsOverlay onClose={() => setShowShortcuts(false)} />}

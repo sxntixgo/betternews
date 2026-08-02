@@ -1084,3 +1084,249 @@ def test_opml_import_rejects_xml_with_no_feeds(client, token):
                     content_type="multipart/form-data")
     assert r.status_code == 400
     assert "no feeds" in r.get_json()["error"].lower()
+
+
+# ── phase 7: settings ─────────────────────────────────────────────────────────
+
+SETTINGS_ENDPOINTS = [
+    ("get", f"{API}/settings/ollama"), ("post", f"{API}/settings/ollama"),
+    ("post", f"{API}/settings/ollama/test"),
+    ("get", f"{API}/settings/models"), ("post", f"{API}/settings/models"),
+    ("post", f"{API}/settings/models/recommended"),
+    ("get", f"{API}/settings/reader"), ("post", f"{API}/settings/reader"),
+    ("get", f"{API}/settings/retention"), ("post", f"{API}/settings/retention"),
+    ("post", f"{API}/settings/retention/prune"),
+    ("post", f"{API}/settings/retention/clear-read"),
+    ("get", f"{API}/settings/topics"), ("post", f"{API}/settings/topics"),
+]
+
+
+@pytest.mark.parametrize("method,path", SETTINGS_ENDPOINTS)
+def test_every_settings_endpoint_is_admin_only(app, plain_token, method, path):
+    c = app.test_client()
+    r = getattr(c, method)(path, headers={"Authorization": f"Bearer {plain_token}"}, json={})
+    assert r.status_code == 403, path
+    assert r.is_json
+
+
+def test_ollama_settings_round_trip(client, token):
+    saved = client.post(f"{API}/settings/ollama", headers=auth(token),
+                        json={"host": "ollama", "port": "11434"}).get_json()
+    assert saved["host"] == "ollama"
+    assert saved["using_env"] is False
+    assert "11434" in saved["active_base"]
+
+    cleared = client.post(f"{API}/settings/ollama", headers=auth(token),
+                          json={"host": "", "port": ""}).get_json()
+    # Blank means fall back to the environment, which the response says outright.
+    assert cleared["using_env"] is True
+
+
+def test_a_nonsense_ollama_host_is_refused_with_a_usable_message(client, token):
+    r = client.post(f"{API}/settings/ollama", headers=auth(token),
+                    json={"host": "not a host", "port": "banana"})
+    assert r.status_code == 400
+    assert r.get_json()["error"]
+
+
+def test_testing_the_connection_does_not_save_it(client, token):
+    """Saving first and testing after is how a working configuration gets
+    replaced by a broken one."""
+    before = client.get(f"{API}/settings/ollama", headers=auth(token)).get_json()
+    client.post(f"{API}/settings/ollama/test", headers=auth(token),
+                json={"host": "nowhere.invalid", "port": "9999"})
+    after = client.get(f"{API}/settings/ollama", headers=auth(token)).get_json()
+    assert after["host"] == before["host"]
+    assert after["port"] == before["port"]
+
+
+def test_the_connection_test_reports_why_it_failed(client, token):
+    body = client.post(f"{API}/settings/ollama/test", headers=auth(token),
+                       json={"host": "127.0.0.1", "port": "1"}).get_json()
+    assert body["ok"] is False
+    # An endpoint that silently returns [] is how a broken host goes unnoticed.
+    assert body["message"]
+
+
+def test_a_nonsense_host_is_refused_by_the_test_endpoint_too(client, token):
+    """Both doors validate. The probe endpoint taking a host the save endpoint
+    rejects would report success for something unsaveable."""
+    r = client.post(f"{API}/settings/ollama/test", headers=auth(token),
+                    json={"host": "not a host", "port": "banana"})
+    assert r.status_code == 400
+    assert r.get_json()["error"]
+
+
+def test_models_list_every_job_and_flag_what_is_missing(client, token):
+    from unittest.mock import patch
+    with patch("app.ollama_client.list_models", return_value=["llama3.2:3b"]):
+        body = client.get(f"{API}/settings/models", headers=auth(token)).get_json()
+    ids = {a["id"] for a in body["actions"]}
+    assert len(ids) == 6, "every job the app runs through Ollama"
+    assert all("recommended" in a and "why" in a for a in body["actions"])
+
+
+def test_saving_an_unknown_job_is_refused(client, token):
+    r = client.post(f"{API}/settings/models", headers=auth(token),
+                    json={"not_a_job": "llama3.2:3b"})
+    assert r.status_code == 400
+    assert "not_a_job" in r.get_json()["error"]
+
+
+def test_models_can_be_set_per_job(client, token):
+    from unittest.mock import patch
+    with patch("app.ollama_client.list_models", return_value=["llama3.1:8b"]):
+        body = client.post(f"{API}/settings/models", headers=auth(token),
+                           json={"scoring": "llama3.1:8b"}).get_json()
+    scoring = next(a for a in body["actions"] if a["id"] == "scoring")
+    assert scoring["current"] == "llama3.1:8b"
+
+
+def test_applying_recommendations_without_ollama_changes_nothing(client, token):
+    from unittest.mock import patch
+    with patch("app.ollama_client.list_models", return_value=[]):
+        r = client.post(f"{API}/settings/models/recommended", headers=auth(token))
+    # Writing guesses would be worse than doing nothing.
+    assert r.get_json()["applied"] == 0
+
+
+def test_applying_recommendations_writes_every_job_at_once(client, token):
+    from unittest.mock import patch
+    with patch("app.ollama_client.list_models", return_value=["llama3.1:8b"]):
+        applied = client.post(f"{API}/settings/models/recommended",
+                              headers=auth(token)).get_json()["applied"]
+        body = client.get(f"{API}/settings/models", headers=auth(token)).get_json()
+    assert applied > 0
+    # The point of the button is that nothing is left on a stale model.
+    recommended = [a for a in body["actions"] if a["recommended"]]
+    assert recommended and all(a["current"] == a["recommended"] for a in recommended)
+
+
+def test_reader_settings_round_trip(client, token):
+    body = client.post(f"{API}/settings/reader", headers=auth(token),
+                       json={"declickbait": True, "content_filter_mode": "highlight",
+                             "content_filter_llm": True, "embeds": True,
+                             "notify_high_score": True}).get_json()
+    assert body["declickbait"] is True
+    assert body["content_filter_mode"] == "highlight"
+    assert body["content_filter_llm"] is True
+    assert body["embeds"] is True
+    assert body["notify_high_score"] is True
+
+
+def test_an_unknown_padding_mode_is_refused(client, token):
+    r = client.post(f"{API}/settings/reader", headers=auth(token),
+                    json={"content_filter_mode": "sideways"})
+    assert r.status_code == 400
+
+
+def test_retention_ships_inert_and_refuses_to_prune_unconfirmed(client, app, token):
+    """The default window is shorter than most existing corpora, so the first
+    run would otherwise delete nearly everything."""
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        add_article(db, add_feed(db), seq=1, guid="old")
+        db.close()
+    state = client.get(f"{API}/settings/retention", headers=auth(token)).get_json()
+    assert state["confirmed"] is False
+    assert state["days"] == 15
+
+    blocked = client.post(f"{API}/settings/retention/prune", headers=auth(token))
+    assert blocked.status_code == 409
+
+    client.post(f"{API}/settings/retention", headers=auth(token), json={"confirmed": True})
+    assert client.post(f"{API}/settings/retention/prune",
+                       headers=auth(token)).status_code == 200
+
+
+def test_retention_days_must_be_a_whole_non_negative_number(client, token):
+    assert client.post(f"{API}/settings/retention", headers=auth(token),
+                       json={"days": "soon"}).status_code == 400
+    assert client.post(f"{API}/settings/retention", headers=auth(token),
+                       json={"days": -1}).status_code == 400
+
+
+def test_retention_days_round_trip(client, token):
+    body = client.post(f"{API}/settings/retention", headers=auth(token),
+                       json={"days": 30}).get_json()
+    assert body["days"] == 30
+    assert client.get(f"{API}/settings/retention",
+                      headers=auth(token)).get_json()["days"] == 30
+
+
+def test_clear_read_needs_someone_to_clear(client, token):
+    assert client.post(f"{API}/settings/retention/clear-read",
+                       headers=auth(token), json={}).status_code == 400
+
+
+def test_clear_read_for_all_users(client, app, token):
+    from app.db import get_db_direct
+    from app.repo.articles import mark_read
+    from app.repo.users import ensure_bootstrap_user
+    with app.app_context():
+        db = get_db_direct()
+        aid = add_article(db, add_feed(db), seq=1, guid="cr")
+        mark_read(db, ensure_bootstrap_user(db), aid)
+        db.commit()
+        db.close()
+    r = client.post(f"{API}/settings/retention/clear-read", headers=auth(token),
+                    json={"all_users": True})
+    assert r.get_json()["cleared"] >= 1
+
+
+def test_topic_rules_mute_boost_and_clear(client, app, token):
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        add_article(db, add_feed(db), seq=1, guid="tr", topics=["crypto"])
+        db.close()
+    muted = client.post(f"{API}/settings/topics", headers=auth(token),
+                        json={"action": "mute", "topic": "crypto"}).get_json()
+    assert next(t for t in muted["topics"] if t["topic"] == "crypto")["muted"] is True
+
+    boosted = client.post(f"{API}/settings/topics", headers=auth(token),
+                          json={"action": "boost", "topic": "crypto",
+                                "adjustment": 0.2}).get_json()
+    row = next(t for t in boosted["topics"] if t["topic"] == "crypto")
+    assert row["adjustment"] == 0.2 and row["muted"] is False
+
+    cleared = client.post(f"{API}/settings/topics", headers=auth(token),
+                          json={"action": "clear", "topic": "crypto"}).get_json()
+    row = next(t for t in cleared["topics"] if t["topic"] == "crypto")
+    assert row["adjustment"] == 0.0 and row["muted"] is False
+
+
+def test_a_non_numeric_boost_is_refused(client, token):
+    r = client.post(f"{API}/settings/topics", headers=auth(token),
+                    json={"action": "boost", "topic": "crypto",
+                          "adjustment": "a lot"})
+    assert r.status_code == 400
+    assert r.get_json()["error"]
+
+
+def test_tidying_topics_renormalises_stored_slugs(client, app, token):
+    """The repair aliases only help if something applies them."""
+    from app.db import get_db_direct
+    from sqlalchemy import text
+    with app.app_context():
+        db = get_db_direct()
+        aid = add_article(db, add_feed(db), seq=1, guid="ti", topics=["pol-tica"])
+        db.execute(text("UPDATE articles SET topics = ARRAY['pol-tica'] WHERE id = :i"),
+                   {"i": aid})
+        db.commit()
+        db.close()
+    r = client.post(f"{API}/settings/topics", headers=auth(token),
+                    json={"action": "renormalize"})
+    assert r.get_json()["renormalized"] >= 1
+
+
+def test_an_unknown_topic_action_is_refused(client, token):
+    r = client.post(f"{API}/settings/topics", headers=auth(token),
+                    json={"action": "explode", "topic": "crypto"})
+    assert r.status_code == 400
+
+
+def test_a_topic_action_needs_a_topic(client, token):
+    assert client.post(f"{API}/settings/topics", headers=auth(token),
+                       json={"action": "mute"}).status_code == 400

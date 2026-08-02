@@ -162,6 +162,70 @@ export interface Digest {
   articles: { id: number; url: string }[];
 }
 
+/**
+ * The Ollama endpoint, and which one is actually in force.
+ *
+ * `using_env` is worth sending rather than letting a client infer it from two
+ * empty strings: blank means "fall back to the environment", and showing empty
+ * boxes with no explanation is how a working setup looks broken.
+ */
+export interface OllamaSettings {
+  host: string;
+  port: string;
+  using_env: boolean;
+  env_base: string;
+  active_base: string;
+}
+
+export interface OllamaProbe {
+  ok: boolean;
+  message: string;
+  models: string[];
+  base: string;
+}
+
+/** One Ollama job, its model, and whether that model is installed. */
+export interface ModelAction {
+  id: string;
+  label: string;
+  description: string;
+  current: string;
+  /** null when Ollama is unreachable — unknown, which is not the same as false. */
+  installed: boolean | null;
+  recommended: string | null;
+  why: string;
+}
+
+export interface ModelSettings {
+  actions: ModelAction[];
+  installed: string[];
+  defaults: { scoring: string; summary: string };
+}
+
+export interface ReaderSettings {
+  declickbait: boolean;
+  content_filter_mode: string;
+  content_filter_modes: string[];
+  content_filter_llm: boolean;
+  embeds: boolean;
+  notify_high_score: boolean;
+}
+
+export interface RetentionSettings {
+  days: number;
+  /** Ships false. Nothing is pruned until someone confirms. */
+  confirmed: boolean;
+  preview: { articles: number; total: number; saved: number };
+}
+
+/** An admin topic rule: applies to every reader, unlike a per-user stance. */
+export interface TopicRule {
+  topic: string;
+  articles: number;
+  muted: boolean;
+  adjustment: number;
+}
+
 export interface ListQuery {
   feed?: number;
   topic?: string;
@@ -500,6 +564,100 @@ export class BetterNewsClient {
   /** Admin only. Requeues hidden articles and returns how many. */
   rescoreHidden() {
     return this.request<{ requeued: number }>('/rescore-hidden', { method: 'POST' });
+  }
+
+  // ── settings, all admin only ───────────────────────────────────────────────
+
+  ollamaSettings() {
+    return this.request<OllamaSettings>('/settings/ollama');
+  }
+
+  saveOllama(host: string, port: string) {
+    return this.request<OllamaSettings>('/settings/ollama', {
+      method: 'POST', body: JSON.stringify({ host, port }),
+    });
+  }
+
+  /**
+   * Probes a host/port without storing it.
+   *
+   * Deliberately takes the values rather than reading the saved ones: saving
+   * first and testing after is how a working configuration gets replaced by a
+   * broken one.
+   */
+  testOllama(host: string, port: string) {
+    return this.request<OllamaProbe>('/settings/ollama/test', {
+      method: 'POST', body: JSON.stringify({ host, port }),
+    });
+  }
+
+  modelSettings() {
+    return this.request<ModelSettings>('/settings/models');
+  }
+
+  /** A partial map of job id → model. Unknown ids are refused, not ignored. */
+  saveModels(models: Record<string, string>) {
+    return this.request<ModelSettings>('/settings/models', {
+      method: 'POST', body: JSON.stringify(models),
+    });
+  }
+
+  useRecommendedModels() {
+    return this.request<{ applied: number }>('/settings/models/recommended', {
+      method: 'POST',
+    });
+  }
+
+  readerSettings() {
+    return this.request<ReaderSettings>('/settings/reader');
+  }
+
+  /** Only the keys present are written, so a panel can send one toggle. */
+  saveReaderSettings(patch: Partial<ReaderSettings>) {
+    return this.request<ReaderSettings>('/settings/reader', {
+      method: 'POST', body: JSON.stringify(patch),
+    });
+  }
+
+  retentionSettings() {
+    return this.request<RetentionSettings>('/settings/retention');
+  }
+
+  saveRetention(patch: { days?: number; confirmed?: boolean }) {
+    return this.request<RetentionSettings>('/settings/retention', {
+      method: 'POST', body: JSON.stringify(patch),
+    });
+  }
+
+  /** Throws a 409 until the policy is confirmed. This one deletes articles. */
+  pruneNow() {
+    return this.request<{ removed: number }>('/settings/retention/prune', {
+      method: 'POST',
+    });
+  }
+
+  clearRead(userIds?: number[]) {
+    const body = userIds ? { user_ids: userIds } : { all_users: true };
+    return this.request<{ cleared: number }>('/settings/retention/clear-read', {
+      method: 'POST', body: JSON.stringify(body),
+    });
+  }
+
+  topicRules() {
+    return this.request<{ topics: TopicRule[] }>('/settings/topics');
+  }
+
+  setTopicRule(action: 'mute' | 'boost' | 'clear', topic: string, adjustment?: number) {
+    return this.request<{ topics: TopicRule[] }>('/settings/topics', {
+      method: 'POST', body: JSON.stringify({ action, topic, adjustment }),
+    });
+  }
+
+  /** Re-slugs stored topics through the current aliases. */
+  tidyTopics() {
+    return this.request<{ renormalized: number }>('/settings/topics', {
+      method: 'POST', body: JSON.stringify({ action: 'renormalize' }),
+    });
   }
 }
 

@@ -20,10 +20,16 @@ export function useArticles(query: ListQuery, enabled = true, search = '') {
   // cannot land on top of a newer one.
   const key = JSON.stringify({ query, search });
   const active = useRef(key);
+  // The in-flight guard has to be a ref, not the `loading` state. State updates
+  // are batched, so two IntersectionObserver callbacks in the same tick both
+  // read `loading === false`, both fetch the same offset, and both append --
+  // the list then shows page one twice. A ref is written synchronously.
+  const inFlight = useRef(false);
 
   const loadPage = useCallback(
     async (offset: number, replace: boolean) => {
       const mine = active.current;
+      inFlight.current = true;
       setLoading(true);
       setError(null);
       try {
@@ -43,6 +49,7 @@ export function useArticles(query: ListQuery, enabled = true, search = '') {
       } catch (e) {
         if (active.current === mine) setError((e as Error).message);
       } finally {
+        inFlight.current = false;
         if (active.current === mine) setLoading(false);
       }
     },
@@ -55,15 +62,16 @@ export function useArticles(query: ListQuery, enabled = true, search = '') {
     // 401 -- and the 401 handler then clears a token that was never set.
     if (!enabled) return;
     active.current = key;
+    inFlight.current = false;
     setArticles([]);
     setNextOffset(0);
     void loadPage(0, true);
   }, [key, loadPage, enabled]);
 
   const loadMore = useCallback(() => {
-    if (loading || nextOffset === null) return;
+    if (inFlight.current || nextOffset === null) return;
     void loadPage(nextOffset, false);
-  }, [loading, nextOffset, loadPage]);
+  }, [nextOffset, loadPage]);
 
   /** Replace one article in place, for optimistic vote/save updates. */
   const patch = useCallback((updated: Article) => {

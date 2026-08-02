@@ -135,6 +135,115 @@ export async function mockApi(page: Page) {
     r.fulfill({ json: article(1, { state: { read: false, saved: true, dismissed: false, opinion: null } }) }));
   await page.route('**/api/v1/articles/*/vote', (r) =>
     r.fulfill({ json: article(1, { state: { read: false, saved: false, dismissed: false, opinion: 'liked' } }) }));
+  await mockSettings(page);
+}
+
+/**
+ * The settings endpoints, holding state across the round trip.
+ *
+ * Stateful on purpose: a stub that echoes a fixed body would pass whether or
+ * not the screen sent what the user typed, which is the only thing these
+ * panels do.
+ */
+export async function mockSettings(page: Page) {
+  const state = {
+    ollama: {
+      host: 'host.docker.internal', port: '11434', using_env: false,
+      env_base: 'http://host.docker.internal:11434',
+      active_base: 'http://host.docker.internal:11434',
+    },
+    reader: {
+      declickbait: false, content_filter_mode: 'remove',
+      content_filter_modes: ['highlight', 'off', 'remove'],
+      content_filter_llm: false, embeds: false, notify_high_score: false,
+    },
+    retention: {
+      days: 15, confirmed: false,
+      preview: { articles: 412, total: 18020, saved: 37 },
+    },
+    topics: [
+      { topic: 'crypto', articles: 5, muted: false, adjustment: 0 },
+      { topic: 'economy', articles: 41, muted: false, adjustment: 0 },
+    ],
+    models: {
+      actions: [
+        { id: 'scoring', label: 'Relevance scoring', description: 'Runs on every article.',
+          current: 'ministral-3:14b', installed: false,
+          recommended: 'llama3.2:3b', why: 'Best fit installed: 3B, not a reasoning model.' },
+        { id: 'summary', label: 'Article summaries', description: 'One call per article.',
+          current: 'llama3.2:3b', installed: true, recommended: 'llama3.2:3b',
+          why: 'Best fit installed.' },
+      ],
+      installed: ['llama3.2:3b', 'llama3.1:8b'],
+      defaults: { scoring: 'llama3.2:3b', summary: 'llama3.2:3b' },
+    },
+  };
+
+  // Registered after the sub-paths would shadow them, so /ollama/test and
+  // /retention/prune go first: Playwright tries the most recent route first,
+  // and '**/api/v1/settings/ollama' does not match '/ollama/test' anyway --
+  // but the ordering is what keeps that true if a pattern ever loosens.
+  await page.route('**/api/v1/settings/ollama/test', (r) => {
+    const body = r.request().postDataJSON() as { host: string; port: string };
+    return r.fulfill({ json: {
+      ok: false, message: `Could not reach ${body.host}:${body.port}.`,
+      models: [], base: `http://${body.host}:${body.port}`,
+    } });
+  });
+  await page.route('**/api/v1/settings/ollama', (r) => {
+    if (r.request().method() === 'POST') {
+      const body = r.request().postDataJSON() as { host: string; port: string };
+      state.ollama = { ...state.ollama, ...body,
+                       active_base: `http://${body.host}:${body.port}` };
+    }
+    return r.fulfill({ json: state.ollama });
+  });
+  await page.route('**/api/v1/settings/models/recommended', (r) => {
+    state.models.actions = state.models.actions.map((a) =>
+      (a.recommended ? { ...a, current: a.recommended, installed: true } : a));
+    return r.fulfill({ json: { applied: 2 } });
+  });
+  await page.route('**/api/v1/settings/models', (r) => {
+    if (r.request().method() === 'POST') {
+      const body = r.request().postDataJSON() as Record<string, string>;
+      state.models.actions = state.models.actions.map((a) =>
+        (a.id in body ? { ...a, current: body[a.id], installed: true } : a));
+    }
+    return r.fulfill({ json: state.models });
+  });
+  await page.route('**/api/v1/settings/reader', (r) => {
+    if (r.request().method() === 'POST') Object.assign(state.reader, r.request().postDataJSON());
+    return r.fulfill({ json: state.reader });
+  });
+  await page.route('**/api/v1/settings/retention/prune', (r) => {
+    // The server refuses while unconfirmed. Mirrored here so a screen that
+    // stopped disabling the button would fail rather than quietly appear to work.
+    if (!state.retention.confirmed) {
+      return r.fulfill({ status: 409,
+        json: { error: 'Confirm the retention policy before pruning.', status: 409 } });
+    }
+    state.retention.preview = { ...state.retention.preview, articles: 0 };
+    return r.fulfill({ json: { removed: 412 } });
+  });
+  await page.route('**/api/v1/settings/retention/clear-read', (r) =>
+    r.fulfill({ json: { cleared: 96 } }));
+  await page.route('**/api/v1/settings/retention', (r) => {
+    if (r.request().method() === 'POST') Object.assign(state.retention, r.request().postDataJSON());
+    return r.fulfill({ json: state.retention });
+  });
+  await page.route('**/api/v1/settings/topics', (r) => {
+    if (r.request().method() === 'POST') {
+      const body = r.request().postDataJSON() as
+        { action: string; topic?: string; adjustment?: number };
+      if (body.action === 'renormalize') return r.fulfill({ json: { renormalized: 8 } });
+      state.topics = state.topics.map((t) => (t.topic !== body.topic ? t : {
+        ...t,
+        muted: body.action === 'mute',
+        adjustment: body.action === 'boost' ? (body.adjustment ?? 0.1) : 0,
+      }));
+    }
+    return r.fulfill({ json: { topics: state.topics } });
+  });
 }
 
 /**

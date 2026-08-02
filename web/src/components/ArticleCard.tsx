@@ -14,12 +14,14 @@ export function ArticleCard({
   onVote,
   onSave,
   onTopic,
+  focused,
 }: {
   article: Article;
   onOpen: (a: Article) => void;
   onVote: (a: Article, value: 1 | -1) => void;
   onSave: (a: Article) => void;
   onTopic?: (topic: string) => void;
+  focused?: boolean;
 }) {
   const s = article.state;
   const classes = [
@@ -28,6 +30,7 @@ export function ArticleCard({
     s.read ? 'read' : '',
     s.saved ? 'saved' : '',
     s.dismissed ? 'dismissed' : '',
+    focused ? 'focused' : '',
   ]
     .filter(Boolean)
     .join(' ');

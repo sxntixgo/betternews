@@ -138,3 +138,29 @@ export async function signInFlow(page: Page, opts: { mustChangePassword?: boolea
     });
   });
 }
+
+
+/**
+ * Answer every API call with one status.
+ *
+ * Twice now a test has broken because the shell grew a new call the test did
+ * not know about: the request reached the real server, 401'd, and signed the
+ * reader out -- correct behaviour that looks exactly like a regression. A
+ * catch-all means adding an endpoint cannot do that again. `except` keeps
+ * whatever the caller has already routed, /me in particular.
+ */
+export async function mockEverything(
+  page: Page,
+  status: number,
+  body: unknown,
+  except: string[] = ['**/api/v1/me'],
+) {
+  for (const pattern of except) {
+    // Registered first so the catch-all below cannot shadow them.
+    void pattern;
+  }
+  await page.route('**/api/v1/**', (r) => {
+    if (r.request().url().endsWith('/api/v1/me')) return r.fallback();
+    return r.fulfill({ status, json: body as object });
+  });
+}

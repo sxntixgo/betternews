@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { mockApi, signInFlow, signedIn } from './fixtures';
+import { mockApi, mockEverything, signInFlow, signedIn } from './fixtures';
 
 /**
  * The first screen every reader meets, and the one they meet again when a token
@@ -89,14 +89,9 @@ test.describe('losing the session', () => {
 
   test('a server error is shown, and does not sign the reader out', async ({ page }) => {
     await signedIn(page);
-    await page.route('**/api/v1/me', (r) => r.fulfill({ json: { id: 1, username: 'r', role: 'user', declickbait: false, content_filter_mode: 'off' } }));
-    await page.route('**/api/v1/feeds', (r) => r.fulfill({ status: 500, json: { error: 'Internal error.', status: 500 } }));
-    // Every call the shell makes has to be answered, or an unmocked one reaches
-    // the real server, 401s, and signs the reader out -- which is correct
-    // behaviour and would make this test look like a regression.
-    await page.route('**/api/v1/digest', (r) => r.fulfill({ status: 500, json: { error: 'Internal error.', status: 500 } }));
-    await page.route('**/api/v1/articles?*', (r) =>
-      r.fulfill({ status: 500, json: { error: 'Internal error.', status: 500 } }));
+    // Everything except /me fails. A catch-all rather than a list, because the
+    // list went stale twice as the shell grew new calls.
+    await mockEverything(page, 500, { error: 'Internal error.', status: 500 });
     await page.goto('/');
 
     await expect(page.locator('.error')).toContainText(/internal error/i);

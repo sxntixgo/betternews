@@ -201,3 +201,53 @@ def test_the_profile_prompt_demands_named_subjects():
     same, which is what a vague profile actually costs."""
     p = prompts.profile_prompt(["A: x"], [])
     assert "Name the actual subjects" in p
+
+
+# ── subject beats style ───────────────────────────────────────────────────────
+# Measured against the owner's own 43 votes: 11 liked articles scored below the
+# threshold and were hidden, 8 of them at exactly 0.00. The model's stated
+# reasons were "no tactical depth", "lacks investigative depth", "routine" --
+# for a tournament the profile names by name. It was reading the profile's style
+# preferences as a hard filter over its subject preferences.
+
+@pytest.mark.parametrize("builder", [
+    lambda p: prompts.scoring_prompt(p, "t", "s"),
+    lambda p: prompts.batch_scoring_prompt(p, [{"id": 1, "title": "t", "snippet": "s"}]),
+])
+def test_both_scorers_say_subject_outranks_style(builder):
+    text = builder("Likes Formula 1.")
+    assert "primary signal" in text
+    # The exact phrases the model used to justify a 0.00, named so it cannot.
+    for excuse in ("lacks analysis", "lacks tactical depth", "routine"):
+        assert excuse in text, f"the prompt should rule out {excuse!r}"
+
+
+@pytest.mark.parametrize("builder", [
+    lambda p: prompts.scoring_prompt(p, "t", "s"),
+    lambda p: prompts.batch_scoring_prompt(p, [{"id": 1, "title": "t", "snippet": "s"}]),
+])
+def test_a_stated_interest_has_a_score_floor(builder):
+    """Without a floor, style objections stack until a match reaches zero."""
+    # Collapsed: the rule wraps across lines in the prompt source.
+    text = " ".join(builder("Likes Formula 1.").split())
+    assert "must never score below 0.5" in text
+    assert "Reserve scores below 0.3" in text
+
+
+@pytest.mark.parametrize("builder", [
+    lambda p: prompts.scoring_prompt(p, "t", "s"),
+    lambda p: prompts.batch_scoring_prompt(p, [{"id": 1, "title": "t", "snippet": "s"}]),
+])
+def test_the_json_example_does_not_anchor_on_zero(builder):
+    """61% of everything ever scored came back at exactly 0.00, and the format
+    example showed `"score": 0.0`. A small model copies the literal."""
+    text = builder("Likes Formula 1.")
+    assert '"score": 0.0' not in text
+
+
+def test_the_profile_is_forbidden_from_prescribing_style():
+    """It used to ask for "patterns in writing style or depth", which is where
+    the style criteria that broke scoring came from in the first place."""
+    text = prompts.profile_prompt(["a: b"], ["c: d"])
+    assert "Do NOT describe writing style" in text
+    assert "analytical depth" in text

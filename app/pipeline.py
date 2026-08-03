@@ -206,7 +206,21 @@ def _score_batch(chunk, profile_text, model, base_url, vocab) -> dict | None:
             out[rid] = row
     # A partial answer means the model lost track; redo the chunk properly
     # rather than silently leaving articles unscored.
-    return out if len(out) == len(wanted) else None
+    if len(out) != len(wanted):
+        return None
+
+    # Every id came back, which used to be the whole check -- and it let through
+    # rows carrying a score and a reason but no `topics` at all. That was 94% of
+    # everything ever scored, and those rows averaged 0.23 against 0.53 for the
+    # complete ones. A model that stops filling in fields is a model that has
+    # stopped reading carefully, so the score it gives is not worth keeping
+    # either. Redo the chunk one article at a time, where it manages both.
+    untagged = [rid for rid, row in out.items() if not row.get("topics")]
+    if untagged:
+        log.info("Batch reply omitted topics for %d/%d articles; rescoring "
+                 "individually", len(untagged), len(wanted))
+        return None
+    return out
 
 
 def _score_individually(chunk, profile_text, model, base_url, vocab) -> dict:

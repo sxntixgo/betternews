@@ -11,7 +11,8 @@ from datetime import datetime, timezone
 
 from sqlalchemy import text
 
-from app import (content_filter, extract, llm_config, prompts, ollama_client,
+from app import (affinity as affinity_mod, content_filter, extract, llm_config,
+                 prompts, ollama_client,
                  topics as topics_mod, youtube)
 from app.db import get_db_direct, get_setting, set_setting
 
@@ -139,6 +140,10 @@ def score_new_articles(db, profile_text: str) -> int:
     base_url = ollama_base(db)
     vocab = topics_mod.vocabulary(db)
     rule_map = topics_mod.rules(db)
+    # The reader's own record, where they have one. Loaded once per run rather
+    # than per article: it is one grouped query and it cannot change mid-run.
+    owner = affinity_mod.owner_id(db)
+    aff = affinity_mod.topic_affinity(db, owner) if owner is not None else {}
     try:
         global_threshold = float(get_setting(db, "score_threshold", "") or SCORE_THRESHOLD)
     except ValueError:
@@ -165,7 +170,7 @@ def score_new_articles(db, profile_text: str) -> int:
                             article["id"])
                 continue
             try:
-                _persist_score(db, article, result, rule_map, global_threshold)
+                _persist_score(db, article, result, rule_map, global_threshold, aff)
                 scored += 1
             except Exception as exc:
                 log.error("Error scoring article id=%d: %s", article["id"], exc)
@@ -242,10 +247,17 @@ def _score_individually(chunk, profile_text, model, base_url, vocab) -> dict:
     return out
 
 
-def _persist_score(db, article, result, rule_map, global_threshold) -> None:
+def _persist_score(db, article, result, rule_map, global_threshold, aff=None) -> None:
     score = max(0.0, min(1.0, float(result.get("score", 0.5))))
     reason = str(result.get("reason", ""))
     article_topics = topics_mod.normalize(result.get("topics"))
+
+    # The reader's votes outrank the model's opinion wherever they exist. On the
+    # owner's 2,149 votes the model's score separated likes from dislikes at
+    # AUC 0.524 -- a coin flip -- against 0.756 for their own topic like-rates.
+    score, learned = affinity_mod.adjust(score, article_topics, aff or {})
+    if learned:
+        reason = f"{learned}. {reason}".strip()
 
     score, muted, note = topics_mod.apply_rules(score, article_topics, rule_map)
     if note:
@@ -511,7 +523,14 @@ def _regenerate_one(db, user_id: int) -> bool:
     boosted = [r["topic"] for r in stances if r["stance"] == "more"]
     hidden = [r["topic"] for r in stances if r["stance"] == "hide"]
 
-    prompt = prompts.profile_prompt(liked, disliked, boosted=boosted, hidden=hidden)
+    # The counts, not just the headlines. Asked to infer preferences from two
+    # lists of titles, the model produced a profile claiming this reader valued
+    # "crime and legal stories" and "health and psychology" -- their actual
+    # like-rates on those are 23% and 16%, two of the things they reject most,
+    # and it named none of their top four. Handing it the arithmetic removes the
+    # inference that was going wrong.
+    prompt = prompts.profile_prompt(liked, disliked, boosted=boosted, hidden=hidden,
+                                    evidence=affinity_mod.evidence_block(db, user_id))
     new_profile = ollama_client.generate(
         model=llm_config.model_for(db, "profile"), prompt=prompt,
         expect_json=False, base_url=ollama_base(db),

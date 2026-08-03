@@ -175,6 +175,12 @@ votes = Table(
     Column("value", Integer, nullable=False),
     Column("title_snapshot", Text),
     Column("summary_snapshot", Text),
+    # Topics as they were when the vote was cast. On the vote and not read back
+    # off the article for the same reason the title and summary are: retention
+    # deletes articles, `article_id` goes NULL, and the vote outlives it. Topic
+    # affinity is computed from these, so without the snapshot the reader's
+    # learned preferences would quietly decay every time the pruner ran.
+    Column("topics_snapshot", ARRAY(Text)),
     _ts(name="created_at", nullable=False, server_default=func.now()),
     CheckConstraint("value IN (1,-1)", name="value_valid"),
 )

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { Me, Preferences, Topic, TokenSummary } from '@shared/api';
 import { api } from '../api/client';
+import { Modal } from '../components/Modal';
 
 /**
  * The reader's own account: password, devices, topics and their profile.
@@ -10,27 +11,25 @@ import { api } from '../api/client';
  */
 export function Profile({ me, onClose }: { me: Me; onClose: () => void }) {
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal profile-screen" onClick={(e) => e.stopPropagation()}>
-        <nav className="modal-nav">
-          <button className="btn-icon" onClick={onClose}>← Back</button>
-          <strong>{me.username}</strong>
-        </nav>
-        <div className="modal-body">
-          <h3>What you like</h3>
-          <PreferenceProfile />
+    <Modal onClose={onClose} ariaLabel="Your profile" className="modal profile-screen">
+      <nav className="modal-nav">
+        <button className="btn-icon" onClick={onClose}>← Back</button>
+        <strong>{me.username}</strong>
+      </nav>
+      <div className="modal-body">
+        <h3>What you like</h3>
+        <PreferenceProfile />
 
-          <h3>Topics</h3>
-          <TopicStances />
+        <h3>Topics</h3>
+        <TopicStances />
 
-          <h3>Devices</h3>
-          <Tokens />
+        <h3>Devices</h3>
+        <Tokens />
 
-          <h3>Password</h3>
-          <ChangePassword mustChange={false} />
-        </div>
+        <h3>Password</h3>
+        <ChangePassword mustChange={false} />
       </div>
-    </div>
+    </Modal>
   );
 }
 

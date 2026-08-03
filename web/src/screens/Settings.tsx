@@ -3,6 +3,7 @@ import type {
   ModelSettings, OllamaSettings, ReaderSettings, RetentionSettings, TopicRule,
 } from '@shared/api';
 import { api } from '../api/client';
+import { Modal } from '../components/Modal';
 
 /**
  * The settings panels.
@@ -13,26 +14,24 @@ import { api } from '../api/client';
  */
 export function Settings({ onClose }: { onClose: () => void }) {
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal settings-screen" onClick={(e) => e.stopPropagation()}>
-        <nav className="modal-nav">
-          <button className="btn-icon" onClick={onClose}>← Back</button>
-          <strong>Settings</strong>
-        </nav>
-        <div className="modal-body">
-          <h3>Ollama</h3>
-          <OllamaPanel />
-          <h3>Models</h3>
-          <ModelsPanel />
-          <h3>Reading</h3>
-          <ReaderPanel />
-          <h3>Retention</h3>
-          <RetentionPanel />
-          <h3>Topic rules</h3>
-          <TopicsPanel />
-        </div>
+    <Modal onClose={onClose} ariaLabel="Settings" className="modal settings-screen">
+      <nav className="modal-nav">
+        <button className="btn-icon" onClick={onClose}>← Back</button>
+        <strong>Settings</strong>
+      </nav>
+      <div className="modal-body">
+        <h3>Ollama</h3>
+        <OllamaPanel />
+        <h3>Models</h3>
+        <ModelsPanel />
+        <h3>Reading</h3>
+        <ReaderPanel />
+        <h3>Retention</h3>
+        <RetentionPanel />
+        <h3>Topic rules</h3>
+        <TopicsPanel />
       </div>
-    </div>
+    </Modal>
   );
 }
 

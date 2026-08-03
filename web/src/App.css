@@ -876,7 +876,9 @@ dialog[open] { display: flex; flex-direction: column; }
 .action-model:first-child { border-top: none; }
 .action-model .hint { margin: 3px 0 0; }
 .action-model-form { grid-column: 2; }
-.action-model-form select {
+.action-model > select { grid-column: 2; }
+.action-model-form select,
+.action-model > select {
   border: 1px solid var(--color-hairline);
   border-radius: var(--radius-md);
   padding: 6px 10px;
@@ -885,7 +887,12 @@ dialog[open] { display: flex; flex-direction: column; }
   color: var(--color-ink);
   min-width: 190px;
 }
-.action-model .ollama-result { grid-column: 1 / -1; }
+/* Warnings span both columns, under the row they belong to. */
+.action-model .ollama-result,
+.action-model .action-suggestion { grid-column: 1 / -1; margin: 0; font-size: 12px; }
+.action-suggestion { color: var(--color-ink-muted); }
+.action-suggestion-warn { color: var(--color-danger); }
+.action-guidance { font-size: 12px; }
 .action-tag {
   font-size: 10px;
   letter-spacing: .04em;

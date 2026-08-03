@@ -83,46 +83,89 @@ function ModelsPanel() {
   useEffect(() => { api.modelSettings().then(setState).catch(() => {}); }, []);
   if (!state) return <p className="loading">Loading…</p>;
 
+  const unreachable = state.installed.length === 0;
+
   return (
     <div className="settings-panel">
-      <table className="settings-table">
-        <tbody>
-          {state.actions.map((a) => (
-            <tr key={a.id}>
-              <td>
-                <div className="feed-title">{a.label}</div>
-                <div className="muted">{a.description}</div>
-                {/* A configured model that is not installed made every scoring
-                    call fail silently for six weeks. */}
-                {a.installed === false && (
-                  <div className="feed-error">{a.current} is not installed</div>
-                )}
-                {a.recommended && a.recommended !== a.current && (
-                  <div className="muted">Suggested: {a.recommended} — {a.why}</div>
-                )}
-              </td>
-              <td>
-                <select
-                  value={a.current}
-                  onChange={async (e) => setState(await api.saveModels({ [a.id]: e.target.value }))}
-                >
-                  <option value={a.current}>{a.current}</option>
-                  {state.installed.filter((m) => m !== a.current).map((m) => (
-                    <option key={m} value={m}>{m}</option>
-                  ))}
-                </select>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <button className="btn-secondary" onClick={async () => {
+      {unreachable && (
+        <p className="error">
+          Could not reach Ollama, so the installed models are unknown and no
+          recommendation can be made. Check the connection above — a model
+          configured here but not installed there fails silently on every call.
+        </p>
+      )}
+      {/* The most load-bearing paragraph in Settings: it is the knowledge that
+          stops someone picking a model that fails on every call, and it was
+          dropped entirely when this panel was ported from the server UI. */}
+      <p className="muted">
+        Each job can use a different model, chosen from what your Ollama
+        actually has. Recommendations weigh two things: whether the job needs
+        structured JSON, and whether it runs on every article or only
+        occasionally. <strong>Reasoning models</strong> (gpt-oss, deepseek-r1
+        and similar) spend their output budget thinking before answering —
+        fatal for the JSON jobs, expensive per article, and the best choice for
+        the rare free-text ones.
+      </p>
+
+      <ul className="action-models">
+        {state.actions.map((a) => (
+          <li key={a.id} className={`action-model ${a.installed === false ? 'action-model-missing' : ''}`}>
+            <div className="action-model-info">
+              <strong>{a.label}</strong>
+              {a.json_output && <span className="action-tag">JSON</span>}
+              {a.heavy && <span className="action-tag">every article</span>}
+              <p className="muted">{a.description}</p>
+              <p className="muted action-guidance">{a.guidance}</p>
+            </div>
+
+            <select
+              value={a.explicit}
+              onChange={async (e) => setState(await api.saveModels({ [a.id]: e.target.value }))}
+            >
+              {/* Blank is a real choice, not a placeholder: it clears the
+                  setting and lets the job fall back. Saying what it resolves
+                  to is the difference between "set" and "defaulting". */}
+              <option value="">Default{a.inherited ? ` (${a.current})` : ''}</option>
+              {state.installed.map((m) => (
+                <option key={m} value={m}>
+                  {m}{m === a.recommended ? ' — recommended' : ''}
+                </option>
+              ))}
+              {/* Kept in the list rather than silently swapped out, or the
+                  panel would show a model the server is not using. */}
+              {a.explicit && !state.installed.includes(a.explicit) && (
+                <option value={a.explicit}>{a.explicit} — not installed</option>
+              )}
+            </select>
+
+            {a.installed === false && (
+              <p className="ollama-result ollama-result-bad">
+                <strong>{a.current}</strong> is not installed on this Ollama
+                server, so this job fails every time. Pick one of the models
+                listed.
+              </p>
+            )}
+            {a.suboptimal && (
+              <p className="action-suggestion action-suggestion-warn">
+                {a.current} reasons before answering, which suits this job
+                poorly. {a.recommended && <>Try {a.recommended} — {a.why}</>}
+              </p>
+            )}
+            {!a.suboptimal && a.recommended && a.recommended !== a.current && (
+              <p className="action-suggestion">Suggested: {a.recommended} — {a.why}</p>
+            )}
+          </li>
+        ))}
+      </ul>
+
+      <button className="btn-secondary" disabled={unreachable} onClick={async () => {
         await api.useRecommendedModels();
         setState(await api.modelSettings());
       }}>Apply every recommendation</button>
     </div>
   );
 }
+
 
 function ReaderPanel() {
   const [state, setState] = useState<ReaderSettings | null>(null);

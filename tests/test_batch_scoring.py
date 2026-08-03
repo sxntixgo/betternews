@@ -67,8 +67,8 @@ def test_batch_results_are_applied_per_article(db_conn, monkeypatch):
     ids = _articles(db_conn, 3)
     reply = {"results": [
         {"id": ids[0], "score": 0.9, "reason": "high", "topics": ["ai"]},
-        {"id": ids[1], "score": 0.1, "reason": "low", "topics": []},
-        {"id": ids[2], "score": 0.5, "reason": "mid", "topics": []},
+        {"id": ids[1], "score": 0.1, "reason": "low", "topics": ["crypto"]},
+        {"id": ids[2], "score": 0.5, "reason": "mid", "topics": ["business"]},
     ]}
     with patch("app.pipeline.ollama_client.generate", return_value=reply):
         pipeline.score_new_articles(db_conn, "profile")
@@ -221,10 +221,42 @@ def test_a_bad_score_value_does_not_kill_the_batch(db_conn, monkeypatch, caplog)
     monkeypatch.setattr(pipeline, "SCORING_BATCH_SIZE", 8)
     ids = _articles(db_conn, 2)
     reply = {"results": [
-        {"id": ids[0], "score": "not-a-number", "reason": "r"},
-        {"id": ids[1], "score": 0.9, "reason": "r"},
+        {"id": ids[0], "score": "not-a-number", "reason": "r", "topics": ["ai"]},
+        {"id": ids[1], "score": 0.9, "reason": "r", "topics": ["ai"]},
     ]}
     with patch("app.pipeline.ollama_client.generate", return_value=reply):
         assert pipeline.score_new_articles(db_conn, "profile") == 1
     assert "Error scoring article" in caplog.text
     assert _statuses(db_conn)[ids[1]] == "scored"
+
+
+def test_a_batch_reply_without_topics_is_redone_one_at_a_time(db_conn, monkeypatch, caplog):
+    """The failure this was written for.
+
+    A row carrying a score and a reason but no `topics` used to pass, because
+    the only check was that every id came back. That was 94% of everything ever
+    scored on the owner's instance, and those rows averaged 0.23 against 0.53
+    for the complete ones -- a model that has stopped filling in fields has
+    stopped reading carefully, so its score is not worth keeping either.
+    """
+    # The reason line is INFO: it fires whenever a model is weak at multi-item
+    # JSON, which could be every batch, and that is detail for whoever is
+    # diagnosing rather than a warning for everyone.
+    caplog.set_level("INFO", logger="app.pipeline")
+    monkeypatch.setattr(pipeline, "SCORING_BATCH_SIZE", 8)
+    ids = _articles(db_conn, 2)
+    lazy = {"results": [
+        {"id": ids[0], "score": 0.0, "reason": "irrelevant"},
+        {"id": ids[1], "score": 0.0, "reason": "irrelevant"},
+    ]}
+    # The batch is rejected, then each article is scored on its own -- where the
+    # model manages both fields and gives a very different answer.
+    good = {"score": 0.8, "reason": "actually relevant", "topics": ["formula-1"]}
+    with patch("app.pipeline.ollama_client.generate", side_effect=[lazy, good, good]):
+        assert pipeline.score_new_articles(db_conn, "profile") == 2
+
+    rows = {r["id"]: r for r in db_conn.execute(text(
+        "SELECT id, score, topics FROM articles")).mappings()}
+    assert rows[ids[0]]["score"] == 0.8
+    assert rows[ids[0]]["topics"] == ["formula-1"]
+    assert "omitted topics" in caplog.text

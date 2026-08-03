@@ -179,3 +179,47 @@ def test_topic_rule_fields_match_the_contract(client, token, seeded):
 def test_managed_feed_fields_match_the_contract(client, token, seeded):
     got = client.get("/api/v1/feeds/manage", headers=token).get_json()["feeds"][0]
     assert set(got) == declared_fields("ManagedFeed")
+
+
+# ── admin and ops ─────────────────────────────────────────────────────────────
+
+def test_admin_user_fields_match_the_contract(client, token):
+    body = client.get("/api/v1/admin/users", headers=token).get_json()
+    assert set(body) == declared_fields("AdminUserList")
+    assert set(body["users"][0]) == declared_fields("AdminUser")
+
+
+def test_insights_fields_match_the_contract(client, token, seeded):
+    got = client.get("/api/v1/insights", headers=token).get_json()
+    assert set(got) == declared_fields("Insights")
+    assert set(got["histogram"][0]) == declared_fields("HistogramBucket")
+    assert set(got["agreement"]) == declared_fields("Agreement")
+    assert set(got["per_feed"][0]) == declared_fields("FeedAccuracy")
+
+
+def test_pipeline_run_fields_match_the_contract(client, app, token):
+    from sqlalchemy import text as _t
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        db.execute(_t("INSERT INTO pipeline_runs (started_at, finished_at, scored_n) "
+                      "VALUES (now(), now(), 1)"))
+        db.commit()
+        db.close()
+    got = client.get("/api/v1/insights", headers=token).get_json()["runs"][0]
+    assert set(got) == declared_fields("PipelineRun")
+
+
+def test_ollama_log_fields_match_the_contract(client, app, token):
+    from app.models import ollama_calls
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        db.execute(ollama_calls.insert().values(
+            action="scoring", model="m", endpoint="e", ok=True, status_code=200,
+            duration_ms=5, request_preview="a", response_preview="b", error=None))
+        db.commit()
+        db.close()
+    body = client.get("/api/v1/ollama-log", headers=token).get_json()
+    assert set(body) == declared_fields("OllamaLog")
+    assert set(body["calls"][0]) == declared_fields("OllamaCall")

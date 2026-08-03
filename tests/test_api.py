@@ -1330,3 +1330,293 @@ def test_an_unknown_topic_action_is_refused(client, token):
 def test_a_topic_action_needs_a_topic(client, token):
     assert client.post(f"{API}/settings/topics", headers=auth(token),
                        json={"action": "mute"}).status_code == 400
+
+
+# ── phase 8: admin, insights, call log ────────────────────────────────────────
+
+def _log_call(db, **over):
+    """Write one call-log row.
+
+    Straight into the table on purpose: the real writer is a sink inside
+    `ollama_client`, and driving it here would test httpx mocking rather than
+    the endpoint.
+    """
+    from app.models import ollama_calls
+    row = {"action": "scoring", "model": "llama3.2:3b", "endpoint": "http://x/api/generate",
+           "ok": True, "status_code": 200, "duration_ms": 5,
+           "request_preview": "a", "response_preview": "b", "error": None}
+    row.update(over)
+    db.execute(ollama_calls.insert().values(**row))
+
+
+
+ADMIN_AREA_ENDPOINTS = [
+    ("get", f"{API}/admin/users"),
+    ("post", f"{API}/admin/users/1/role"),
+    ("post", f"{API}/admin/users/1/delete"),
+    ("post", f"{API}/admin/users/1/reset-password"),
+    ("get", f"{API}/insights"), ("post", f"{API}/insights/threshold"),
+    ("get", f"{API}/ollama-log"), ("post", f"{API}/ollama-log/toggle"),
+    ("post", f"{API}/ollama-log/clear"),
+]
+
+
+@pytest.mark.parametrize("method,path", ADMIN_AREA_ENDPOINTS)
+def test_every_admin_area_endpoint_refuses_a_plain_reader(app, plain_token, method, path):
+    c = app.test_client()
+    r = getattr(c, method)(path, headers={"Authorization": f"Bearer {plain_token}"}, json={})
+    assert r.status_code == 403, path
+    assert r.is_json
+
+
+def test_listing_users_says_who_you_are(client, token):
+    """The client has to know its own row: it must not offer you Delete on
+    yourself, and the server refuses it anyway."""
+    body = client.get(f"{API}/admin/users", headers=auth(token)).get_json()
+    assert body["me"] in [u["id"] for u in body["users"]]
+    assert set(body["users"][0]) == {
+        "id", "username", "role", "must_change_password", "created_at",
+        "last_login_at", "votes", "read_count"}
+
+
+def test_promoting_and_demoting_a_user(client, app, token):
+    from app.db import get_db_direct
+    from tests.conftest import add_user
+    with app.app_context():
+        db = get_db_direct()
+        uid = add_user(db, username="promotable", role="user")
+        db.commit()
+        db.close()
+    body = client.post(f"{API}/admin/users/{uid}/role", headers=auth(token),
+                       json={"role": "admin"}).get_json()
+    assert next(u for u in body["users"] if u["id"] == uid)["role"] == "admin"
+    body = client.post(f"{API}/admin/users/{uid}/role", headers=auth(token),
+                       json={"role": "user"}).get_json()
+    assert next(u for u in body["users"] if u["id"] == uid)["role"] == "user"
+
+
+def test_an_invalid_role_is_refused(client, token):
+    r = client.post(f"{API}/admin/users/1/role", headers=auth(token),
+                    json={"role": "superuser"})
+    assert r.status_code == 400
+
+
+def test_role_and_delete_report_a_missing_user(client, token):
+    assert client.post(f"{API}/admin/users/9999/role", headers=auth(token),
+                       json={"role": "user"}).status_code == 404
+    assert client.post(f"{API}/admin/users/9999/delete",
+                       headers=auth(token)).status_code == 404
+    assert client.post(f"{API}/admin/users/9999/reset-password",
+                       headers=auth(token)).status_code == 404
+
+
+def test_the_last_admin_cannot_be_demoted_or_deleted(client, app, token):
+    """An instance with no admin cannot be repaired from inside the app.
+    Same rule as the HTML page, asserted separately because it is re-implemented."""
+    from app.db import get_db_direct
+    from app.repo.users import ensure_bootstrap_user
+    with app.app_context():
+        db = get_db_direct()
+        me = ensure_bootstrap_user(db)
+        db.close()
+    demote = client.post(f"{API}/admin/users/{me}/role", headers=auth(token),
+                         json={"role": "user"})
+    assert demote.status_code == 409
+    assert "last admin" in demote.get_json()["error"]
+    assert client.post(f"{API}/admin/users/{me}/delete",
+                       headers=auth(token)).status_code == 409
+
+
+def test_you_cannot_delete_your_own_account(client, app, token):
+    from app.db import get_db_direct
+    from app.repo.users import ensure_bootstrap_user
+    from tests.conftest import add_user
+    with app.app_context():
+        db = get_db_direct()
+        me = ensure_bootstrap_user(db)
+        add_user(db, username="spare-admin", role="admin")   # so "last admin" is not the reason
+        db.commit()
+        db.close()
+    r = client.post(f"{API}/admin/users/{me}/delete", headers=auth(token))
+    assert r.status_code == 409
+    assert "your own account" in r.get_json()["error"]
+
+
+def test_deleting_a_user(client, app, token):
+    from app.db import get_db_direct
+    from tests.conftest import add_user
+    with app.app_context():
+        db = get_db_direct()
+        uid = add_user(db, username="doomed", role="user")
+        db.commit()
+        db.close()
+    body = client.post(f"{API}/admin/users/{uid}/delete", headers=auth(token)).get_json()
+    assert uid not in [u["id"] for u in body["users"]]
+
+
+def test_a_password_reset_returns_the_value_once_and_forces_a_change(client, app, token):
+    from app.db import get_db_direct
+    from tests.conftest import add_user
+    with app.app_context():
+        db = get_db_direct()
+        uid = add_user(db, username="forgot", role="user")
+        db.commit()
+        db.close()
+    body = client.post(f"{API}/admin/users/{uid}/reset-password",
+                       headers=auth(token)).get_json()
+    assert body["password"], "generated when none is supplied"
+    assert body["username"] == "forgot"
+    listed = client.get(f"{API}/admin/users", headers=auth(token)).get_json()
+    assert next(u for u in listed["users"] if u["id"] == uid)["must_change_password"] is True
+
+
+def test_a_weak_reset_password_is_refused(client, app, token):
+    from app.db import get_db_direct
+    from tests.conftest import add_user
+    with app.app_context():
+        db = get_db_direct()
+        uid = add_user(db, username="weak", role="user")
+        db.commit()
+        db.close()
+    r = client.post(f"{API}/admin/users/{uid}/reset-password", headers=auth(token),
+                    json={"password": "x"})
+    assert r.status_code == 400
+    assert r.get_json()["error"]
+
+
+def test_insights_answers_every_panel_in_one_call(client, app, token):
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        add_article(db, add_feed(db), seq=1, guid="i1", topics=["economy"])
+        db.close()
+    body = client.get(f"{API}/insights", headers=auth(token)).get_json()
+    assert set(body) == {"threshold", "histogram", "agreement", "suggestion",
+                         "per_feed", "per_topic", "pipeline", "runs", "llm_error"}
+    # 20 buckets always, including the empty ones -- a histogram with gaps
+    # silently rescales.
+    assert len(body["histogram"]) == 20
+
+
+def test_insights_matches_the_html_page_for_the_same_database(client, app, token):
+    """The two front ends must not disagree about the numbers."""
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        fid = add_feed(db, title="Shared feed")
+        add_article(db, fid, seq=1, guid="ins", topics=["economy"])
+        db.close()
+    body = client.get(f"{API}/insights", headers=auth(token)).get_json()
+    html = client.get("/insights").data.decode()
+    assert "Shared feed" in html
+    assert body["pipeline"]["total"] == 1
+    assert str(body["pipeline"]["total"]) in html
+
+
+def test_no_votes_means_no_threshold_suggestion(client, token):
+    """A suggestion from no data would be a number with no meaning."""
+    assert client.get(f"{API}/insights", headers=auth(token)).get_json()["suggestion"] is None
+
+
+def test_applying_a_threshold_sticks(client, token):
+    assert client.post(f"{API}/insights/threshold", headers=auth(token),
+                       json={"threshold": 0.55}).get_json()["threshold"] == 0.55
+    assert client.get(f"{API}/insights", headers=auth(token)).get_json()["threshold"] == 0.55
+
+
+def test_an_insights_threshold_outside_zero_to_one_is_refused(client, token):
+    assert client.post(f"{API}/insights/threshold", headers=auth(token),
+                       json={"threshold": 1.5}).status_code == 400
+    assert client.post(f"{API}/insights/threshold", headers=auth(token),
+                       json={"threshold": "high"}).status_code == 400
+
+
+def test_the_call_log_ships_off_and_can_be_switched_on(client, token):
+    body = client.get(f"{API}/ollama-log", headers=auth(token)).get_json()
+    assert body["enabled"] is False
+    assert body["keep"] == 200
+    assert client.post(f"{API}/ollama-log/toggle", headers=auth(token),
+                       json={"enabled": True}).get_json()["enabled"] is True
+    assert client.get(f"{API}/ollama-log", headers=auth(token)).get_json()["enabled"] is True
+
+
+def test_the_call_log_shows_both_sides_of_a_call(client, app, token):
+    from app.db import get_db_direct
+    from app import call_log
+    from app.db import set_setting
+    with app.app_context():
+        db = get_db_direct()
+        set_setting(db, call_log.SETTING, "1")
+        _log_call(db, ok=False, status_code=500, duration_ms=12,
+                  request_preview="the prompt", response_preview="", error="boom")
+        db.commit()
+        db.close()
+    body = client.get(f"{API}/ollama-log", headers=auth(token)).get_json()
+    call = body["calls"][0]
+    # The tail is where a reasoning model puts its answer; the head is where a
+    # malformed prompt shows up. Both sides or the log cannot diagnose anything.
+    assert call["request_preview"] == "the prompt"
+    assert call["error"] == "boom"
+    assert call["ok"] is False
+    assert body["summary"]["failed"] == 1
+
+
+def test_the_call_log_can_be_narrowed_to_failures(client, app, token):
+    from app.db import get_db_direct
+    from app import call_log
+    from app.db import set_setting
+    with app.app_context():
+        db = get_db_direct()
+        set_setting(db, call_log.SETTING, "1")
+        _log_call(db)
+        _log_call(db, action="summary", ok=False, status_code=500,
+                  request_preview="c", response_preview="", error="nope")
+        db.commit()
+        db.close()
+    all_calls = client.get(f"{API}/ollama-log", headers=auth(token)).get_json()
+    failed = client.get(f"{API}/ollama-log?failed=1", headers=auth(token)).get_json()
+    assert len(all_calls["calls"]) == 2
+    assert [c["ok"] for c in failed["calls"]] == [False]
+    assert failed["only_failed"] is True
+
+
+def test_an_empty_log_still_reports_the_queue(client, token):
+    """An empty log means either no calls are being made or none are needed.
+    The queue is what tells them apart."""
+    body = client.get(f"{API}/ollama-log", headers=auth(token)).get_json()
+    assert body["calls"] == []
+    assert "queue" in body and isinstance(body["queue"], dict)
+
+
+def test_clearing_the_call_log(client, app, token):
+    from app.db import get_db_direct
+    from app import call_log
+    from app.db import set_setting
+    with app.app_context():
+        db = get_db_direct()
+        set_setting(db, call_log.SETTING, "1")
+        _log_call(db)
+        db.commit()
+        db.close()
+    assert client.post(f"{API}/ollama-log/clear", headers=auth(token)).get_json()["cleared"] == 1
+    assert client.get(f"{API}/ollama-log", headers=auth(token)).get_json()["calls"] == []
+
+
+def test_insights_reports_recent_runs_with_their_duration(client, app, token):
+    """A run reporting 0 scored in ~0s is a failing run, not an idle one --
+    which is only visible if the duration comes through."""
+    from sqlalchemy import text as _t
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        db.execute(_t(
+            "INSERT INTO pipeline_runs (started_at, finished_at, scored_n, "
+            "summarized_n, errors_n, skipped) "
+            "VALUES (now() - interval '90 seconds', now(), 12, 9, 1, false)"))
+        db.commit()
+        db.close()
+    run = client.get(f"{API}/insights", headers=auth(token)).get_json()["runs"][0]
+    assert run["scored_n"] == 12 and run["summarized_n"] == 9
+    assert run["errors_n"] == 1 and run["skipped"] is False
+    assert 85 <= run["seconds"] <= 95
+    assert run["started_at"] and run["finished_at"]

@@ -136,6 +136,97 @@ export async function mockApi(page: Page) {
   await page.route('**/api/v1/articles/*/vote', (r) =>
     r.fulfill({ json: article(1, { state: { read: false, saved: false, dismissed: false, opinion: 'liked' } }) }));
   await mockSettings(page);
+  await mockAdmin(page);
+}
+
+/** Admin users, insights and the call log. Stateful, for the same reason. */
+export async function mockAdmin(page: Page) {
+  let users = [
+    { id: 1, username: 'reader', role: 'admin', must_change_password: false,
+      created_at: '2026-01-01T00:00:00+00:00', last_login_at: '2026-08-01T09:00:00+00:00',
+      votes: 34, read_count: 210 },
+    { id: 2, username: 'guest', role: 'user', must_change_password: false,
+      created_at: '2026-06-01T00:00:00+00:00', last_login_at: null,
+      votes: 2, read_count: 9 },
+  ];
+  let enabled = false;
+  let calls = [
+    { id: 1, at: '2026-08-01T10:00:00+00:00', action: 'scoring', model: 'llama3.2:3b',
+      endpoint: 'http://ollama/api/generate', ok: true, status_code: 200,
+      duration_ms: 812, request_preview: 'Score these articles…',
+      response_preview: '{"scores": []}', error: null },
+    { id: 2, at: '2026-08-01T10:01:00+00:00', action: 'summary', model: 'llama3.2:3b',
+      endpoint: 'http://ollama/api/generate', ok: false, status_code: 500,
+      duration_ms: 40, request_preview: 'Summarize…', response_preview: '',
+      error: 'connection refused' },
+  ];
+
+  await page.route('**/api/v1/admin/users', (r) => r.fulfill({ json: { users, me: 1 } }));
+  await page.route('**/api/v1/admin/users/*/role', (r) => {
+    const id = Number(r.request().url().match(/users\/(\d+)\//)![1]);
+    const { role } = r.request().postDataJSON() as { role: string };
+    // The last admin cannot be demoted: an instance with no admin cannot repair
+    // itself. The server answers 409; so does this, or the screen is never
+    // tested against the case that matters.
+    if (role === 'user' && users.filter((u) => u.role === 'admin').length <= 1
+        && users.find((u) => u.id === id)?.role === 'admin') {
+      return r.fulfill({ status: 409,
+        json: { error: 'That is the last admin — promote someone else first.', status: 409 } });
+    }
+    users = users.map((u) => (u.id === id ? { ...u, role } : u));
+    return r.fulfill({ json: { users, me: 1 } });
+  });
+  await page.route('**/api/v1/admin/users/*/delete', (r) => {
+    const id = Number(r.request().url().match(/users\/(\d+)\//)![1]);
+    users = users.filter((u) => u.id !== id);
+    return r.fulfill({ json: { users, me: 1 } });
+  });
+  await page.route('**/api/v1/admin/users/*/reset-password', (r) => {
+    const id = Number(r.request().url().match(/users\/(\d+)\//)![1]);
+    users = users.map((u) => (u.id === id ? { ...u, must_change_password: true } : u));
+    return r.fulfill({ json: { username: 'guest', password: 'temp-horse-battery' } });
+  });
+
+  await page.route('**/api/v1/insights/threshold', (r) =>
+    r.fulfill({ json: { threshold: (r.request().postDataJSON() as { threshold: number }).threshold } }));
+  await page.route('**/api/v1/insights', (r) => r.fulfill({
+    json: {
+      threshold: 0.35,
+      histogram: Array.from({ length: 20 }, (_, i) => ({
+        lo: i / 20, hi: (i + 1) / 20, n: i === 7 ? 90 : i * 3,
+      })),
+      agreement: { votes: 38, agreed: 29, rate: 76, likes: 34, dislikes: 4,
+                   likes_ok: 27, dislikes_ok: 2 },
+      suggestion: { threshold: 0.45, rate: 84, votes: 38 },
+      per_feed: [{ feed: 'The Verge', likes: 9, dislikes: 1, articles: 300 }],
+      per_topic: [{ topic: 'economy', likes: 12, dislikes: 2 }],
+      pipeline: { unscored: 3, unsummarized: 1, hidden: 40, ready: 25, total: 69 },
+      runs: [{ started_at: '2026-08-01T10:00:00+00:00', finished_at: '2026-08-01T10:01:30+00:00',
+               scored_n: 12, summarized_n: 9, errors_n: 1, skipped: false, seconds: 90 }],
+      llm_error: null,
+    },
+  }));
+
+  await page.route('**/api/v1/ollama-log/toggle', (r) => {
+    enabled = (r.request().postDataJSON() as { enabled: boolean }).enabled;
+    return r.fulfill({ json: { enabled } });
+  });
+  await page.route('**/api/v1/ollama-log/clear', (r) => {
+    const n = calls.length;
+    calls = [];
+    return r.fulfill({ json: { cleared: n } });
+  });
+  await page.route('**/api/v1/ollama-log*', (r) => {
+    const only = new URL(r.request().url()).searchParams.get('failed') === '1';
+    return r.fulfill({ json: {
+      enabled, keep: 200, only_failed: only,
+      summary: { total: calls.length, failed: calls.filter((c) => !c.ok).length,
+                 newest: calls[0]?.at ?? null },
+      calls: only ? calls.filter((c) => !c.ok) : calls,
+      queue: { new: 3, scored: 1, summarized: 25 },
+      last_run: '2026-08-01T10:01:30+00:00',
+    } });
+  });
 }
 
 /**

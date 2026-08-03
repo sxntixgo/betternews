@@ -120,3 +120,28 @@ def test_feed_rows_render_with_real_timestamps(client, app):
     r = client.post(f"/feeds/{fid}/resume")
     assert r.status_code == 200
     assert b"ok " in r.data
+
+
+def test_no_test_file_defines_the_same_test_twice():
+    """A redefined test silently replaces the first one.
+
+    Python rebinds the name, pytest collects only the survivor, and the lost
+    test takes its coverage with it -- which is exactly how it was noticed:
+    one line of `app/api/feeds.py` went uncovered with no failing test to
+    explain why. Nothing else in the suite would catch this.
+    """
+    import ast
+    from pathlib import Path
+
+    tests_dir = Path(__file__).resolve().parent
+    clashes = {}
+    for path in sorted(tests_dir.glob("test_*.py")):
+        seen, dupes = set(), set()
+        for node in ast.parse(path.read_text()).body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if node.name in seen:
+                    dupes.add(node.name)
+                seen.add(node.name)
+        if dupes:
+            clashes[path.name] = sorted(dupes)
+    assert not clashes, f"redefined test functions: {clashes}"

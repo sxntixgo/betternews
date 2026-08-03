@@ -173,74 +173,6 @@ def test_prompt_without_vocabulary_says_so():
 
 # ── routes ─────────────────────────────────────────────────────────────────────
 
-def test_topic_panel_lists_topics(client, app):
-    from app.db import get_db_direct
-    with app.app_context():
-        db = get_db_direct()
-        add_article(db, add_feed(db), topics=["ai"])
-        db.close()
-    assert b"ai" in client.get("/settings/topics").data
-
-
-@pytest.mark.parametrize("action,check", [
-    ("mute", lambda r: r["muted"] is True),
-    ("boost", lambda r: r["adjustment"] > 0),
-    ("demote", lambda r: r["adjustment"] < 0),
-])
-def test_rule_actions(client, app, action, check):
-    client.post("/settings/topics", data={"topic": "ai", "action": action})
-    from app.db import get_db_direct
-    with app.app_context():
-        db = get_db_direct()
-        assert check(topics.rules(db)["ai"])
-        db.close()
-
-
-def test_clear_removes_a_rule(client, app):
-    client.post("/settings/topics", data={"topic": "ai", "action": "mute"})
-    client.post("/settings/topics", data={"topic": "ai", "action": "clear"})
-    from app.db import get_db_direct
-    with app.app_context():
-        db = get_db_direct()
-        assert "ai" not in topics.rules(db)
-        db.close()
-
-
-def test_unknown_action_rejected(client):
-    assert client.post("/settings/topics",
-                       data={"topic": "ai", "action": "explode"}).status_code == 400
-
-
-def test_blank_topic_reports_an_error(client):
-    r = client.post("/settings/topics", data={"topic": "", "action": "mute"})
-    assert b"Topic is required" in r.data
-
-
-def test_articles_can_be_filtered_by_topic(client, app):
-    from app.db import get_db_direct
-    with app.app_context():
-        db = get_db_direct()
-        fid = add_feed(db)
-        add_article(db, fid, seq=1, guid="a", title="AI Story", topics=["ai"])
-        add_article(db, fid, seq=2, guid="b", title="Bike Story", topics=["cycling"])
-        db.close()
-    data = client.get("/articles?topic=ai").data
-    assert b"AI Story" in data and b"Bike Story" not in data
-
-
-def test_topic_chips_render_on_cards(client, app):
-    from app.db import get_db_direct
-    with app.app_context():
-        db = get_db_direct()
-        add_article(db, add_feed(db), topics=["ai"])
-        db.close()
-    assert b"topic-chip" in client.get("/articles").data
-
-
-def test_plain_users_cannot_change_rules(login_as):
-    c, _ = login_as()
-    assert c.post("/settings/topics", data={"topic": "ai", "action": "mute"}).status_code == 403
-
 
 def test_invalid_stored_threshold_falls_back(db_conn):
     """A bad settings value must not stop scoring."""
@@ -338,16 +270,6 @@ def test_renormalize_clears_topics_that_become_empty(db_conn):
     db_conn.commit()
     assert db_conn.execute(text("SELECT topics FROM articles WHERE id=:i"),
                            {"i": aid}).scalar() is None
-
-
-def test_renormalize_route(client, app):
-    from app.db import get_db_direct
-    with app.app_context():
-        db = get_db_direct()
-        add_article(db, add_feed(db), topics=["futbol"])
-        db.close()
-    r = client.post("/settings/topics", data={"topic": "-", "action": "renormalize"})
-    assert b"Tidied topics on 1 articles" in r.data
 
 
 # ── localized / entity tags ───────────────────────────────────────────────────

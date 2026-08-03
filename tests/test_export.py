@@ -152,27 +152,4 @@ def test_articles_sharing_a_headline_get_distinct_files(db_conn):
 
 # ── route ──────────────────────────────────────────────────────────────────────
 
-def test_route_returns_a_zip(client, app):
-    from app.db import get_db_direct
-    with app.app_context():
-        db = get_db_direct()
-        add_article(db, add_feed(db))
-        db.close()
-    r = client.get("/export/markdown?scope=all")
-    assert r.status_code == 200
-    assert r.mimetype == "application/zip"
-    assert "attachment" in r.headers["Content-Disposition"]
-    assert zipfile.ZipFile(io.BytesIO(r.data)).namelist()
 
-
-def test_route_rejects_an_unknown_scope(client):
-    assert client.get("/export/markdown?scope=everything-ever").status_code == 400
-
-
-def test_route_requires_a_session(anon_client):
-    assert anon_client.get("/export/markdown").status_code == 302
-
-
-def test_plain_users_can_export_their_own(login_as):
-    c, _ = login_as()
-    assert c.get("/export/markdown?scope=saved").status_code == 200

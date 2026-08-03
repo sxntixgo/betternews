@@ -89,6 +89,10 @@ def me():
         "id": user["id"],
         "username": user["username"],
         "role": user["role"],
+        # After an admin reset, the server UI blocks everything until this is
+        # changed. Once the HTML UI is gone there is nowhere else to say so, so
+        # the client has to be able to enforce the same thing.
+        "must_change_password": bool(user["must_change_password"]),
         "declickbait": presenters.declickbait(db),
         "content_filter_mode": presenters.content_filter_mode(db),
     })

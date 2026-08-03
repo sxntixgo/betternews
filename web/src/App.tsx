@@ -19,6 +19,7 @@ import { AdminUsers } from './screens/AdminUsers';
 import { CallLog } from './screens/CallLog';
 import { Insights } from './screens/Insights';
 import { SignIn } from './screens/SignIn';
+import { ForcedPasswordChange } from './screens/ForcedPasswordChange';
 import './App.css';
 
 export default function App() {
@@ -70,7 +71,7 @@ export default function App() {
     return watchSystemTheme(() => themeRef.current);
   }, [theme]);
 
-  const { articles, loading, error, loadMore, hasMore, patch } = useArticles(
+  const { articles, diagnosis, loading, error, loadMore, hasMore, patch } = useArticles(
     { feed, saved: saved || undefined, hidden: hidden || undefined, topic,
       sort, limit: 50, reloads } as ListQuery & { reloads: number },
     signedIn === true,
@@ -209,6 +210,32 @@ export default function App() {
 
   if (signedIn === null) return <p className="loading">Loading…</p>;
   if (!signedIn) return <SignIn onDone={() => setSignedIn(true)} />;
+  // Before anything else a reset account can reach. The server used to enforce
+  // this with an app-wide redirect to the profile page; with that UI gone, this
+  // is the only thing between a reset password and the reading list.
+  if (me?.must_change_password) {
+    return (
+      <ForcedPasswordChange
+        username={me.username}
+        // null, not true: it re-runs the /me effect, which is what clears the
+        // flag here. It also covers the sign-out button, whose /me then 401s.
+        onDone={() => setSignedIn(null)}
+      />
+    );
+  }
+
+  // Maps the server's diagnosis to a screen. The server names a label, not a
+  // URL: it has no idea this client is modal-based rather than page-based.
+  function runDiagnosisAction(kind: string) {
+    if (kind === 'no_feeds') return setShowFeeds(true);
+    if (kind === 'all_hidden') return setHidden(true);
+    // Same call the toolbar's Refresh makes; the list refetches when it lands.
+    if (kind === 'not_polled') {
+      void api.poll().then(() => setReloads((n) => n + 1)).catch(() => {});
+      return;
+    }
+    return setShowSettings(true);   // every Ollama and model problem
+  }
 
   const vote = (a: Article, value: 1 | -1) =>
     api.vote(a.id, value).then(patch).catch(() => {});
@@ -344,7 +371,24 @@ export default function App() {
           ))}
           {loading && <p className="loading">Loading…</p>}
           {!loading && articles.length === 0 && !error && (
-            <p className="empty">Nothing to read.</p>
+            // The server says why. "Nothing to read" on its own is how a
+            // misconfigured model went unnoticed three times.
+            diagnosis ? (
+              <div className={`empty diagnosis diagnosis-${diagnosis.kind}`}>
+                <h2>{diagnosis.title}</h2>
+                <p>{diagnosis.detail}</p>
+                {/* Withheld from a plain reader: there is nothing they can do
+                    about an unreachable Ollama, and a button that 403s reads
+                    as breakage rather than as a permission. */}
+                {diagnosis.action && (!diagnosis.admin_only || me?.role === 'admin') && (
+                  <button onClick={() => runDiagnosisAction(diagnosis.kind)}>
+                    {diagnosis.action}
+                  </button>
+                )}
+              </div>
+            ) : (
+              <p className="empty">Nothing to read.</p>
+            )
           )}
           <div ref={sentinel} />
         </div>

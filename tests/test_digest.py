@@ -200,43 +200,6 @@ def test_text_without_markers_is_untouched():
 
 # ── routes ─────────────────────────────────────────────────────────────────────
 
-def test_digest_renders_on_the_index(client, app):
-    from app.db import get_db_direct
-    with app.app_context():
-        db = get_db_direct()
-        _unread(db, 3)
-        db.close()
-    with patch("app.ollama_client.generate", return_value="**Theme**\nNews.\n[ids: 1]"):
-        data = client.get("/digest").data
-    assert b"What you missed" in data
-    assert b"3 unread" in data
-
-
-def test_digest_is_empty_when_there_is_nothing_to_say(client):
-    with patch("app.ollama_client.generate", return_value="x") as g:
-        data = client.get("/digest").data
-    assert b"What you missed" not in data
-    g.assert_not_called()
-
-
-def test_dismissing_clears_the_cached_digest(client, app):
-    from app.db import get_db_direct
-    with app.app_context():
-        db = get_db_direct()
-        _unread(db, 3)
-        db.close()
-    with patch("app.ollama_client.generate", return_value="body"):
-        client.get("/digest")
-    assert client.post("/digest/dismiss").status_code == 200
-    with app.app_context():
-        db = get_db_direct()
-        assert db.execute(text("SELECT COUNT(*) FROM digests")).scalar() == 0
-        db.close()
-
-
-def test_digest_requires_a_session(anon_client):
-    assert anon_client.get("/digest").status_code == 302
-
 
 @pytest.mark.parametrize("marker", [
     "[ids: 1, 2]",      # what the prompt asks for

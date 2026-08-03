@@ -208,19 +208,6 @@ def test_health_reports_full_text_share(db_conn):
     assert row["measured"] == 2 and row["full_text"] == 1
 
 
-def test_manage_feeds_flags_a_snippet_only_feed(client, app):
-    from app.db import get_db_direct
-    with app.app_context():
-        db = get_db_direct()
-        fid = add_feed(db, title="Snippet Feed")
-        for i in range(3):
-            add_article(db, fid, seq=i, guid=f"g{i}", extract_source="snippet")
-        db.close()
-    data = client.get("/feeds").data
-    assert b"0% full text" in data
-    assert b"mostly snippets" in data
-
-
 def test_transcript_without_the_library_is_none(monkeypatch):
     """The dependency is optional at runtime; its absence must not raise."""
     import builtins

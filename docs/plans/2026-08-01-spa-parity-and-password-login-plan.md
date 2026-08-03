@@ -298,7 +298,7 @@ exists precisely because the default window would delete most of a corpus.
 
 ---
 
-## Phase 8 — Admin and ops  ·  **Sonnet**
+## Phase 8 — Admin and ops  ·  **Sonnet**  ·  ✅ done (#42)
 
 **API.** `GET /api/v1/admin/users` and role/reset-password/delete;
 `GET /api/v1/insights`; `GET /api/v1/ollama-log` plus toggle and clear.
@@ -319,7 +319,21 @@ numbers match the HTML page for the same database.
 
 ---
 
-## Phase 9 — Cut over  ·  **Opus**
+## Phase 9 — Cut over  ·  **Opus**  ·  ✅ code done; **deploy is the owner's call**
+
+Landed against this phase's own precondition ("only after Phases 1–8 are live
+and used for a week"), because the code change and the cut-over are separable:
+merging deletes the HTML UI from the repo, but nobody sees the SPA at `/` until
+the homestack Caddy config is deployed by hand. That deploy is the irreversible
+step, and it has not been done.
+
+Went further than planned in three places, each because the deletion exposed
+something: `/api/v1/articles` now carries a `diagnosis` (the empty-list
+explanation had no home left, and it exists because a misconfigured model went
+unnoticed three times); `/api/v1/me` reports `must_change_password` and the SPA
+gates on it (`_force_password_change` redirected to a page being deleted); and
+`npm run typecheck` now covers `e2e/`, which caught the first stale fixture
+immediately.
 
 **What.** Caddy serves the SPA at `/`, the HTMX reading templates are deleted.
 

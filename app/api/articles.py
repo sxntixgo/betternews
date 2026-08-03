@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from flask import Response, jsonify, request
 from sqlalchemy import text as sql
 
-from app import export as export_mod, presenters
+from app import export as export_mod, pipeline_status, presenters
 from app.api import api_auth, bp, current_api_user, error, serializers
 from app.db import get_db, get_setting
 from app.repo import articles as art_repo
@@ -56,7 +56,34 @@ def list_articles():
     return jsonify({
         "articles": [serializers.article(r, declickbait) for r in page],
         "next_offset": page.next_offset,
+        # Why the list is empty, when it is. A bare "Nothing to read" is how a
+        # misconfigured model went unnoticed three times -- the server knows the
+        # difference between "no feeds", "Ollama unreachable", "still working"
+        # and "caught up", and the client cannot work it out for itself.
+        #
+        # Only on the first page: an empty page two is the end of the list, not
+        # a problem, and diagnosing it costs an Ollama probe.
+        "diagnosis": _diagnosis(db, uid, len(page), _offset()),
     })
+
+
+def _diagnosis(db, uid: int, visible: int, offset: int) -> dict | None:
+    if offset:
+        return None
+    found = pipeline_status.diagnose(db, user_id=uid, visible=visible)
+    if found is None:
+        return None
+    # The href is dropped on purpose. `diagnose` still names one because it was
+    # written for server-rendered links; the client owns its own navigation and
+    # has no URLs to link to. `kind` is the stable thing to branch on.
+    label = found["action"][0] if found.get("action") else None
+    return {
+        "kind": found["kind"],
+        "title": found["title"],
+        "detail": found["detail"],
+        "action": label,
+        "admin_only": found["admin_only"],
+    }
 
 
 @bp.get("/articles/<int:article_id>")

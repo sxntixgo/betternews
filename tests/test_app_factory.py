@@ -1,32 +1,25 @@
 from unittest.mock import patch
-def test_app_has_routes(app):
-    rules = {r.rule for r in app.url_map.iter_rules()}
-    for path in (
-        "/",
-        "/articles",
-        "/feeds",
-        "/feeds/opml",
-        "/profile/preferences",
-        "/profile/preferences/regenerate",
-        "/status",
-        "/settings",
-        "/settings/models",
-        "/settings/embeds",
-        "/poll",
-        "/count",
-        "/manage-feeds",
-        "/sidebar/feeds",
-        "/rescore-hidden",
-        "/dismiss-all",
-        "/search",
-        "/article/<int:article_id>/save",
-        "/feeds/<int:feed_id>/pause",
-        "/feeds/<int:feed_id>/resume",
-        "/feeds/<int:feed_id>/threshold",
-        "/feeds/<int:feed_id>/tags",
-        "/article/<int:article_id>/dismiss",
-    ):
-        assert path in rules, f"missing route: {path}"
+
+
+def test_the_server_renders_exactly_four_things(app):
+    """The cut-over check, kept as a test rather than done once by eye.
+
+    Everything a reader does is the SPA against `/api/v1`. Four HTML routes
+    survive, each for a reason that is not "we did not get round to it":
+
+      * /login, /register — a browser with no session needs somewhere to land
+        that does not depend on the bundle having loaded. If the SPA were the
+        only door, a broken build would lock everyone out with no way to tell
+        whether the server was even up.
+      * /logout — clears the cookie the SPA cannot touch, being HttpOnly.
+      * /health — the container healthcheck curls it.
+
+    An exact set, not a subset: a route creeping back in is how two UIs start
+    disagreeing again, and that is the thing this phase existed to stop.
+    """
+    html = {r.rule for r in app.url_map.iter_rules()
+            if not r.rule.startswith("/api/v1") and r.endpoint != "static"}
+    assert html == {"/login", "/register", "/logout", "/health"}
 
 
 def test_scheduler_init_does_not_raise(app):
@@ -84,42 +77,6 @@ def test_scheduler_starts_in_web_when_opted_in(mock_init, monkeypatch, database_
 
 
 # ── Timestamp rendering ────────────────────────────────────────────────────────
-
-def test_dt_filter_formats_datetimes():
-    """Columns are TIMESTAMPTZ now; templates used to slice ISO strings."""
-    from datetime import datetime, timezone
-    from app import _fmt_dt
-    assert _fmt_dt(datetime(2026, 7, 26, 5, 30, tzinfo=timezone.utc)) == "2026-07-26 05:30"
-
-
-def test_dt_filter_tolerates_legacy_strings():
-    from app import _fmt_dt
-    assert _fmt_dt("2026-07-26T05:30:00Z") == "2026-07-26 05:30"
-
-
-def test_dt_filter_handles_empty_and_odd_values():
-    from app import _fmt_dt
-    assert _fmt_dt(None) == ""
-    assert _fmt_dt("") == ""
-    assert _fmt_dt(12345) == "12345"
-
-
-def test_feed_rows_render_with_real_timestamps(client, app):
-    """Regression: the resume route 500'd because this branch slices a datetime."""
-    from datetime import datetime, timezone
-    from app.db import get_db_direct
-    from sqlalchemy import text
-    from tests.conftest import add_feed
-    with app.app_context():
-        db = get_db_direct()
-        fid = add_feed(db)
-        db.execute(text("UPDATE feeds SET last_success_at=:t, last_polled_at=:t WHERE id=:i"),
-                   {"t": datetime.now(timezone.utc), "i": fid})
-        db.commit()
-        db.close()
-    r = client.post(f"/feeds/{fid}/resume")
-    assert r.status_code == 200
-    assert b"ok " in r.data
 
 
 def test_no_test_file_defines_the_same_test_twice():

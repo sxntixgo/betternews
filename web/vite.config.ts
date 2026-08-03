@@ -2,11 +2,11 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'node:path'
 
-// Served under /app in production so the HTMX UI keeps / until parity (plan
-// C.4). The dev server stays at the root, or every test URL would need the
-// prefix. `command` is 'build' only for a production bundle.
-export default defineConfig(({ command }) => ({
-  base: command === 'build' ? '/app/' : '/',
+// Served at the root. It used to build with base '/app/' so the HTMX UI could
+// keep '/' until parity; that UI is gone, and leaving the prefix would emit
+// asset URLs like /app/assets/index.js that nothing serves any more.
+export default defineConfig(() => ({
+  base: '/',
   plugins: [react()],
   resolve: {
     // The API contract is shared with the native app, so it lives outside web/.

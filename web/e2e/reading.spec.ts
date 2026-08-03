@@ -117,3 +117,43 @@ test('scrolling to the end never shows the same article twice', async ({ page })
   const titles = await page.locator('.article-row .article-title').allInnerTexts();
   expect(new Set(titles).size).toBe(titles.length);
 });
+
+test('an empty list says why, and offers the fix', async ({ page }) => {
+  // A bare "Nothing to read" is how a misconfigured model went unnoticed three
+  // times. The server decides the wording; the client decides where the button
+  // goes.
+  await page.route('**/api/v1/articles?*', (r) => r.fulfill({
+    json: {
+      articles: [], next_offset: null,
+      diagnosis: {
+        kind: 'no_feeds', title: 'No feeds yet',
+        detail: 'Add a feed and the reader will start filling up.',
+        action: 'Manage feeds', admin_only: true,
+      },
+    },
+  }));
+  await page.reload();
+  await expect(page.locator('.diagnosis h2')).toHaveText('No feeds yet');
+  await page.getByRole('button', { name: 'Manage feeds' }).click();
+  await expect(page.locator('.manage-feeds')).toBeVisible();
+});
+
+test('an admin-only diagnosis withholds the button from a plain reader', async ({ page }) => {
+  await page.route('**/api/v1/me', (r) => r.fulfill({
+    json: { id: 2, username: 'plain', role: 'user', must_change_password: false,
+            declickbait: false, content_filter_mode: 'off' },
+  }));
+  await page.route('**/api/v1/articles?*', (r) => r.fulfill({
+    json: {
+      articles: [], next_offset: null,
+      diagnosis: {
+        kind: 'ollama_unreachable', title: 'Ollama is unreachable',
+        detail: 'Connection refused.', action: 'Ollama settings', admin_only: true,
+      },
+    },
+  }));
+  await page.reload();
+  // They still get told what is wrong -- just not a button that would 403.
+  await expect(page.locator('.diagnosis h2')).toHaveText('Ollama is unreachable');
+  await expect(page.getByRole('button', { name: 'Ollama settings' })).toHaveCount(0);
+});

@@ -223,3 +223,20 @@ def test_ollama_log_fields_match_the_contract(client, app, token):
     body = client.get("/api/v1/ollama-log", headers=token).get_json()
     assert set(body) == declared_fields("OllamaLog")
     assert set(body["calls"][0]) == declared_fields("OllamaCall")
+
+
+def test_diagnosis_fields_match_the_contract(client, token):
+    """The empty-list explanation. Its `kind` is a union the client branches on,
+    so an unlisted value would silently fall through to a default."""
+    import re as _re
+    got = client.get("/api/v1/articles", headers=token).get_json()["diagnosis"]
+    assert set(got) == declared_fields("Diagnosis")
+
+    src = CONTRACT.read_text()
+    m = _re.search(r"export interface Diagnosis\b[^{]*\{(.*?)\n\}", src, _re.S)
+    allowed = set(_re.findall(r"'([a-z_]+)'", m.group(1)))
+    from app import pipeline_status
+    # Every kind the server can emit has to be in the union.
+    emitted = set(_re.findall(r'"kind": "([a-z_]+)"',
+                              __import__("inspect").getsource(pipeline_status.diagnose)))
+    assert emitted <= allowed, f"kinds missing from the contract: {emitted - allowed}"

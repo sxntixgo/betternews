@@ -1176,3 +1176,14 @@ kbd {
 }
 .call-detail h4 { margin: 8px 0 4px; font-size: 12px; text-transform: uppercase; }
 .admin-users .settings-table select { max-width: 110px; }
+
+/* The server's explanation for an empty list. Deliberately not styled as an
+   error: "you're all caught up" and "Ollama is unreachable" arrive through the
+   same component, and only one of them is bad news. */
+.diagnosis { text-align: center; padding: 32px 16px; }
+.diagnosis h2 { font-size: 17px; margin-bottom: 6px; }
+.diagnosis p { color: var(--muted); max-width: 46ch; margin: 0 auto 12px; }
+.diagnosis button { margin-top: 4px; }
+.diagnosis-ollama_unreachable h2,
+.diagnosis-model_missing h2,
+.diagnosis-llm_failing h2 { color: #d14343; }

@@ -169,7 +169,6 @@ def test_the_api_shows_the_same_headline_as_the_browser(client, app, token):
     got = client.get(f"{API}/articles", headers=auth(token)).get_json()["articles"][0]
     assert got["title"] == "Rewritten"
     assert got["original_title"] == "The real headline"
-    assert b"Rewritten" in client.get("/articles").data
 
 
 def test_voting_through_the_api(client, app, token):
@@ -348,7 +347,7 @@ def test_the_digest_endpoint(client, app, token):
 
 def test_a_405_outside_the_api_is_still_html(client):
     """The API handler must not hijack method errors on the HTML side."""
-    r = client.post("/insights")
+    r = client.delete("/login")
     assert r.status_code == 405
     assert not r.is_json
 
@@ -1498,8 +1497,10 @@ def test_insights_answers_every_panel_in_one_call(client, app, token):
     assert len(body["histogram"]) == 20
 
 
-def test_insights_matches_the_html_page_for_the_same_database(client, app, token):
-    """The two front ends must not disagree about the numbers."""
+def test_insights_counts_what_is_actually_in_the_database(client, app, token):
+    """This used to cross-check the numbers against the HTML page. That page is
+    gone, so it checks them against the rows instead -- which is what the HTML
+    was standing in for."""
     from app.db import get_db_direct
     with app.app_context():
         db = get_db_direct()
@@ -1507,10 +1508,8 @@ def test_insights_matches_the_html_page_for_the_same_database(client, app, token
         add_article(db, fid, seq=1, guid="ins", topics=["economy"])
         db.close()
     body = client.get(f"{API}/insights", headers=auth(token)).get_json()
-    html = client.get("/insights").data.decode()
-    assert "Shared feed" in html
     assert body["pipeline"]["total"] == 1
-    assert str(body["pipeline"]["total"]) in html
+    assert [f["feed"] for f in body["per_feed"]] == ["Shared feed"]
 
 
 def test_no_votes_means_no_threshold_suggestion(client, token):
@@ -1620,3 +1619,124 @@ def test_insights_reports_recent_runs_with_their_duration(client, app, token):
     assert run["errors_n"] == 1 and run["skipped"] is False
     assert 85 <= run["seconds"] <= 95
     assert run["started_at"] and run["finished_at"]
+
+
+# ── phase 9: why the list is empty ────────────────────────────────────────────
+# A bare "nothing to read" is how a misconfigured model went unnoticed three
+# times. With the HTML empty state gone, this is the only thing that says why.
+
+def test_an_empty_list_says_there_are_no_feeds(client, token):
+    body = client.get(f"{API}/articles", headers=auth(token)).get_json()
+    assert body["articles"] == []
+    assert body["diagnosis"]["kind"] == "no_feeds"
+    assert body["diagnosis"]["title"]
+    assert body["diagnosis"]["admin_only"] is True
+
+
+def test_an_empty_list_with_feeds_but_no_articles_says_so(client, app, token):
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        add_feed(db)
+        db.commit()
+        db.close()
+    body = client.get(f"{API}/articles", headers=auth(token)).get_json()
+    assert body["diagnosis"]["kind"] == "not_polled"
+
+
+def test_everything_below_the_threshold_is_diagnosed_as_hidden(client, app, token):
+    from sqlalchemy import text as _t
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        aid = add_article(db, add_feed(db), seq=1, guid="h1")
+        db.execute(_t("UPDATE articles SET status='hidden' WHERE id=:i"), {"i": aid})
+        db.commit()
+        db.close()
+    body = client.get(f"{API}/articles", headers=auth(token)).get_json()
+    assert body["diagnosis"]["kind"] == "all_hidden"
+    # A reader can act on this one themselves, unlike an unreachable Ollama.
+    assert body["diagnosis"]["admin_only"] is False
+
+
+def test_a_populated_list_is_not_diagnosed(client, app, token):
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        add_article(db, add_feed(db), seq=1, guid="d1")
+        db.close()
+    assert client.get(f"{API}/articles",
+                      headers=auth(token)).get_json()["diagnosis"] is None
+
+
+def test_an_empty_second_page_is_not_diagnosed(client, app, token):
+    """The end of the list is not a problem, and diagnosing it costs an Ollama
+    probe on every scroll to the bottom."""
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        add_article(db, add_feed(db), seq=1, guid="d2")
+        db.close()
+    body = client.get(f"{API}/articles?offset=50", headers=auth(token)).get_json()
+    assert body["articles"] == []
+    assert body["diagnosis"] is None
+
+
+def test_the_diagnosis_carries_a_label_not_a_url(client, token):
+    """`diagnose` still names an href for the old server-rendered links. A
+    client owns its own navigation, so only the label crosses the wire."""
+    d = client.get(f"{API}/articles", headers=auth(token)).get_json()["diagnosis"]
+    assert d["action"] == "Manage feeds"
+    assert "/" not in (d["action"] or "")
+
+
+def test_the_list_can_be_filtered_by_feed_and_by_saved(client, app, token):
+    """Both filters lost their only coverage with the HTML routes. They are the
+    sidebar and the saved section, so they are not incidental."""
+    from app.db import get_db_direct
+    from app.repo.articles import toggle_saved
+    from app.repo.users import ensure_bootstrap_user
+    with app.app_context():
+        db = get_db_direct()
+        keep, other = add_feed(db, url="http://a.example/f"), add_feed(db, url="http://b.example/f")
+        a1 = add_article(db, keep, seq=1, guid="f1", title="From the kept feed")
+        add_article(db, other, seq=2, guid="f2", title="From the other feed")
+        toggle_saved(db, ensure_bootstrap_user(db), a1)
+        db.commit()
+        db.close()
+
+    by_feed = client.get(f"{API}/articles?feed={keep}", headers=auth(token)).get_json()
+    assert [a["title"] for a in by_feed["articles"]] == ["From the kept feed"]
+
+    saved = client.get(f"{API}/articles?saved=1", headers=auth(token)).get_json()
+    assert [a["title"] for a in saved["articles"]] == ["From the kept feed"]
+
+
+def test_dismiss_all_respects_the_feed_and_saved_filters(client, app, token):
+    """Dismissing has to mean the list on screen, or it removes something the
+    reader cannot see."""
+    from app.db import get_db_direct
+    from app.repo.articles import toggle_saved
+    from app.repo.users import ensure_bootstrap_user
+    with app.app_context():
+        db = get_db_direct()
+        target, spared = add_feed(db, url="http://x.example/f"), add_feed(db, url="http://y.example/f")
+        add_article(db, target, seq=1, guid="da1")
+        add_article(db, spared, seq=2, guid="da2")
+        db.commit()
+        db.close()
+
+    dismissed = client.post(f"{API}/articles/dismiss-all?feed={target}",
+                            headers=auth(token)).get_json()
+    assert dismissed["dismissed"] == 1
+    left = client.get(f"{API}/articles?feed={spared}", headers=auth(token)).get_json()
+    assert [a["state"]["dismissed"] for a in left["articles"]] == [False]
+
+    with app.app_context():
+        db = get_db_direct()
+        aid = add_article(db, spared, seq=3, guid="da3")
+        toggle_saved(db, ensure_bootstrap_user(db), aid)
+        db.commit()
+        db.close()
+    assert client.post(f"{API}/articles/dismiss-all?saved=1",
+                       headers=auth(token)).get_json()["dismissed"] == 1

@@ -194,17 +194,6 @@ def test_recent_runs_are_reported(db_conn):
     assert runs[0]["scored_n"] == 5 and runs[0]["seconds"] > 0
 
 
-def test_insights_shows_runs(client, app):
-    from app.db import get_db_direct
-    with app.app_context():
-        db = get_db_direct()
-        db.execute(text("INSERT INTO pipeline_runs (finished_at, scored_n) "
-                        "VALUES (now(), 3)"))
-        db.commit()
-        db.close()
-    assert b"Recent pipeline runs" in client.get("/insights").data
-
-
 # ── notifications ──────────────────────────────────────────────────────────────
 
 def _enable_notify(app):
@@ -214,95 +203,6 @@ def _enable_notify(app):
         set_setting(db, "notify_high_score", "1")
         db.commit()
         db.close()
-
-
-def test_status_reports_high_scorers_once(client, app):
-    from app.db import get_db_direct
-    with app.app_context():
-        db = get_db_direct()
-        add_article(db, add_feed(db), title="Big One", score=0.95)
-        db.close()
-    _enable_notify(app)
-    first = client.get("/status", headers={"Accept": "application/json"}).json
-    assert [n["title"] for n in first["high_score"]] == ["Big One"]
-    second = client.get("/status", headers={"Accept": "application/json"}).json
-    assert second["high_score"] == []          # already told
-
-
-def test_low_scorers_are_not_notified(client, app):
-    from app.db import get_db_direct
-    with app.app_context():
-        db = get_db_direct()
-        add_article(db, add_feed(db), title="Meh", score=0.4)
-        db.close()
-    _enable_notify(app)
-    assert client.get("/status", headers={"Accept": "application/json"}).json["high_score"] == []
-
-
-def test_nothing_is_notified_when_disabled(client, app):
-    from app.db import get_db_direct
-    with app.app_context():
-        db = get_db_direct()
-        add_article(db, add_feed(db), score=0.99)
-        db.close()
-    assert client.get("/status", headers={"Accept": "application/json"}).json["high_score"] == []
-
-
-def test_notification_uses_the_declickbaited_title(client, app):
-    from app.db import get_db_direct
-    with app.app_context():
-        db = get_db_direct()
-        aid = add_article(db, add_feed(db), title="You won't believe", score=0.95)
-        db.execute(text("UPDATE articles SET clean_title='Council approves budget', "
-                        "title_was_clickbait=true WHERE id=:i"), {"i": aid})
-        db.commit()
-        db.close()
-    _enable_notify(app)
-    got = client.get("/status", headers={"Accept": "application/json"}).json["high_score"]
-    assert got[0]["title"] == "Council approves budget"
-
-
-def test_each_user_is_notified_separately(client, login_as, app):
-    """A flag on the article would silence everyone after the first person."""
-    from app.db import get_db_direct
-    with app.app_context():
-        db = get_db_direct()
-        add_article(db, add_feed(db), title="Big One", score=0.95)
-        db.close()
-    _enable_notify(app)
-    other, _ = login_as()
-    assert client.get("/status", headers={"Accept": "application/json"}).json["high_score"]
-    assert other.get("/status", headers={"Accept": "application/json"}).json["high_score"]
-
-
-def test_read_articles_are_not_notified(client, app):
-    from app.db import get_db_direct
-    from app.repo.articles import mark_read
-    from app.repo.users import ensure_bootstrap_user
-    with app.app_context():
-        db = get_db_direct()
-        aid = add_article(db, add_feed(db), score=0.95)
-        mark_read(db, ensure_bootstrap_user(db), aid)
-        db.commit()
-        db.close()
-    _enable_notify(app)
-    assert client.get("/status", headers={"Accept": "application/json"}).json["high_score"] == []
-
-
-def test_notification_toggle(client, app):
-    assert b"Notify when an article scores" in client.get("/settings/notifications").data
-    r = client.post("/settings/notifications", data={"notify_high_score": "1"})
-    assert b"Saved" in r.data
-    from app.db import get_db_direct, get_setting
-    with app.app_context():
-        db = get_db_direct()
-        assert get_setting(db, "notify_high_score") == "1"
-        db.close()
-
-
-def test_notification_settings_are_admin_only(login_as):
-    c, _ = login_as()
-    assert c.get("/settings/notifications").status_code == 403
 
 
 def test_a_row_with_a_junk_id_is_ignored(db_conn, monkeypatch):

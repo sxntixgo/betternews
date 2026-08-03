@@ -3,7 +3,7 @@ import type { Article, ArticleDetail, FeedList, Me } from '../../shared/api';
 
 /** Shapes mirror shared/api.ts, so a contract change breaks these too. */
 export const ME: Me = {
-  id: 1, username: 'reader', role: 'admin',
+  id: 1, username: 'reader', role: 'admin', must_change_password: false,
   declickbait: true, content_filter_mode: 'remove',
 };
 

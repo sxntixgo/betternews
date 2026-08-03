@@ -19,10 +19,12 @@ Flask app in Docker; Ollama on Windows host; **Postgres 16** in the `db` compose
 - `app/api_tokens.py` — per-device bearer tokens, SHA-256 hashed (high-entropy random needs no slow KDF, and a slow one would run on every request). `@api_auth` accepts a bearer token **or** the browser session — a phone cannot hold a cookie, a browser should not hold a token. Bearer wins when both are present, and a *malformed* `Authorization` header is a 401 rather than a silent fallback. `SameSite=Strict` is what makes cookie auth safe here; it replaced the bearer-only rule. Note `app.config.setdefault` does **not** work for cookie flags — Flask already defines those keys, so the SameSite it appeared to set was silently dropped for months. `auth._is_api_request()` exempts `/api/` from the session guards — without it the app-wide `before_request` answered every API call with a 302 to `/login`, valid token or not.
 - `@api_admin` — role check on top of `@api_auth`, which only proves *who*. `/poll` and `/rescore-hidden` are admin-only on the HTML side, and a reader who could kick the pipeline from a phone would be a quiet privilege escalation. Answers 403 as JSON.
 - `app/api/settings.py` — the seven settings panels, admin-only. **Fourteen bespoke endpoints on purpose, not a generic `PUT /settings/{key}`**: half of them are not stores at all (`ollama/test` probes without saving, `retention/prune` deletes rows, `models/recommended` computes, `topics` writes a different table), so a generic endpoint would need a special case for most of them and would accept a typo'd key nothing ever reads. `settings/reader` covers four HTML panels in one call — one screen's worth of toggles, and a client making four requests to draw one section would be paying for the server's template layout. Both front ends read the same `settings` table, so they cannot disagree while both exist.
-- **Still not covered by the API: admin users, insights, and the Ollama call log** — Phase 8 of `docs/plans/2026-08-01-spa-parity-and-password-login-plan.md`. The older claim that settings would never be ported (`docs/api-and-spa-plan.md` B.4) is superseded by that plan.
-- `app/views/` — Flask routes, one blueprint (`main`) across six modules: `accounts`, `admin`, `reading`, `feeds`, `settings`, `ops`. HTMX-first: most return HTML fragments. `views/__init__.py` owns the blueprint and `current_user_id`, and imports the modules **last** — that import order is load-bearing. Adding a route means adding it to the module that owns the concept, not a new blueprint; a second blueprint is for the future JSON API, where a URL prefix and endpoint namespace are both wanted.
+- `app/api/admin.py` — user admin, insights, and the Ollama call log. The guard rails are re-implemented rather than shared with the old HTML routes (which returned fragments and took form fields), but the *rules* must not diverge and are asserted separately: the last admin cannot be demoted or deleted, and you cannot delete yourself. `GET /insights` answers all seven panels in one call — they are only ever read together.
+- **The API now covers everything.** `docs/api-and-spa-plan.md` B.4 said settings, admin and insights would never be ported; that was reversed by `docs/plans/2026-08-01-spa-parity-and-password-login-plan.md`, which is done.
+- `app/views/` — **what is left of the server-rendered UI: four routes.** `accounts.py` has `/login`, `/register`, `/logout`; `ops.py` has `/health`. Nothing else. A browser with no session needs somewhere to land that does not depend on the SPA bundle having loaded, and the container healthcheck curls a URL rather than holding a token. `tests/test_app_factory.py` asserts that set **exactly** — a fifth route creeping back is how two UIs start disagreeing again. Everything a reader does is `app/api/` plus the SPA in `web/`.
 - `app/presenters.py` — **what the reader sees**, decided once for every client: which headline after de-clickbait (`resolve_title`), which passages fold as older-news padding (`content_blocks`), reading time, the row → card mapping. Imports no Flask and touches no request context, enforced by `tests/test_presenters.py`, because a mobile client has neither. Put anything here that decides *what* is shown; leave *how* it is marked up to the templates. A view function that formats for display is in the wrong file.
-- `app/auth.py` — accounts, sessions, `@login_required` / `@admin_required`.
+- `app/auth.py` — accounts, sessions, password rules and lockout. **No decorators and no request hooks**: every surviving HTML route is public, so they had nothing to guard, and `_force_password_change` pointed at a profile page that no longer exists. `@api_auth` / `@api_admin` do that job now.
+- `app/tags.py` — feed tag normalisation. `feeds.tags` is a comma-separated Text column, **not an array**; `list()` on it iterates characters, which is exactly what the first API serializer did. Lives outside `app/views/` because the tag a client types and the tag the sidebar groups by must be the same string.
 - `app/feeds.py` — feedparser polling. `poll_all_feeds(app)` is the entry point.
 - `app/scheduler.py` — APScheduler wiring. Jobs registered here.
 - `app/digest.py` — the "what you missed" briefing. Per-user (unread is per-user), cached against a fingerprint of the unread set so it only regenerates when that set changes.
@@ -90,36 +92,33 @@ Feeds, articles and scores are shared. Read state, saves and votes are per-user
 (`user_article_state`, `votes.user_id`). The preference profile is shared —
 readable by everyone, writable by admins.
 
-`@admin_required` covers settings, feed management, pipeline triggers and user
-admin. **Hiding a control in a template is not gating a route — do both**;
-`tests/test_auth.py` asserts a plain user gets 403 from every admin route.
+`@api_admin` covers settings, feed management, pipeline triggers, user admin,
+insights and the call log. **Hiding a control in the SPA is not gating an
+endpoint — do both**; `tests/test_api.py` asserts a plain reader gets a JSON 403
+from every admin endpoint, parametrised so a new one cannot be forgotten.
 
-HTMX fragments get `401` + `HX-Redirect` rather than a `302`, or the login page
-gets swapped into `#article-list`.
+There are no `login_required` / `admin_required` decorators and no app-wide
+session hooks any more: every surviving HTML route is public by design, so they
+had nothing left to guard. `_force_password_change` went with them — it
+redirected to `main.profile`, which no longer exists. `/api/v1/me` reports
+`must_change_password` and the SPA refuses to render the reading list until it
+is cleared.
 
 ## Routes
-- `GET /` `GET /settings` — pages
-- `GET /articles` `GET /feeds` `GET /count` — HTML fragments
-- `POST /vote/<id>/<1|-1>` — like/dislike per article
-- `POST /dismiss-all` — bulk-mark every currently-listed article as `dismissed`. Honors `?feed=<id>`.
-- `POST /article/<id>/dismiss` — single-article dismiss; gesture-only (no UI button), fired by swipe-left on `.article-row`.
-- `GET /article/<id>/content` — reader modal fragment (marks `read_at`)
-- `POST /poll` — kicks off poll + pipeline in a background thread
-- `GET /status` — pipeline status (HTML fragment, or JSON if `Accept: application/json`)
-- `GET|POST /preferences` — profile text view/edit
-- `POST /preferences/regenerate` — rebuild profile from votes (background thread)
-- `GET|POST /settings/models` — choose scoring/summary models from `ollama_client.list_models()`
+
+**HTML — four, and that is the whole list** (asserted exactly in `tests/test_app_factory.py`):
 - `GET|POST /login` `GET|POST /register` `GET|POST /logout` — public
-- `GET /profile` `POST /profile/password` — any user
-- `GET|POST /profile/topics` — per-user topic stances (more / hide / clear)
-- `GET /admin/users` `POST /admin/users/<id>/{role,delete,reset-password}` — **admin**
-- `GET|POST /settings/titles` — toggle `declickbait_enabled` (headline rewriting)
-- `GET|POST /settings/content` — `content_filter_mode` (`off`/`highlight`/`remove`) + `content_filter_llm`
-- `GET|POST /settings/ollama` — set the Ollama host/port at runtime (overrides `OLLAMA_HOST`)
-- `GET|POST /settings/models` — pick a model per job, from what Ollama reports installed
-- `POST /settings/ollama/test` — probe the host/port **currently in the form**, without saving
-- `GET|POST /feeds/opml` — OPML export (GET) / import (POST file upload)
-- `POST /feeds/<id>/tags` — save comma-separated tags; sidebar groups feeds by tag.
+- `GET /health` — public; the container healthcheck curls it
+
+**JSON — `/api/v1`, 60 routes**, in `app/api/`: `articles` (list, detail, vote,
+save, dismiss, dismiss-all, search, export), `feeds` (+ OPML), `me` (password,
+tokens, preferences), `auth` (login, register, logout), `topics`, `digest`,
+`status`, `poll`, `rescore-hidden`, `settings` (14), `admin` (users, insights,
+ollama-log).
+
+Read `shared/api.ts` for the shapes — `tests/test_api_contract.py` parses it and
+asserts the API sends exactly those fields, so a rename cannot silently break
+both clients.
 
 ## LLM notes
 - **Six distinct jobs use Ollama**: relevance scoring (batched, JSON), article summaries (plus the clickbait rewrite — same request), video transcript summaries, padding detection (JSON), preference-profile rebuild, and the "what you missed" digest. Each takes its model from `llm_config.model_for(db, action)`, resolving per-action setting → legacy `scoring_model`/`summary_model` → env default.
@@ -142,12 +141,13 @@ gets swapped into `#article-list`.
 - Ollama calls are serialized intentionally — concurrent requests contend for GPU VRAM.
 
 ## Frontend
-- Single HTML page + HTMX (CDN). No build step, no React.
-- `GET /articles` and `GET /feeds` return HTML fragments, not full pages.
-- Vote uses `hx-post` / `hx-swap` — no page reloads.
-- After clicking Refresh, the index page polls `/status` every 3s and re-fetches `/articles` when `last_pipeline_run_at` advances.
-- Reader modal is a `<dialog>`: title (large) → description (medium) → content (regular). `_clean_content` strips a leading body line that duplicates the title or description.
-- **Article padding** (Settings → Reader → Article padding). `content_filter.classify_lines()` tags lines as `related_links` / `promo` / `older_news`; `routes._group_blocks()` collapses consecutive tagged blocks into one `<details>`. **Both `highlight` and `remove` only fold — nothing is ever dropped**, so a misclassification is one click away. Default is `remove`, which matches what `_clean_content` used to do destructively.
+- **`web/` is the reader**: Vite + React + TypeScript, served at `/` by Caddy. `shared/api.ts` is the one API contract, imported by both `web/` and `mobile/`.
+- Caddy sends `/api`, `/login`, `/register`, `/logout`, `/health` and `/static` to Flask; **everything else is the SPA**, so a deep link the SPA owns gets the SPA's routing rather than Flask's 404. `~/Dev/homestack/caddy/Caddyfile`.
+- `vite.config.ts` builds with `base: '/'`. It used to be `/app/` while both UIs coexisted; leaving that would emit asset URLs nothing serves.
+- The only `localStorage` key is `theme`. Auth is an HttpOnly + `SameSite=Strict` cookie the page cannot read, which is why the shell asks `/api/v1/me` whether it is signed in rather than looking.
+- **An empty list says why.** `GET /api/v1/articles` carries a `diagnosis` on an empty *first* page — `no_feeds`, `ollama_unreachable`, `model_missing`, `processing`, `all_hidden`, `caught_up` and so on. A bare "Nothing to read" is how a misconfigured model went unnoticed three times. The server decides the wording and whether it is admin-only; the client decides which screen the button opens, because the server has no idea this client is modal-based.
+- Charts on `/insights` are hand-rolled SVG (`web/src/components/BarChart.tsx`). `react` and `react-dom` are the only dependencies and it stays that way — a charting library is 100 KB+ for six charts on a screen visited monthly.
+- **Article padding** (Settings → Reading → Article padding). `content_filter.classify_lines()` tags lines as `related_links` / `promo` / `older_news`; `presenters.group_blocks()` collapses consecutive tagged blocks into one foldable group. **Both `highlight` and `remove` only fold — nothing is ever dropped**, so a misclassification is one click away.
 - Only *section boundaries* (`Related`, `Otras noticias`, …) truncate to end-of-body. Promotional one-liners (`Advertisement`, `Sign up`) are marked individually — they appear mid-article, and treating one as a boundary would discard the reporting after it.
 
 ## Tests
@@ -177,6 +177,18 @@ a live suite that quietly passes with nothing running is worse than none.
 `tests/test_api_contract.py` parses `shared/api.ts` and asserts the API sends
 exactly those fields, so a rename in `app/api/serializers.py` cannot silently
 break both clients.
+
+`npm run typecheck` covers **both** `src/` and `e2e/`. It did not cover `e2e/`
+for a long time, and the fixtures say at the top that their shapes mirror
+`shared/api.ts` "so a contract change breaks these too" — which was true of
+nothing but a human reading it. Adding a required field to `Me` left the
+fixtures happily claiming to be a `Me` that lacked it.
+
+`tests/test_app_factory.py` refuses **duplicate test function names** across
+every test file. A redefined test silently replaces the first one: Python
+rebinds the name, pytest collects the survivor, and the lost test takes its
+coverage with it. That is how it was noticed — one line of `app/api/feeds.py`
+went uncovered with no failing test to explain why.
 
 ```
 docker compose run --rm web pytest tests/ --cov=app

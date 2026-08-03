@@ -157,22 +157,6 @@ def test_profile_regeneration_uses_its_own_model(db_conn, app):
     assert gen.call_args.kwargs["model"] == "thinker:70b"
 
 
-def test_digest_uses_its_own_model(client, app):
-    from app.db import get_db_direct
-    from tests.conftest import add_article, add_feed
-    with app.app_context():
-        db = get_db_direct()
-        llm_config.set_model(db, "digest", "briefer:8b")
-        fid = add_feed(db)
-        for i in range(3):
-            add_article(db, fid, seq=i, guid=f"g{i}")
-        db.commit()
-        db.close()
-    with patch("app.ollama_client.generate", return_value="brief") as gen:
-        client.get("/digest")
-    assert gen.call_args.kwargs["model"] == "briefer:8b"
-
-
 def test_aside_detection_uses_its_own_model(db_conn):
     from app.pipeline import summarize_scored_articles
     from app.db import set_setting as ss
@@ -191,70 +175,6 @@ def test_aside_detection_uses_its_own_model(db_conn):
 
 
 # ── settings panel ─────────────────────────────────────────────────────────────
-
-@patch("app.views.settings.ollama_client.list_models", return_value=["llama3.1:8b", "qwen:7b"])
-def test_panel_lists_every_job_and_the_installed_models(mock_list, client):
-    data = client.get("/settings/models").get_data(as_text=True)
-    for action in llm_config.ACTIONS:
-        assert action.label in data
-    assert "llama3.1:8b" in data and "qwen:7b" in data
-
-
-@patch("app.views.settings.ollama_client.list_models", return_value=["llama3.1:8b"])
-def test_panel_warns_about_an_uninstalled_model(mock_list, client, app):
-    from app.db import get_db_direct
-    with app.app_context():
-        db = get_db_direct()
-        llm_config.set_model(db, "scoring", "ministral-3:14b")
-        db.commit()
-        db.close()
-    data = client.get("/settings/models").get_data(as_text=True)
-    assert "not installed" in data
-    assert "will fail every time" in data
-
-
-@patch("app.views.settings.ollama_client.list_models", return_value=[])
-def test_panel_says_so_when_ollama_is_unreachable(mock_list, client):
-    assert b"Could not reach Ollama" in client.get("/settings/models").data
-
-
-@patch("app.views.settings.ollama_client.list_models", return_value=["llama3.1:8b"])
-def test_saving_one_job_does_not_touch_the_others(mock_list, client, app):
-    r = client.post("/settings/models",
-                    data={"action_id": "digest", "model": "llama3.1:8b"})
-    assert r.status_code == 200
-    from app.db import get_db_direct
-    with app.app_context():
-        db = get_db_direct()
-        assert llm_config.model_for(db, "digest") == "llama3.1:8b"
-        rows = {r["action"].id: r for r in llm_config.current(db)}
-        assert rows["scoring"]["inherited"] is True
-        db.close()
-
-
-@patch("app.views.settings.ollama_client.list_models", return_value=["llama3.1:8b"])
-def test_saving_an_unknown_job_is_rejected(mock_list, client):
-    assert client.post("/settings/models",
-                       data={"action_id": "bogus", "model": "x"}).status_code == 400
-
-
-def test_model_settings_are_admin_only(login_as):
-    c, _ = login_as()
-    assert c.get("/settings/models").status_code == 403
-    assert c.post("/settings/models",
-                  data={"action_id": "digest", "model": "x"}).status_code == 403
-
-
-@patch("app.views.settings.ollama_client.list_models", return_value=["llama3.1:8b"])
-def test_panel_queries_the_configured_endpoint(mock_list, client, app):
-    """The model list must come from the server the app actually calls."""
-    from app.db import get_db_direct, set_setting as ss
-    with app.app_context():
-        db = get_db_direct()
-        ss(db, "ollama_host", "ollama.lan"); ss(db, "ollama_port", "80")
-        db.commit(); db.close()
-    client.get("/settings/models")
-    mock_list.assert_called_once_with("http://ollama.lan:80")
 
 
 # ── recommendations ────────────────────────────────────────────────────────────
@@ -331,49 +251,4 @@ def test_a_merely_different_choice_is_not_flagged_as_bad(db_conn):
 
 # ── the panel ──────────────────────────────────────────────────────────────────
 
-@patch("app.views.settings.ollama_client.list_models", return_value=INSTALLED)
-def test_the_panel_recommends_and_explains(mock_list, client):
-    body = client.get("/settings/models").get_data(as_text=True)
-    assert "recommended" in body
-    assert "Reasoning models" in body            # the general guidance
-    assert "not a reasoning model" in body       # a per-job reason
 
-
-@patch("app.views.settings.ollama_client.list_models", return_value=INSTALLED)
-def test_the_panel_warns_when_a_reasoning_model_is_used_for_json(mock_list, client, app):
-    from app.db import get_db_direct
-    with app.app_context():
-        db = get_db_direct()
-        llm_config.set_model(db, "scoring", "gpt-oss:20b")
-        db.commit()
-        db.close()
-    body = client.get("/settings/models").get_data(as_text=True)
-    assert "reasons before answering, which this" in body
-    assert "action-suggestion-warn" in body
-
-
-@patch("app.views.settings.ollama_client.list_models", return_value=INSTALLED)
-def test_applying_every_recommendation(mock_list, client, app):
-    r = client.post("/settings/models/recommended")
-    assert r.status_code == 200
-    from app.db import get_db_direct
-    with app.app_context():
-        db = get_db_direct()
-        assert llm_config.model_for(db, "scoring") == "llama3.1:8b"
-        assert llm_config.model_for(db, "digest") == "gpt-oss:20b"
-        db.close()
-
-
-@patch("app.views.settings.ollama_client.list_models", return_value=[])
-def test_applying_recommendations_without_ollama_changes_nothing(mock_list, client, app):
-    client.post("/settings/models/recommended")
-    from app.db import get_db_direct
-    with app.app_context():
-        db = get_db_direct()
-        assert all(r["inherited"] for r in llm_config.current(db))
-        db.close()
-
-
-def test_applying_recommendations_is_admin_only(login_as):
-    c, _ = login_as()
-    assert c.post("/settings/models/recommended").status_code == 403

@@ -156,7 +156,7 @@ def models_use_recommended():
 @bp.get("/settings/reader")
 @api_admin
 def reader_get():
-    """Headlines, padding and embeds in one call.
+    """Headlines, padding and notifications in one call.
 
     Three separate HTML panels, but one screen's worth of toggles, and a client
     that had to make three requests to draw one section would be paying for the
@@ -170,7 +170,6 @@ def reader_get():
                                            content_filter.MODE_REMOVE),
         "content_filter_modes": sorted(content_filter.MODES),
         "content_filter_llm": _flag(db, "content_filter_llm"),
-        "embeds": _flag(db, "embeds_enabled"),
         "notify_high_score": _flag(db, "notify_high_score"),
     })
 
@@ -191,8 +190,6 @@ def reader_save():
         set_setting(db, "content_filter_mode", mode)
     if "content_filter_llm" in body:
         _set_flag(db, "content_filter_llm", body["content_filter_llm"])
-    if "embeds" in body:
-        _set_flag(db, "embeds_enabled", body["embeds"])
     if "notify_high_score" in body:
         _set_flag(db, "notify_high_score", body["notify_high_score"])
     db.commit()

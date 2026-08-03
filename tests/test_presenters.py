@@ -160,7 +160,7 @@ def test_to_blocks_ignores_empty_input():
 def test_to_blocks_emits_twitter_embed_when_enabled():
     from app.presenters import to_blocks
     text = "Setup line.\nhttps://twitter.com/jack/status/20\nFollow-up."
-    blocks = to_blocks(text, embeds_enabled=True)
+    blocks = to_blocks(text)
     assert blocks[1] == {
         "type": "embed",
         "platform": "twitter",
@@ -175,22 +175,26 @@ def test_to_blocks_recognises_x_com_and_instagram():
         "https://www.instagram.com/p/AbCdEf-12_/\n"
         "https://www.instagram.com/reel/XyZ123/"
     )
-    blocks = to_blocks(text, embeds_enabled=True)
+    blocks = to_blocks(text)
     assert [b["platform"] for b in blocks] == ["twitter", "instagram", "instagram"]
     assert all(b["type"] == "embed" for b in blocks)
 
 
-def test_to_blocks_embed_disabled_keeps_url_as_paragraph():
+def test_a_bare_permalink_is_always_its_own_block():
+    """This used to be conditional on `embeds_enabled`, which existed so the
+    reader could opt out of loading Twitter's widget script. Nothing is fetched
+    from Twitter any more -- the client renders a card -- so there is nothing
+    left to opt out of."""
     from app.presenters import to_blocks
     url = "https://twitter.com/jack/status/20"
-    blocks = to_blocks(url)
-    assert blocks == [{"type": "p", "text": url}]
+    assert to_blocks(url) == [
+        {"type": "embed", "platform": "twitter", "url": url}]
 
 
 def test_to_blocks_inline_url_is_not_an_embed():
     from app.presenters import to_blocks
     text = "Check https://twitter.com/jack/status/20 — interesting."
-    blocks = to_blocks(text, embeds_enabled=True)
+    blocks = to_blocks(text)
     assert blocks[0]["type"] == "p"
     assert "twitter.com" in blocks[0]["text"]
 
@@ -198,7 +202,7 @@ def test_to_blocks_inline_url_is_not_an_embed():
 def test_to_blocks_embed_breaks_running_bullet_list():
     from app.presenters import to_blocks
     text = "- one\n- two\nhttps://twitter.com/u/status/9\n- three"
-    blocks = to_blocks(text, embeds_enabled=True)
+    blocks = to_blocks(text)
     assert [b["type"] for b in blocks] == ["ul", "embed", "ul"]
     assert blocks[0]["items"] == ["one", "two"]
     assert blocks[2]["items"] == ["three"]
@@ -255,7 +259,7 @@ def test_an_embed_inside_an_aside_keeps_the_aside_marking():
     """A tweet quoted inside a related-links rail is still part of the rail.
     Losing the marking would leave it stranded outside the fold."""
     from app.presenters import to_blocks
-    blocks = to_blocks("https://twitter.com/x/status/1", embeds_enabled=True,
+    blocks = to_blocks("https://twitter.com/x/status/1",
                        aside_kinds=["related_links"])
     assert blocks == [{"type": "embed", "platform": "twitter",
                        "url": "https://twitter.com/x/status/1",
@@ -267,7 +271,7 @@ def test_padding_mode_off_renders_the_body_whole():
     from app.presenters import content_blocks
     groups, asides = content_blocks(
         "The reporting.\nRelated stories\nSomething else.",
-        embeds_enabled=False, mode=content_filter.MODE_OFF, stored_asides=None)
+        mode=content_filter.MODE_OFF, stored_asides=None)
     assert asides == 0, "nothing is classified in off mode"
     texts = [b["text"] for g in groups for b in g["blocks"]]
     assert "Related stories" in texts, "nothing is folded away"

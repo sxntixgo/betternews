@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { mockApi, signedIn } from './fixtures';
+import { article, DETAIL, mockApi, signedIn } from './fixtures';
 
 /**
  * The reading features the server-rendered UI has and the SPA did not:
@@ -134,7 +134,9 @@ test('an empty list says why, and offers the fix', async ({ page }) => {
   }));
   await page.reload();
   await expect(page.locator('.diagnosis h2')).toHaveText('No feeds yet');
-  await page.getByRole('button', { name: 'Manage feeds' }).click();
+  // Scoped: the sidebar now has its own "Manage feeds" control with the same
+  // accessible name, which is correct -- two ways to the same screen.
+  await page.locator('.diagnosis').getByRole('button', { name: 'Manage feeds' }).click();
   await expect(page.locator('.manage-feeds')).toBeVisible();
 });
 
@@ -156,4 +158,86 @@ test('an admin-only diagnosis withholds the button from a plain reader', async (
   // They still get told what is wrong -- just not a button that would 403.
   await expect(page.locator('.diagnosis h2')).toHaveText('Ollama is unreachable');
   await expect(page.getByRole('button', { name: 'Ollama settings' })).toHaveCount(0);
+});
+
+test.describe('the sidebar', () => {
+  // The sidebar is off-screen on a phone until the drawer is opened; these are
+  // about grouping, not about the drawer, which mobile.spec covers.
+  test.beforeEach(async ({ page, isMobile }) => {
+    if (isMobile) {
+      await page.locator('.drawer-toggle').click();
+      await expect(page.locator('.sidebar')).toHaveClass(/open/);
+    }
+  });
+
+  test('groups feeds under their tags, with untagged last', async ({ page }) => {
+    // The flat list this replaces ignored Feed.tags entirely, so tagging a feed
+    // in Manage Feeds was something you could do and never see the effect of.
+    const labels = await page.locator('.sidebar-tag-label').allInnerTexts();
+    expect(labels.map((l) => l.toLowerCase())).toEqual(['argentina', 'tech', 'untagged']);
+
+    const tech = page.locator('.sidebar-group').filter({ hasText: 'tech' }).first();
+    await expect(tech.locator('.sidebar-feed-nested')).toContainText(['The Verge']);
+  });
+
+  test('a collapsed group stays collapsed across a reload', async ({ page }) => {
+    const group = page.locator('.sidebar-group').filter({ has: page.locator('.sidebar-tag-label', { hasText: 'tech' }) });
+    await expect(group.locator('.sidebar-feed-nested')).toHaveCount(1);
+    await group.locator('.sidebar-collapse').click();
+    await expect(group.locator('.sidebar-feed-nested')).toHaveCount(0);
+
+    // The whole point with six tags is keeping the ones you are not reading
+    // shut; re-opening them on every load would be worse than a flat list.
+    await page.reload();
+    await page.waitForSelector('.article-row');
+    const after = page.locator('.sidebar-group').filter({ has: page.locator('.sidebar-tag-label', { hasText: 'tech' }) });
+    await expect(after.locator('.sidebar-feed-nested')).toHaveCount(0);
+  });
+
+  test('Hidden lists per-feed counts, and a feed there keeps the hidden filter', async ({ page }) => {
+    // "Everything is below the threshold" and "one noisy feed is" are different
+    // problems and used to look identical.
+    const hiddenGroup = page.locator('.sidebar-group').filter({ hasText: 'Hidden' });
+    await expect(hiddenGroup.locator('.sidebar-feed-nested')).toHaveCount(2);
+
+    const request = page.waitForRequest((r) => r.url().includes('/articles?') && r.url().includes('hidden=1'));
+    await hiddenGroup.locator('.sidebar-feed-nested').first().click();
+    expect((await request).url()).toContain('feed=');
+  });
+});
+
+test('a hidden article says why, as text rather than a tooltip', async ({ page }) => {
+  // The hidden list gets reviewed on a phone, where there is no hover.
+  await page.route('**/api/v1/articles?*', (r) => r.fulfill({
+    json: {
+      articles: [article(1, { hidden: true, score: 0.12,
+                              score_reason: 'Celebrity gossip, which you consistently skip.' })],
+      next_offset: null, diagnosis: null,
+    },
+  }));
+  await page.reload();
+  await expect(page.locator('.hidden-reason'))
+    .toHaveText('Hidden: Celebrity gossip, which you consistently skip.');
+});
+
+test('an embed renders as a card and loads nothing from a third party', async ({ page }) => {
+  const external: string[] = [];
+  page.on('request', (r) => {
+    const host = new URL(r.url()).host;
+    if (!host.includes('localhost') && !host.includes('127.0.0.1')) external.push(host);
+  });
+  await page.route('**/api/v1/articles/*', (r) => (r.request().method() !== 'GET'
+    ? r.fallback()
+    : r.fulfill({ json: { ...DETAIL, blocks: [
+        { aside: null, label: null, blocks: [
+          { type: 'embed', platform: 'twitter', url: 'https://twitter.com/x/status/1' }] },
+      ] } })));
+  await page.reload();
+  await page.waitForSelector('.article-row');
+  await page.locator('.article-title').first().click();
+  await expect(page.locator('.embed-card')).toBeVisible();
+  await expect(page.locator('.embed-platform')).toHaveText('X');
+  // The whole reason the toggle went: widgets.js was the one thing in the app
+  // that ever contacted anyone else.
+  expect(external, `contacted: ${external.join(', ')}`).toEqual([]);
 });

@@ -33,6 +33,9 @@ export interface Article {
   summary: string | null;
   score: number | null;
   score_reason: string | null;
+  /** Scored below the threshold. `score_reason` then says why, and is worth
+   *  showing as text rather than hiding in a tooltip. */
+  hidden: boolean;
   topics: string[];
   feed_id: number | null;
   thumbnail_url: string | null;
@@ -233,7 +236,6 @@ export interface ReaderSettings {
   content_filter_mode: string;
   content_filter_modes: string[];
   content_filter_llm: boolean;
-  embeds: boolean;
   notify_high_score: boolean;
 }
 

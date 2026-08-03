@@ -8,7 +8,7 @@ from sqlalchemy import text as sql
 
 from app import export as export_mod, pipeline_status, presenters
 from app.api import api_auth, bp, current_api_user, error, serializers
-from app.db import get_db, get_setting
+from app.db import get_db
 from app.repo import articles as art_repo
 
 log = logging.getLogger(__name__)
@@ -118,7 +118,6 @@ def get_article(article_id: int):
     declickbait = presenters.declickbait(db)
     blocks, asides = presenters.content_blocks(
         content,
-        embeds_enabled=get_setting(db, "embeds_enabled", "") == "1",
         mode=presenters.content_filter_mode(db),
         stored_asides=body["aside_spans"],
     )

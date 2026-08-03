@@ -79,6 +79,11 @@ export function ArticleCard({
           </p>
         )}
         {article.summary && <p className="article-summary">{article.summary}</p>}
+        {/* Visible text, not a tooltip on the score badge. The hidden list is
+            reviewed on a phone, where there is no hover. */}
+        {article.hidden && article.score_reason && (
+          <p className="hidden-reason">Hidden: {article.score_reason}</p>
+        )}
       </div>
 
       {/* A column of the row, right of the text -- same as the server UI, so the

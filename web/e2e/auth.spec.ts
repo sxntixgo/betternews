@@ -130,3 +130,28 @@ test('a reset password blocks the reading list until it is changed', async ({ pa
   await expect(page.locator('.forced-password')).toHaveCount(0);
   await expect(page.locator('.article-row').first()).toBeVisible();
 });
+
+test('the sidebar has a sign-out button, not just a keyboard shortcut', async ({ page }) => {
+  // It lived only in the command palette, so the way out of your own reader
+  // was a shortcut you had to already know about.
+  await signedIn(page);
+  await mockApi(page);
+  await page.goto('/');
+  await page.waitForSelector('.article-row');
+
+  if (test.info().project.name === 'phone') {
+    await page.locator('.drawer-toggle').click();
+    await expect(page.locator('.sidebar')).toHaveClass(/open/);
+  }
+  const out = page.getByRole('button', { name: 'Sign out' });
+  await expect(out).toBeVisible();
+
+  const posted = page.waitForRequest((r) =>
+    r.url().includes('/auth/logout') && r.method() === 'POST');
+  await page.route('**/api/v1/auth/logout', (r) => r.fulfill({ json: { ok: true } }));
+  await page.route('**/api/v1/me', (r) =>
+    r.fulfill({ status: 401, json: { error: 'Not signed in.', status: 401 } }));
+  await out.click();
+  await posted;
+  await expect(page.locator('form.signin')).toBeVisible();
+});

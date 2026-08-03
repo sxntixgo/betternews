@@ -25,6 +25,10 @@ def article(row, declickbait: bool) -> dict:
         "summary": d.get("summary"),
         "score": d.get("score"),
         "score_reason": d.get("score_reason"),
+        # A boolean, not `articles.status`. The pipeline lifecycle is the
+        # server's business; what a client needs to know is whether this was
+        # filtered out for scoring low, so it can say so next to the reason.
+        "hidden": d.get("status") == "hidden",
         "topics": list(d.get("topics") or []),
         "feed_id": d.get("feed_id"),
         "thumbnail_url": d.get("thumbnail_url"),

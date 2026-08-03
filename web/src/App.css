@@ -165,13 +165,18 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 .sidebar-group.collapsed .sidebar-group-body { display: none; }
 .sidebar-feed-nested { font-size: 13px; }
 .sidebar-loading { padding: 12px 16px; color: var(--color-ink-muted); font-size: 13px; }
+/* A column now, not a row: it holds two rows of tools plus the theme picker,
+   and at 240px they do not fit side by side. */
 .sidebar-footer {
   padding: 12px 16px;
   border-top: 1px solid var(--color-hairline);
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
 }
+.sidebar-footer > label { margin-top: 4px; }
+.sidebar-footer select { width: 100%; }
 .sidebar-footer .btn-icon {
   display: inline-flex;
   align-items: center;
@@ -1152,3 +1157,69 @@ kbd {
 .diagnosis-ollama_unreachable h2,
 .diagnosis-model_missing h2,
 .diagnosis-llm_failing h2 { color: var(--color-danger); }
+
+/* ── sidebar groups ───────────────────────────────────────────────────────── */
+/* Feeds group under their tags. The flat list this replaces ignored Feed.tags
+   entirely, so tagging a feed was something you could do and never see. */
+.sidebar-group-header { display: flex; align-items: center; gap: 2px; padding-right: 8px; }
+.sidebar-group-header .sidebar-feed { flex: 1; min-width: 0; }
+.sidebar-collapse {
+  border: 0;
+  background: none;
+  color: var(--color-ink-muted);
+  cursor: pointer;
+  padding: 2px 4px;
+  font-size: 11px;
+  line-height: 1;
+  transition: transform 0.15s ease;
+}
+.sidebar-group.collapsed .sidebar-collapse { transform: rotate(-90deg); }
+.sidebar-tag-label {
+  flex: 1;
+  padding: 6px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-ink-muted);
+}
+.sidebar-group-body .sidebar-feed-nested { padding-left: 26px; }
+
+/* An embed card, not an embed. Nothing loads from X or Instagram: the widget
+   scripts the server-rendered reader injected were the only thing in the app
+   that ever contacted a third party. */
+.embed-card {
+  display: block;
+  margin: 12px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--color-hairline-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+  text-decoration: none;
+  color: inherit;
+}
+.embed-card:hover { border-color: var(--color-ink-muted); }
+.embed-platform { display: block; font-weight: 600; font-size: 13px; }
+.embed-url {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-ink-muted);
+  word-break: break-all;
+  margin: 2px 0 6px;
+}
+.embed-open { font-size: 12px; color: var(--color-accent); }
+
+/* Footer tools. Six controls at 240px wide, so they wrap onto their own rows
+   rather than being squeezed into one. */
+.sidebar-tools { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; }
+.sidebar-username {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-manage { flex: none; padding: 4px; color: var(--color-ink-muted); }
+.sidebar-manage:hover { color: var(--color-ink); }

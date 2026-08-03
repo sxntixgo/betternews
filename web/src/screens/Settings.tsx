@@ -152,11 +152,6 @@ function ReaderPanel() {
         Use the model to find padding as well as the regex
       </label>
       <label className="settings-toggle">
-        <input type="checkbox" checked={state.embeds}
-               onChange={(e) => save({ embeds: e.target.checked })} />
-        Hydrate Twitter and Instagram embeds
-      </label>
-      <label className="settings-toggle">
         <input type="checkbox" checked={state.notify_high_score}
                onChange={(e) => save({ notify_high_score: e.target.checked })} />
         Notify about high-scoring articles

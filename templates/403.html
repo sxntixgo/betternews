@@ -1,9 +1,0 @@
-{% extends "base.html" %}
-{% block title %}Not allowed — Better News{% endblock %}
-{% block content %}
-<div class="auth-card">
-  <h2>Admins only</h2>
-  <p class="hint">This page is restricted to administrators.</p>
-  <p><a href="{{ url_for('main.index') }}">Back to articles</a></p>
-</div>
-{% endblock %}

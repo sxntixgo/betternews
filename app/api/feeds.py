@@ -11,7 +11,7 @@ from sqlalchemy import text as sql
 
 from app import opml
 from app.api import api_admin, api_auth, bp, error
-from app.views.feeds import _normalize_tags, _split_tags
+from app import tags as tag_util
 from app.db import get_db
 
 
@@ -31,7 +31,7 @@ def _feed_row(r) -> dict:
         "score_threshold": r["score_threshold"],
         # tags is a comma-separated string, not an array -- list() on it
         # iterates characters, which is exactly what the first version did.
-        "tags": _split_tags(r["tags"]),
+        "tags": tag_util.split(r["tags"]),
     }
 
 
@@ -139,7 +139,7 @@ def set_tags(feed_id: int):
     raw = (request.get_json(silent=True) or {}).get("tags", "")
     if isinstance(raw, list):
         raw = ",".join(str(t) for t in raw)
-    normalised = _normalize_tags(raw)
+    normalised = tag_util.normalize(raw)
     db.execute(sql("UPDATE feeds SET tags = :t WHERE id = :i"),
                {"t": normalised or None, "i": feed_id})
     db.commit()

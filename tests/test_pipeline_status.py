@@ -79,13 +79,6 @@ def test_unsummarized_articles_also_count_as_waiting(db_conn):
     assert _diagnose(db_conn)["kind"] == "processing"
 
 
-def test_everything_below_the_threshold(db_conn):
-    add_article(db_conn, add_feed(db_conn), status="hidden", score=0.1)
-    d = _diagnose(db_conn)
-    assert d["kind"] == "all_hidden"
-    assert d["action"][1] == "/?hidden=1"
-
-
 def test_caught_up(db_conn):
     from app.repo.articles import mark_read
     fid = add_feed(db_conn)
@@ -130,57 +123,6 @@ def test_no_model_problems_when_ollama_is_silent(db_conn):
 
 
 # ── rendering ──────────────────────────────────────────────────────────────────
-
-def test_the_list_explains_itself_when_empty(client, app):
-    from app.db import get_db_direct
-    with app.app_context():
-        db = get_db_direct()
-        add_article(db, add_feed(db), status="new", score=None)
-        llm_config.set_model(db, "scoring", "ghost:1b")
-        db.commit()
-        db.close()
-    with patch("app.ollama_client.probe", return_value=(True, "ok", ["real:8b"])):
-        body = client.get("/articles").get_data(as_text=True)
-    assert "not installed" in body
-    assert "ghost:1b" in body
-    assert "Choose a model" in body
-
-
-def test_a_plain_user_is_told_to_ask_an_admin(login_as, app):
-    """The fixes are all admin-only; a reader should not get a dead link."""
-    from app.db import get_db_direct
-    with app.app_context():
-        db = get_db_direct()
-        add_article(db, add_feed(db), status="new", score=None)
-        db.commit()
-        db.close()
-    c, _ = login_as()
-    with patch("app.ollama_client.probe",
-               return_value=(False, "Connection refused.", [])):
-        body = c.get("/articles").get_data(as_text=True)
-    assert "administrator needs to sort this out" in body
-    assert 'href="/settings"' not in body
-
-
-def test_a_populated_list_is_not_diagnosed(client, app):
-    from app.db import get_db_direct
-    with app.app_context():
-        db = get_db_direct()
-        add_article(db, add_feed(db), title="Real Article")
-        db.close()
-    body = client.get("/articles").get_data(as_text=True)
-    assert "Real Article" in body
-    assert "empty-state" not in body
-
-
-def test_page_two_being_empty_is_not_diagnosed(client, app):
-    """Reaching the end of the list is not a fault."""
-    from app.db import get_db_direct
-    with app.app_context():
-        db = get_db_direct()
-        add_article(db, add_feed(db))
-        db.close()
-    assert "empty-state" not in client.get("/articles?offset=50").get_data(as_text=True)
 
 
 def test_one_broken_job_reads_as_singular(db_conn):
@@ -251,22 +193,6 @@ def test_a_successful_run_clears_the_recorded_error(db_conn):
     _record_llm_error(db_conn, scored=5, summarized=2)
     db_conn.commit()
     assert last_llm_error(db_conn) is None
-
-
-def test_insights_shows_the_failure(client, app):
-    import json
-    from app.db import get_db_direct, set_setting
-    with app.app_context():
-        db = get_db_direct()
-        set_setting(db, "last_llm_error", json.dumps({
-            "message": "Model 'ghost:1b' is not installed on this server.",
-            "model": "ghost:1b", "endpoint": "http://ollama:11434"}))
-        db.commit()
-        db.close()
-    body = client.get("/insights").get_data(as_text=True)
-    assert "Last LLM failure" in body
-    assert "ghost:1b" in body
-    assert "failed fast rather than that there was nothing to do" in body
 
 
 def test_a_failed_run_records_why(db_conn):

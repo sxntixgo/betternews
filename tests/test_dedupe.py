@@ -116,33 +116,6 @@ def test_old_articles_are_outside_the_window(db_conn):
 
 # ── list collapsing ────────────────────────────────────────────────────────────
 
-def test_duplicates_collapse_to_the_best_scoring_member(client, app):
-    from app.db import get_db_direct
-    with app.app_context():
-        db = get_db_direct()
-        fid = add_feed(db)
-        add_article(db, fid, seq=1, guid="a", title="Verge take", score=0.6,
-                    cluster_id="c1")
-        add_article(db, fid, seq=2, guid="b", title="Ars take", score=0.9,
-                    cluster_id="c1")
-        db.close()
-    data = client.get("/articles?sort=score").data
-    assert b"Ars take" in data           # higher score represents the cluster
-    assert b"Verge take" not in data
-    assert b"other feed" in data         # but the duplicate is acknowledged
-
-
-def test_unclustered_articles_are_untouched(client, app):
-    from app.db import get_db_direct
-    with app.app_context():
-        db = get_db_direct()
-        fid = add_feed(db)
-        add_article(db, fid, seq=1, guid="a", title="One")
-        add_article(db, fid, seq=2, guid="b", title="Two")
-        db.close()
-    data = client.get("/articles").data
-    assert b"One" in data and b"Two" in data
-
 
 def test_malformed_url_degrades_instead_of_raising():
     """A feed can emit anything; ingest must not die on it."""

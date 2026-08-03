@@ -11,11 +11,8 @@ immediately rather than when the cookie expires.
 
 import logging
 from datetime import datetime, timedelta, timezone
-from functools import wraps
 
-from flask import (
-    Response, current_app, g, redirect, render_template, request, session, url_for,
-)
+from flask import current_app, g, session
 from sqlalchemy import func, select, text
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -29,14 +26,6 @@ log = logging.getLogger(__name__)
 MIN_PASSWORD_LENGTH = 10
 MAX_FAILED_ATTEMPTS = 5
 LOCKOUT_MINUTES = 15
-
-# Reachable without a session. The two static PWA files must stay open or the
-# app stops being installable.
-PUBLIC_ENDPOINTS = {
-    "main.login", "main.login_post",
-    "main.register", "main.register_post",
-    "main.logout", "main.healthcheck", "static",
-}
 
 
 # ── password rules ─────────────────────────────────────────────────────────────
@@ -122,56 +111,6 @@ def current_user_id() -> int | None:
     return u["id"] if u else None
 
 
-def is_admin() -> bool:
-    u = current_user()
-    return bool(u and u["role"] == "admin")
-
-
-# ── responses ──────────────────────────────────────────────────────────────────
-
-def _redirect_to(endpoint: str):
-    """HTMX-aware redirect.
-
-    A fragment request that hits an expired session must not get a login page
-    swapped into #article-list. HTMX honours HX-Redirect on a 401 and navigates
-    the whole window instead.
-    """
-    target = url_for(endpoint)
-    if request.headers.get("HX-Request"):
-        r = Response("", status=401)
-        r.headers["HX-Redirect"] = target
-        return r
-    return redirect(target)
-
-
-def _forbidden():
-    if request.headers.get("HX-Request"):
-        return Response("Admins only.", status=403)
-    return render_template("403.html"), 403
-
-
-# ── decorators ─────────────────────────────────────────────────────────────────
-
-def login_required(fn):
-    @wraps(fn)
-    def wrapper(*args, **kwargs):
-        if current_user() is None:
-            return _redirect_to("main.login")
-        return fn(*args, **kwargs)
-    return wrapper
-
-
-def admin_required(fn):
-    @wraps(fn)
-    def wrapper(*args, **kwargs):
-        if current_user() is None:
-            return _redirect_to("main.login")
-        if not is_admin():
-            return _forbidden()
-        return fn(*args, **kwargs)
-    return wrapper
-
-
 # ── request hooks ──────────────────────────────────────────────────────────────
 
 def install(app) -> None:
@@ -188,45 +127,26 @@ def install(app) -> None:
     app.config["SESSION_COOKIE_SAMESITE"] = "Strict"
     # Long-lived so the phone stays signed in between reading sessions.
     app.config.setdefault("PERMANENT_SESSION_LIFETIME", timedelta(days=90))
-    app.before_request(_require_session)
-    app.before_request(_force_password_change)
 
 
-def _is_api_request() -> bool:
-    """The JSON API authenticates itself and must never be redirected.
-
-    These hooks run app-wide, before any blueprint. Without this the session
-    guard answered every /api/v1 call with a 302 to /login -- even one carrying
-    a perfectly good bearer token -- and a native client saw a redirect to an
-    HTML page instead of its data.
-    """
-    return (request.blueprint == "api"
-            or request.path.startswith("/api/"))
+# No `is_admin()` here either: it existed for the templates, and the one place
+# that still asks the question is `@api_admin`, which reads the role off the
+# row it has already loaded rather than going back to the session.
 
 
-def _require_session():
-    if _is_api_request():
-        return None
-    if request.endpoint in PUBLIC_ENDPOINTS or request.endpoint is None:
-        return None
-    if current_user() is None:
-        return _redirect_to("main.login")
-    return None
-
-
-def _force_password_change():
-    """After an admin reset, nothing else is reachable until it's changed."""
-    if _is_api_request():
-        # A token client cannot complete a password change, and bouncing it to
-        # an HTML form would be a redirect it cannot follow.
-        return None
-    u = current_user()
-    if not u or not u["must_change_password"]:
-        return None
-    allowed = {"main.profile", "main.profile_password", "main.logout", "static"}
-    if request.endpoint in allowed or request.endpoint in PUBLIC_ENDPOINTS:
-        return None
-    return _redirect_to("main.profile")
+# There are no app-wide session hooks any more, and no `login_required` /
+# `admin_required` decorators.
+#
+# They guarded the server-rendered UI, and every route that survives it --
+# /login, /register, /logout, /health -- is public by design. What they used to
+# do is now `@api_auth` and `@api_admin` in `app/api/`, which answer JSON
+# instead of redirecting a native client to an HTML login form.
+#
+# `_force_password_change` went with them, and that one mattered: it redirected
+# to `main.profile`, which no longer exists, so it would have raised a
+# BuildError on the first reset account rather than degrading quietly. The SPA
+# enforces it now -- `/api/v1/me` reports `must_change_password` and the shell
+# refuses to render the reading list until it is cleared.
 
 
 # ── registration ───────────────────────────────────────────────────────────────

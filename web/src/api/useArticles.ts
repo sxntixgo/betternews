@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Article, ListQuery } from '@shared/api';
+import type { Article, Diagnosis, ListQuery } from '@shared/api';
 import { api } from './client';
 
 /**
@@ -12,6 +12,10 @@ import { api } from './client';
  */
 export function useArticles(query: ListQuery, enabled = true, search = '') {
   const [articles, setArticles] = useState<Article[]>([]);
+  // Why the list is empty, when it is. Cleared on search, which has no
+  // pipeline to diagnose -- "no feeds yet" under a search for "rockets" would
+  // be answering a question nobody asked.
+  const [diagnosis, setDiagnosis] = useState<Diagnosis | null>(null);
   const [nextOffset, setNextOffset] = useState<number | null>(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,12 +44,14 @@ export function useArticles(query: ListQuery, enabled = true, search = '') {
           if (active.current !== mine) return;
           setArticles(found.articles);
           setNextOffset(null);
+          setDiagnosis(null);
           return;
         }
         const page = await api.articles({ ...query, offset });
         if (active.current !== mine) return;
         setArticles((prev) => (replace ? page.articles : [...prev, ...page.articles]));
         setNextOffset(page.next_offset);
+        if (replace) setDiagnosis(page.diagnosis);
       } catch (e) {
         if (active.current === mine) setError((e as Error).message);
       } finally {
@@ -78,5 +84,6 @@ export function useArticles(query: ListQuery, enabled = true, search = '') {
     setArticles((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
   }, []);
 
-  return { articles, loading, error, loadMore, hasMore: nextOffset !== null, patch };
+  return { articles, diagnosis, loading, error, loadMore,
+           hasMore: nextOffset !== null, patch };
 }

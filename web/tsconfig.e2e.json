@@ -1,0 +1,13 @@
+{
+  /* The Playwright suite, typechecked.
+     It was not, and the fixtures say at the top that their shapes mirror
+     shared/api.ts "so a contract change breaks these too" -- which was not
+     true of anything but a human reading it. Adding a required field to `Me`
+     left the fixtures happily claiming to be a `Me` that was missing it. */
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.e2e.tsbuildinfo",
+    "types": ["node"]
+  },
+  "include": ["e2e", "../shared", "playwright.config.ts"]
+}

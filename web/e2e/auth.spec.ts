@@ -99,3 +99,34 @@ test.describe('losing the session', () => {
     await expect(page.locator('.signin')).toHaveCount(0);
   });
 });
+
+test('a reset password blocks the reading list until it is changed', async ({ page }) => {
+  // The server used to enforce this with an app-wide redirect to the profile
+  // page. That page is gone, so the SPA is the only thing left holding the gate.
+  let changed = false;
+  // mockApi registers its own /me, and Playwright tries the most recently
+  // added route first -- so these have to come after it, not before.
+  await mockApi(page);
+  await page.route('**/api/v1/me', (r) => r.fulfill({
+    json: { id: 1, username: 'reader', role: 'admin',
+            must_change_password: !changed,
+            declickbait: false, content_filter_mode: 'off' },
+  }));
+  await page.route('**/api/v1/me/password', (r) => {
+    changed = true;
+    return r.fulfill({ json: { ok: true } });
+  });
+  await page.goto('/');
+
+  await expect(page.locator('.forced-password')).toBeVisible();
+  await expect(page.locator('.article-row')).toHaveCount(0);
+
+  await page.locator('input[autocomplete="current-password"]').fill('the-temp-one');
+  const next = page.locator('input[autocomplete="new-password"]');
+  await next.first().fill('a-much-better-one');
+  await next.nth(1).fill('a-much-better-one');
+  await page.getByRole('button', { name: 'Change password' }).click();
+
+  await expect(page.locator('.forced-password')).toHaveCount(0);
+  await expect(page.locator('.article-row').first()).toBeVisible();
+});

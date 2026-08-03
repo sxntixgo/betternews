@@ -1,43 +1,30 @@
-"""The web views, as one blueprint across several modules.
+"""What is left of the server-rendered UI.
 
-One `Blueprint`, not one per module. Separate blueprints would rename every
-endpoint (`main.login` -> `accounts.login`), churning the `url_for('main.…')`
-call sites in the templates to buy nothing: the reason to split was file size,
-and file size does not need a second Blueprint object.
+Everything a reader does now goes through `app/api/` and the SPA. Two things
+still have to be HTML, and they are the only reason this package exists:
 
-A future JSON API *is* a separate blueprint, because there the URL prefix and
-the endpoint namespace are both wanted. This one is not that case.
+* **Sign-in and registration.** A browser arriving with no session needs
+  somewhere to land that does not depend on the bundle having loaded. If the
+  SPA were the only way in, a broken build would lock everyone out of their own
+  reader with no way to tell whether the server was even up.
+* **`/health`.** The container healthcheck curls it, so it must answer without
+  a session and without JavaScript.
+
+One `Blueprint` named `main` across both modules, kept from when there were
+six: the endpoint names are what `url_for` and the tests refer to, and renaming
+them to buy nothing is churn.
 """
 
 import logging
 
 from flask import Blueprint
 
-from app import auth
-
 log = logging.getLogger(__name__)
 
 bp = Blueprint("main", __name__)
 
 
-def current_user_id(db) -> int:
-    """The acting user, from the session.
-
-    Every route reaching this is behind `login_required`, so a missing session
-    is a programming error rather than an anonymous visitor.
-
-    Stays here rather than moving to `presenters`: it reads the session, which
-    is exactly what that module must not do.
-    """
-    uid = auth.current_user_id()
-    if uid is None:                                   # pragma: no cover - guarded
-        raise RuntimeError("no authenticated user in request context")
-    return uid
-
-
 # Imported for their side effect: each module registers its routes on `bp`.
-# Must come last, after `bp` and `current_user_id` exist -- this is the one
-# place in the codebase where import order is load-bearing.
-from app.views import (  # noqa: E402,F401
-    accounts, admin, feeds, ops, reading, settings,
-)
+# Must come last, after `bp` exists -- this is the one place in the codebase
+# where import order is load-bearing.
+from app.views import accounts, ops  # noqa: E402,F401

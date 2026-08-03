@@ -96,27 +96,6 @@ def test_pipeline_health_counts_by_status(db_conn):
 
 # ── page + threshold tuning ────────────────────────────────────────────────────
 
-def test_insights_page_renders(client):
-    assert client.get("/insights").status_code == 200
-
-
-def test_insights_reports_agreement(client, app):
-    from app.db import get_db_direct
-    with app.app_context():
-        db = get_db_direct()
-        _voted(db, 0.9, 1)
-        db.close()
-    assert b"agree with the score" in client.get("/insights").data
-
-
-def test_apply_threshold_persists_and_pipeline_uses_it(client, app):
-    assert client.post("/insights/threshold", data={"threshold": "0.55"}).status_code == 200
-    from app.db import get_db_direct, get_setting
-    with app.app_context():
-        db = get_db_direct()
-        assert get_setting(db, "score_threshold") == "0.55"
-        db.close()
-
 
 def test_pipeline_honours_the_tuned_threshold(db_conn):
     """The point of A4: applying a suggestion changes what gets hidden."""
@@ -133,12 +112,3 @@ def test_pipeline_honours_the_tuned_threshold(db_conn):
                            {"i": aid}).scalar() == "hidden"
 
 
-@pytest.mark.parametrize("bad", ["", "abc", "-1", "2"])
-def test_apply_threshold_validates(client, bad):
-    assert client.post("/insights/threshold", data={"threshold": bad}).status_code == 400
-
-
-def test_insights_is_admin_only(login_as):
-    c, _ = login_as()
-    assert c.get("/insights").status_code == 403
-    assert c.post("/insights/threshold", data={"threshold": "0.5"}).status_code == 403

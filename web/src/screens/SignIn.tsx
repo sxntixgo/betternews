@@ -19,13 +19,10 @@ export function SignIn({ onDone }: { onDone: () => void }) {
     setBusy(true);
     setError(null);
     try {
-      const me = await api.login(username.trim(), password);
-      if (me.must_change_password) {
-        // An admin reset this password. The server UI blocks everything until
-        // it changes; here there is nowhere to send them yet, so say so rather
-        // than let them wonder why the server keeps asking.
-        setError('Your password was reset — change it in the server UI.');
-      }
+      await api.login(username.trim(), password);
+      // `must_change_password` is not handled here. The shell reads it from
+      // /me and shows the change screen, which is a gate rather than a
+      // message -- this used to point at a server UI that no longer exists.
       onDone();
     } catch (err) {
       setError((err as Error).message);

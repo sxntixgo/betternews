@@ -50,13 +50,12 @@ def create_app() -> Flask:
     with app.app_context():
         init_db()
 
-    app.add_template_filter(_fmt_dt, "dt")
-
+    # No `dt` filter and no `current_user` / `is_admin` template globals: the
+    # three templates left are all signed-out pages that render no dates and no
+    # per-user chrome. The SPA formats its own.
     from app import auth, call_log
     auth.install(app)
     call_log.install(app)
-    app.jinja_env.globals["current_user"] = auth.current_user
-    app.jinja_env.globals["is_admin"] = auth.is_admin
 
     from app.views import bp
     from app.api import bp as api_bp
@@ -75,23 +74,6 @@ def create_app() -> Flask:
         scheduler.start()
 
     return app
-
-
-def _fmt_dt(value, fmt: str = "%Y-%m-%d %H:%M") -> str:
-    """Render a timestamp for display.
-
-    Columns are TIMESTAMPTZ since the Postgres migration, so templates get
-    datetimes where they used to get ISO strings. Tolerates both rather than
-    letting a stray string slice raise in a template.
-    """
-    if not value:
-        return ""
-    if isinstance(value, str):
-        return value[:16].replace("T", " ")
-    try:
-        return value.strftime(fmt)
-    except AttributeError:
-        return str(value)
 
 
 def _should_run_scheduler(app: Flask) -> bool:

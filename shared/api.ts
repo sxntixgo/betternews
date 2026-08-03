@@ -62,10 +62,34 @@ export interface ArticleDetail extends Article {
   aside_count: number;
 }
 
+/**
+ * Why the reading list is empty.
+ *
+ * Only ever set for an empty first page. A bare "Nothing to read" is how a
+ * misconfigured model went unnoticed three times -- the server can tell "no
+ * feeds" from "Ollama unreachable" from "still working" from "caught up", and
+ * a client cannot.
+ *
+ * Branch on `kind`, not on the wording. `action` is a label only: the server
+ * used to name an href with it, and a client owns its own navigation.
+ */
+export interface Diagnosis {
+  kind:
+    | 'no_feeds' | 'not_polled' | 'ollama_unreachable' | 'model_missing'
+    | 'llm_failing' | 'processing' | 'all_hidden' | 'caught_up';
+  title: string;
+  detail: string;
+  action: string | null;
+  /** Nothing a plain reader can act on; say less rather than send them nowhere. */
+  admin_only: boolean;
+}
+
 export interface ArticlePage {
   articles: Article[];
   /** null at the end of the list. Exact — collapsing happens in SQL. */
   next_offset: number | null;
+  /** Set only when the first page comes back empty. */
+  diagnosis: Diagnosis | null;
 }
 
 export interface Feed {
@@ -106,6 +130,8 @@ export interface Me {
   id: number;
   username: string;
   role: 'admin' | 'user';
+  /** An admin reset this password. Nothing else is reachable until it changes. */
+  must_change_password: boolean;
   declickbait: boolean;
   content_filter_mode: string;
 }

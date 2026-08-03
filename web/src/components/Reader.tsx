@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { ArticleDetail } from '@shared/api';
 import { api } from '../api/client';
+import { Modal } from './Modal';
 
 /**
  * The reader.
@@ -32,46 +33,44 @@ export function Reader({ id, onClose }: { id: number; onClose: () => void }) {
   }, [onClose]);
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <nav className="modal-nav">
-          <button className="btn-icon" onClick={onClose}>
-            ← Back
-          </button>
-          {detail && (
-            <a className="btn-external" href={detail.url} target="_blank" rel="noopener noreferrer">
-              ↗ Open in browser
-            </a>
-          )}
-        </nav>
+    <Modal onClose={onClose} ariaLabel="Article" className="modal">
+      <nav className="modal-nav">
+        <button className="btn-icon" onClick={onClose}>
+          ← Back
+        </button>
+        {detail && (
+          <a className="btn-external" href={detail.url} target="_blank" rel="noopener noreferrer">
+            ↗ Open in browser
+          </a>
+        )}
+      </nav>
 
-        <div className="modal-body">
-          {error && <p className="error">{error}</p>}
-          {!detail && !error && <p className="muted">Loading…</p>}
-          {detail && (
-            <>
-              <h1>{detail.title}</h1>
-              {detail.original_title && (
-                <p className="original-title">Originally: {detail.original_title}</p>
-              )}
-              {detail.description && <p className="lede">{detail.description}</p>}
-              {detail.blocks.map((group, i) =>
-                group.aside ? (
-                  <details className="aside-group" key={i}>
-                    <summary>{group.label ?? 'Aside'}</summary>
-                    {group.blocks.map((b, j) => (
-                      <BlockView block={b} key={j} />
-                    ))}
-                  </details>
-                ) : (
-                  group.blocks.map((b, j) => <BlockView block={b} key={`${i}-${j}`} />)
-                ),
-              )}
-            </>
-          )}
-        </div>
+      <div className="modal-body">
+        {error && <p className="error">{error}</p>}
+        {!detail && !error && <p className="muted">Loading…</p>}
+        {detail && (
+          <>
+            <h1>{detail.title}</h1>
+            {detail.original_title && (
+              <p className="original-title">Originally: {detail.original_title}</p>
+            )}
+            {detail.description && <p className="lede">{detail.description}</p>}
+            {detail.blocks.map((group, i) =>
+              group.aside ? (
+                <details className="aside-group" key={i}>
+                  <summary>{group.label ?? 'Aside'}</summary>
+                  {group.blocks.map((b, j) => (
+                    <BlockView block={b} key={j} />
+                  ))}
+                </details>
+              ) : (
+                group.blocks.map((b, j) => <BlockView block={b} key={`${i}-${j}`} />)
+              ),
+            )}
+          </>
+        )}
       </div>
-    </div>
+    </Modal>
   );
 }
 

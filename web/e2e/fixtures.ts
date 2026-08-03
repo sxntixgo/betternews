@@ -72,6 +72,21 @@ export async function mockApi(page: Page) {
   }));
   await page.route('**/api/v1/feeds/*/pause', (r) => r.fulfill({ json: { id: 7, paused: true, url: '', title: '', last_polled_at: null, last_success_at: null, last_error: null, consecutive_failures: 0, score_threshold: null, tags: [] } }));
   await page.route('**/api/v1/feeds/*/resume', (r) => r.fulfill({ json: { id: 8, paused: false, url: '', title: '', last_polled_at: null, last_success_at: null, last_error: null, consecutive_failures: 0, score_threshold: null, tags: [] } }));
+  // Tags and threshold save on blur, so *tabbing through the feeds table*
+  // fires them. Unmocked, they reached the real server, 401'd, and signed the
+  // reader out -- which looks like a broken focus trap rather than a missing
+  // stub. Same trap fixtures.ts already warns about, third time.
+  const feedRow = {
+    id: 7, url: 'https://verge.example/rss', title: 'The Verge', paused: false,
+    last_polled_at: null, last_success_at: null, last_error: null,
+    consecutive_failures: 0, score_threshold: null, tags: ['tech'],
+  };
+  await page.route('**/api/v1/feeds/*/tags', (r) => r.fulfill({ json: feedRow }));
+  await page.route('**/api/v1/feeds/*/threshold', (r) => r.fulfill({ json: feedRow }));
+  await page.route('**/api/v1/feeds/opml', (r) => (r.request().method() === 'POST'
+    ? r.fulfill({ json: { added: 2 } })
+    : r.fulfill({ headers: { 'content-disposition': 'attachment; filename="feeds.opml"' },
+                  body: '<opml version="2.0"><body/></opml>' })));
   await page.route('**/api/v1/me/preferences', (r) => r.fulfill({
     json: { profile_text: 'You like rockets and Argentine politics.',
             updated_at: '2026-08-01T09:00:00+00:00', liked: 34, disliked: 4,

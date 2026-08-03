@@ -1,15 +1,185 @@
-/* The Vite template ships an opinionated demo stylesheet -- centred text, a
-   flex body, a 1280px #root -- which fights the application stylesheet carried
-   over from the server UI. Only the reset is wanted. */
-* { box-sizing: border-box; }
+/* The design tokens. Every colour, font and radius in the app resolves here.
+ *
+ * Taken from `job-application-tracker`'s `index.css` — its structure *and* its
+ * palette, because the ask was for this app to look like that one. Warm
+ * neutrals rather than pure white and pure black: #faf9f6 over #ffffff, ink at
+ * #1f1d1a rather than #000, hairlines that are warm grey rather than blue-grey.
+ *
+ * What is not taken: the seven `--stage-*` Kanban accents, which have no
+ * analogue in a reader, and the priority/badge chips. What is added:
+ * `--color-like-surface`, `--color-dislike-surface` and `--color-saved`, which
+ * are this app's own vocabulary and have no counterpart there.
+ *
+ * `App.css` contains no hex literal at all, and a test asserts that, because
+ * this is the kind of thing that decays one merge at a time. If a component
+ * needs a colour that is not here, the answer is a new token, not a hex value.
+ */
 
-html, body, #root {
+:root {
+  /* ---------- Light palette (default) ---------- */
+
+  /* Surfaces, back to front. The old stylesheet had one background and faked
+     every card with a border; a real surface layer is what lets a modal, a
+     card and the page read as different depths. */
+  --color-bg: #faf9f6;
+  --color-surface: #ffffff;
+  --color-surface-2: #f4f2ec;
+
+  --color-ink: #1f1d1a;
+  --color-ink-muted: #6b6558;
+
+  /* Two weights. `hairline` separates rows inside a card; `strong` bounds the
+     card itself, and is what a button uses so it reads as pressable. */
+  --color-hairline: #e2ddd2;
+  --color-hairline-strong: #cfc8b8;
+
+  /* Semantic. Named for meaning, so a component says "danger" and not the
+     particular red that was to hand -- #d14343 appeared 13 times before this. */
+  --color-danger: #a8432f;
+  --color-danger-surface: #fdf5f4;
+  --color-success: #2d7a3a;
+  --color-success-surface: #e8f3ea;
+  --color-warning: #7d4e00;
+  --color-warning-surface: #fff3cd;
+  --color-focus: #3d6b8c;
+
+  --color-accent: #3d6b8c;
+  /* Text on an accent fill. Not `--color-bg`: those coincide in light mode and
+     diverge in dark, which is exactly the bug this prevents. */
+  --color-on-accent: #ffffff;
+
+  /* Reading-specific. A voted card is tinted rather than badged, so these are
+     surfaces and not text colours. */
+  --color-like-surface: #e8f3ea;
+  --color-dislike-surface: #fdf5f4;
+  --color-saved: #c98a3a;
+
+  /* The bar shown when the browser goes offline. Dark amber on both themes:
+     it must read as "degraded", never as an error. */
+  --color-offline-surface: #7d4e00;
+  --color-offline-ink: #ffffff;
+
+  --overlay-bg: rgba(31, 29, 26, 0.35);
+
+  color-scheme: light;
+}
+
+/* ---------- Dark palette ---------- */
+[data-theme='dark'] {
+  --color-bg: #18181b;
+  --color-surface: #1f1f23;
+  --color-surface-2: #27272c;
+
+  --color-ink: #e8e6e1;
+  --color-ink-muted: #908d84;
+
+  --color-hairline: #2e2e33;
+  --color-hairline-strong: #3e3e45;
+
+  --color-danger: #d9604a;
+  --color-danger-surface: #2a1410;
+  --color-success: #52c46a;
+  --color-success-surface: #16281a;
+  --color-warning: #d4a055;
+  --color-warning-surface: #302210;
+  --color-focus: #5a8fb5;
+
+  --color-accent: #5a8fb5;
+  /* Ink, not white: text on a light-blue fill in dark mode needs to be dark. */
+  --color-on-accent: #18181b;
+
+  --color-like-surface: #16281a;
+  --color-dislike-surface: #2a1410;
+  --color-saved: #d4a055;
+
+  --color-offline-surface: #5a4310;
+  --color-offline-ink: #e8e6e1;
+
+  --overlay-bg: rgba(0, 0, 0, 0.55);
+
+  color-scheme: dark;
+}
+
+/* `data-theme` is stamped on <html> by theme.ts, including when the preference
+   is "system" -- it resolves the media query itself and writes the result. This
+   media block is the pre-hydration fallback only: it covers the instant between
+   first paint and the script running, so the page does not flash light. Any
+   rule that needs to differ per theme must key off [data-theme], never this. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --color-bg: #18181b;
+    --color-surface: #1f1f23;
+    --color-surface-2: #27272c;
+    --color-ink: #e8e6e1;
+    --color-ink-muted: #908d84;
+    --color-hairline: #2e2e33;
+    --color-hairline-strong: #3e3e45;
+    --color-danger: #d9604a;
+    --color-danger-surface: #2a1410;
+    --color-success: #52c46a;
+    --color-success-surface: #16281a;
+    --color-warning: #d4a055;
+    --color-warning-surface: #302210;
+    --color-focus: #5a8fb5;
+    --color-accent: #5a8fb5;
+    --color-on-accent: #18181b;
+    --color-like-surface: #16281a;
+    --color-dislike-surface: #2a1410;
+    --color-saved: #d4a055;
+    --color-offline-surface: #5a4310;
+    --color-offline-ink: #e8e6e1;
+    --overlay-bg: rgba(0, 0, 0, 0.55);
+    color-scheme: dark;
+  }
+}
+
+:root {
+  /* Named first, not bundled. The tracker does the same: on a machine with IBM
+     Plex installed the app picks it up, and everywhere else the system stack
+     below is what renders. Self-hosting the woff2 is a follow-up -- linking
+     Google Fonts is not an option on a LAN-only box that should not phone
+     home, and would hang the page whenever the WAN is down. */
+  --font-ui: 'IBM Plex Sans', system-ui, -apple-system, BlinkMacSystemFont,
+    'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas,
+    monospace;
+
+  --radius-sm: 3px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+}
+
+/* The Vite template ships an opinionated demo stylesheet -- centred text, a
+   flex body, a 1280px #root. Only the reset is wanted. */
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
   margin: 0;
   padding: 0;
   height: 100%;
 }
 
 body {
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--font-ui);
+  color: var(--color-ink);
+  background-color: var(--color-bg);
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* One focus ring for the whole app, and only for keyboard users. The old
+   stylesheet left this to the browser, so it differed per control and vanished
+   entirely on the ones that set `outline: none`. */
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+a:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
 }

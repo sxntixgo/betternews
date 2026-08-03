@@ -1,4 +1,5 @@
 import { SHORTCUTS } from '../keyboard';
+import { Modal } from './Modal';
 
 /**
  * The shortcut list, on `?`.
@@ -10,23 +11,21 @@ import { SHORTCUTS } from '../keyboard';
  */
 export function ShortcutsOverlay({ onClose }: { onClose: () => void }) {
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="shortcuts-overlay" onClick={(e) => e.stopPropagation()}>
-        <h2>Keyboard shortcuts</h2>
-        <table>
-          <tbody>
-            {SHORTCUTS.map((s) => (
-              <tr key={s.keys}>
-                <td>
-                  <kbd>{s.keys}</kbd>
-                </td>
-                <td>{s.does}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <p className="muted">Esc to close</p>
-      </div>
-    </div>
+    <Modal onClose={onClose} ariaLabel="Keyboard shortcuts" className="shortcuts-overlay">
+      <h2>Keyboard shortcuts</h2>
+      <table>
+        <tbody>
+          {SHORTCUTS.map((s) => (
+            <tr key={s.keys}>
+              <td>
+                <kbd>{s.keys}</kbd>
+              </td>
+              <td>{s.does}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="muted">Esc to close</p>
+    </Modal>
   );
 }

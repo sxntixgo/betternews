@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Modal } from './Modal';
 
 export interface Command {
   id: string;
@@ -55,34 +56,32 @@ export function CommandPalette({
   }
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="command-palette" onClick={(e) => e.stopPropagation()}>
-        <input
-          ref={input}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={onKeyDown}
-          placeholder="Type a command…"
-          aria-label="Command"
-        />
-        <ul>
-          {matches.map((c, i) => (
-            <li key={c.id}>
-              <button
-                className={`command-item ${i === active ? 'active' : ''}`}
-                onMouseEnter={() => setActive(i)}
-                onClick={() => {
-                  c.run();
-                  onClose();
-                }}
-              >
-                {c.label}
-              </button>
-            </li>
-          ))}
-          {matches.length === 0 && <li className="muted">Nothing matches.</li>}
-        </ul>
-      </div>
-    </div>
+    <Modal onClose={onClose} ariaLabel="Command palette" className="command-palette">
+      <input
+        ref={input}
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={onKeyDown}
+        placeholder="Type a command…"
+        aria-label="Command"
+      />
+      <ul>
+        {matches.map((c, i) => (
+          <li key={c.id}>
+            <button
+              className={`command-item ${i === active ? 'active' : ''}`}
+              onMouseEnter={() => setActive(i)}
+              onClick={() => {
+                c.run();
+                onClose();
+              }}
+            >
+              {c.label}
+            </button>
+          </li>
+        ))}
+        {matches.length === 0 && <li className="muted">Nothing matches.</li>}
+      </ul>
+    </Modal>
   );
 }

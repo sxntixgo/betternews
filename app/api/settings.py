@@ -89,25 +89,45 @@ def ollama_test():
 @bp.get("/settings/models")
 @api_admin
 def models_get():
-    """Every job, its model, and whether that model is actually installed.
+    """Every job, its model, and everything that explains the recommendation.
 
-    The mismatch this surfaces -- a configured model that is not pulled -- made
-    every scoring call fail silently for six weeks.
+    Goes through `llm_config.current`, which the HTML panel used, rather than
+    recomputing a subset: `guidance`, the JSON/heavy flags and the
+    explicit-vs-inherited distinction were all being dropped on the floor here,
+    so the client could not have shown them even if it wanted to.
+
+    The mismatch that matters is `installed: false` -- a model configured but
+    not pulled made every scoring call fail silently for six weeks.
     """
     db = get_db()
     installed = ollama_client.list_models(ollama_base(db))
     actions = []
-    for action in llm_config.ACTIONS:
-        current = llm_config.model_for(db, action.id)
-        suggested, why = llm_config.recommend(action.id, installed)
+    for row in llm_config.current(db, installed):
+        action = row["action"]
         actions.append({
             "id": action.id,
             "label": action.label,
             "description": action.description,
-            "current": current,
-            "installed": current in installed if installed else None,
-            "recommended": suggested,
-            "why": why,
+            # Why this job wants what it wants. The single most load-bearing
+            # text in Settings: it is what stops someone choosing a model that
+            # fails on every call.
+            "guidance": action.guidance,
+            "json_output": action.json_output,
+            "heavy": action.heavy,
+            "current": row["model"],
+            # Blank when the job is falling back rather than configured. The
+            # resolved name alone cannot tell those apart, and "is this set or
+            # just defaulting?" is the question the panel exists to answer.
+            "explicit": row["explicit"],
+            "inherited": row["inherited"],
+            # None, not False, when Ollama is unreachable: unknown is not the
+            # same as absent.
+            "installed": (not row["missing"]) if installed else None,
+            "recommended": row["suggested"],
+            "why": row["suggested_why"],
+            # Only true when the current choice is actually a poor one, so the
+            # panel nags about reasoning models on JSON jobs and nothing else.
+            "suboptimal": row["suboptimal"],
         })
     return jsonify({
         "actions": actions,

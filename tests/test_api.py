@@ -1165,6 +1165,67 @@ def test_models_list_every_job_and_flag_what_is_missing(client, token):
     assert all("recommended" in a and "why" in a for a in body["actions"])
 
 
+def test_models_carry_the_guidance_the_panel_needs(client, token):
+    """`guidance`, the JSON/heavy flags and explicit-vs-inherited were computed
+    by llm_config and dropped on the floor here, so the panel could not have
+    shown them even if it wanted to."""
+    from unittest.mock import patch
+    with patch("app.ollama_client.list_models", return_value=["llama3.2:3b"]):
+        body = client.get(f"{API}/settings/models", headers=auth(token)).get_json()
+    scoring = next(a for a in body["actions"] if a["id"] == "scoring")
+    assert scoring["guidance"], "the text that stops a silent six-week outage"
+    assert scoring["json_output"] is True
+    assert scoring["heavy"] is True
+    # Nothing configured yet, so it is falling back rather than set.
+    assert scoring["inherited"] is True
+    assert scoring["explicit"] == ""
+    assert scoring["current"], "still resolves to something"
+
+
+def test_setting_a_model_makes_it_explicit(client, token):
+    """The resolved name alone cannot tell "set to X" from "defaulting to X"."""
+    from unittest.mock import patch
+    with patch("app.ollama_client.list_models", return_value=["llama3.1:8b"]):
+        body = client.post(f"{API}/settings/models", headers=auth(token),
+                           json={"scoring": "llama3.1:8b"}).get_json()
+        scoring = next(a for a in body["actions"] if a["id"] == "scoring")
+        assert scoring["explicit"] == "llama3.1:8b"
+        assert scoring["inherited"] is False
+
+        cleared = client.post(f"{API}/settings/models", headers=auth(token),
+                              json={"scoring": ""}).get_json()
+    scoring = next(a for a in cleared["actions"] if a["id"] == "scoring")
+    assert scoring["explicit"] == ""
+    assert scoring["inherited"] is True
+
+
+def test_a_reasoning_model_on_a_json_job_is_flagged_as_suboptimal(client, app, token):
+    """Reasoning models spend their output budget thinking and often never
+    reach the JSON. That is the failure the panel exists to warn about."""
+    from unittest.mock import patch
+    from app.db import get_db_direct, set_setting
+    with app.app_context():
+        db = get_db_direct()
+        set_setting(db, "model_scoring", "deepseek-r1:8b")
+        db.commit()
+        db.close()
+    with patch("app.ollama_client.list_models",
+               return_value=["deepseek-r1:8b", "llama3.2:3b"]):
+        body = client.get(f"{API}/settings/models", headers=auth(token)).get_json()
+    scoring = next(a for a in body["actions"] if a["id"] == "scoring")
+    assert scoring["suboptimal"] is True
+    # The free-text jobs are the ones reasoning actually suits.
+    digest = next(a for a in body["actions"] if a["id"] == "digest")
+    assert digest["suboptimal"] is False
+
+
+def test_installed_is_unknown_rather_than_false_without_ollama(client, token):
+    from unittest.mock import patch
+    with patch("app.ollama_client.list_models", return_value=[]):
+        body = client.get(f"{API}/settings/models", headers=auth(token)).get_json()
+    assert all(a["installed"] is None for a in body["actions"])
+
+
 def test_saving_an_unknown_job_is_refused(client, token):
     r = client.post(f"{API}/settings/models", headers=auth(token),
                     json={"not_a_job": "llama3.2:3b"})

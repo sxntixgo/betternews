@@ -54,17 +54,45 @@ test('testing the connection reports the failure and saves nothing', async ({ pa
 
 test('a model that is configured but not installed is called out', async ({ page }) => {
   await openSettings(page);
-  const row = page.locator('.settings-table tr').filter({ hasText: 'Relevance scoring' });
+  const row = page.locator('.action-model').filter({ hasText: 'Relevance scoring' });
   // This exact mismatch made every scoring call fail silently for six weeks.
-  await expect(row.locator('.feed-error')).toContainText('ministral-3:14b is not installed');
+  await expect(row.locator('.ollama-result-bad'))
+    .toContainText('ministral-3:14b is not installed');
   await expect(row).toContainText('Suggested: llama3.2:3b');
+});
+
+test('the panel explains why a job wants what it wants', async ({ page }) => {
+  await openSettings(page);
+  // The single most load-bearing text in Settings, and it was dropped entirely
+  // when the panel was ported: it is what stops someone choosing a model that
+  // fails silently on every call. The API was not even sending it.
+  await expect(page.locator('.settings-panel').nth(1))
+    .toContainText('spend their output budget thinking');
+  const scoring = page.locator('.action-model').filter({ hasText: 'Relevance scoring' });
+  await expect(scoring.locator('.action-guidance')).toContainText('dependable JSON');
+  await expect(scoring.locator('.action-tag')).toHaveText(['JSON', 'every article']);
+});
+
+test('a defaulting job is distinguishable from a configured one', async ({ page }) => {
+  await openSettings(page);
+  // The resolved name alone cannot tell "set to llama3.2:3b" from "falling
+  // back to it", which is the question this panel exists to answer.
+  const summary = page.locator('.action-model').filter({ hasText: 'Article summaries' });
+  await expect(summary.locator('select')).toHaveValue('');
+  await expect(summary.locator('option').first()).toHaveText('Default (llama3.2:3b)');
+
+  const scoring = page.locator('.action-model').filter({ hasText: 'Relevance scoring' });
+  await expect(scoring.locator('select')).toHaveValue('ministral-3:14b');
+  // Kept in the list rather than silently swapped out, or the panel would show
+  // a model the server is not using.
+  await expect(scoring.locator('option', { hasText: 'not installed' })).toHaveCount(1);
 });
 
 test('applying every recommendation clears the mismatch', async ({ page }) => {
   await openSettings(page);
   await page.getByRole('button', { name: 'Apply every recommendation' }).click();
-  const row = page.locator('.settings-table tr').filter({ hasText: 'Relevance scoring' });
-  await expect(row.locator('.feed-error')).toHaveCount(0);
+  const row = page.locator('.action-model').filter({ hasText: 'Relevance scoring' });
+  await expect(row.locator('.ollama-result-bad')).toHaveCount(0);
 });
 
 test('a reader toggle round-trips rather than only flipping locally', async ({ page }) => {

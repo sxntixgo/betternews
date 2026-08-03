@@ -277,10 +277,16 @@ export async function mockSettings(page: Page) {
     models: {
       actions: [
         { id: 'scoring', label: 'Relevance scoring', description: 'Runs on every article.',
-          current: 'ministral-3:14b', installed: false,
-          recommended: 'llama3.2:3b', why: 'Best fit installed: 3B, not a reasoning model.' },
+          guidance: 'Needs dependable JSON on every article, so avoid reasoning models.',
+          json_output: true, heavy: true,
+          current: 'ministral-3:14b', explicit: 'ministral-3:14b', inherited: false,
+          installed: false, recommended: 'llama3.2:3b', suboptimal: false,
+          why: 'Best fit installed: 3B, not a reasoning model.' },
         { id: 'summary', label: 'Article summaries', description: 'One call per article.',
-          current: 'llama3.2:3b', installed: true, recommended: 'llama3.2:3b',
+          guidance: 'Speed compounds here; a mid-size model writes fluent prose fast.',
+          json_output: false, heavy: true,
+          current: 'llama3.2:3b', explicit: '', inherited: true,
+          installed: true, recommended: 'llama3.2:3b', suboptimal: false,
           why: 'Best fit installed.' },
       ],
       installed: ['llama3.2:3b', 'llama3.1:8b'],
@@ -308,15 +314,19 @@ export async function mockSettings(page: Page) {
     return r.fulfill({ json: state.ollama });
   });
   await page.route('**/api/v1/settings/models/recommended', (r) => {
-    state.models.actions = state.models.actions.map((a) =>
-      (a.recommended ? { ...a, current: a.recommended, installed: true } : a));
+    state.models.actions = state.models.actions.map((a) => (a.recommended
+      ? { ...a, current: a.recommended, explicit: a.recommended,
+          inherited: false, installed: true }
+      : a));
     return r.fulfill({ json: { applied: 2 } });
   });
   await page.route('**/api/v1/settings/models', (r) => {
     if (r.request().method() === 'POST') {
       const body = r.request().postDataJSON() as Record<string, string>;
-      state.models.actions = state.models.actions.map((a) =>
-        (a.id in body ? { ...a, current: body[a.id], installed: true } : a));
+      state.models.actions = state.models.actions.map((a) => (a.id in body
+        ? { ...a, current: body[a.id] || a.current, explicit: body[a.id],
+            inherited: !body[a.id], installed: true }
+        : a));
     }
     return r.fulfill({ json: state.models });
   });

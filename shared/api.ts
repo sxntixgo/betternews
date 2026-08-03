@@ -213,16 +213,29 @@ export interface OllamaProbe {
   base: string;
 }
 
-/** One Ollama job, its model, and whether that model is installed. */
+/** One Ollama job, its model, and everything that explains the recommendation. */
 export interface ModelAction {
   id: string;
   label: string;
   description: string;
+  /** Why this job wants what it wants. The text that stops someone choosing a
+   *  model which fails silently on every call. */
+  guidance: string;
+  /** Needs structured output, so a reasoning model is fatal rather than slow. */
+  json_output: boolean;
+  /** Runs per article, so speed compounds. */
+  heavy: boolean;
   current: string;
+  /** Blank when the job is falling back rather than configured. `current`
+   *  alone cannot distinguish "set to llama3.2:3b" from "defaulting to it". */
+  explicit: string;
+  inherited: boolean;
   /** null when Ollama is unreachable — unknown, which is not the same as false. */
   installed: boolean | null;
   recommended: string | null;
   why: string;
+  /** The current choice is actively a poor one, not merely not-the-suggestion. */
+  suboptimal: boolean;
 }
 
 export interface ModelSettings {

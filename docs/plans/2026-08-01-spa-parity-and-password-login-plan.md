@@ -414,7 +414,14 @@ loop all reached parity.
 
 ---
 
-## Phase 10 — Design tokens and shared primitives  ·  **Opus** (tokens) → **Sonnet** (rollout)
+## Phase 10 — Design tokens and shared primitives  ·  ✅ done (#45)
+
+> **What actually happened.** The first pass ported only the token *structure*
+> and kept betternews' own colours. It typechecked, passed every test, and
+> looked **identical** — which does not answer "it does not look like the
+> tracker". The palette came across too: warm neutrals, `#faf9f6` over
+> `#ffffff`, warm hairlines. Lesson for any future phase like this: a
+> refactor that cannot be seen has not done the job that was asked.
 
 **The gap, measured.** The tracker's `index.css` defines **96 custom
 properties**; betternews' SPA defines **8** (`--bg`, `--fg`, `--muted`,
@@ -473,7 +480,17 @@ first* and the system fonts behind it; bundling the woff2 is a follow-up.
 
 ---
 
-## Phase 11 — Reading parity the cut-over missed  ·  **Sonnet**
+## Phase 11 — Reading parity the cut-over missed  ·  ✅ done (#46)
+
+> **Two gaps this plan missed**, found by the owner rather than by the audit:
+> there was no visible **sign-out** button, and no visible **Settings, Users,
+> Insights, Ollama log or Manage feeds** either. All were command-palette-only,
+> so the entire admin surface sat behind a shortcut you had to already know.
+>
+> The audit missed them because it diffed CSS class names, and those controls
+> were `<a href="/logout">`-style links with no distinctive class. The method
+> had a blind spot. `e2e/design-system.spec.ts` now asserts every control is
+> reachable without the palette, which is the check that would have caught it.
 
 Three verified regressions in the thing people actually use.
 
@@ -526,7 +543,7 @@ in the Hidden view.
 
 ---
 
-## Phase 12 — The PWA, which the cut-over dropped entirely  ·  **Sonnet**
+## Phase 12 — The PWA, which the cut-over dropped entirely  ·  ✅ done (#47)
 
 **Not a gap in polish — a whole capability.** The Flask app shipped
 `static/manifest.json` and `static/sw.js`, registered the worker from
@@ -558,7 +575,7 @@ reconnect.
 
 ---
 
-## Phase 13 — Settings depth the API never sent  ·  **Sonnet**
+## Phase 13 — Settings depth the API never sent  ·  ✅ done (#47)
 
 The models panel is the clearest case, and it is an **API** gap as much as a UI
 one. `llm_config.Action` carries `guidance`, `json_output` and `heavy`;

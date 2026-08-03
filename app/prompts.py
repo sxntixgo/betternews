@@ -54,8 +54,13 @@ INSTRUCTIONS:
   This is the opposite of the topics rule below: reasons follow the article,
   topics are always English so that one rule matches every language.
 
-- topics: 3-6 lowercase slugs. Two kinds, and a good set has both.
-  SUBJECT — what kind of story it is. Prefer the vocabulary below.
+- topics: 4-8 lowercase slugs, and AT LEAST TWO of them SPECIFIC (see below).
+  More tags is better than fewer: they are what the reader's preferences are
+  learned from, and an article tagged only "sports" teaches nothing about
+  whether they wanted Boca Juniors or Formula 1. Two kinds, and a good set has
+  several of each.
+  SUBJECT — what kind of story it is. Reuse the spellings below where one fits,
+  but they are a spelling guide, not a menu to choose from.
   SPECIFIC — the named things the story is actually about. Add one for each that
   the article is genuinely about, not merely mentions in passing:
     - place: country, US state, Argentine province, city
@@ -73,7 +78,8 @@ INSTRUCTIONS:
   - A story about the national government of a country is about that country;
     tag the country, not just "politics".
 
-KNOWN TOPICS:
+KNOWN TOPICS (spellings already in use, for the SUBJECT tags only -- this is
+not a menu, and the SPECIFIC tags will usually not be in it):
 {vocab_block}
 
 Required JSON format:
@@ -121,7 +127,11 @@ INSTRUCTIONS:
 {SCORING_RULES}
 - reason: one sentence in the SAME LANGUAGE as that article -- it is shown to the
   reader beside it. Each article gets a reason in its own language.
-- topics: 3-6 lowercase slugs, ONE thing each ("ai" and "business", never "ai-business").
+- topics: 4-8 lowercase slugs, ONE thing each ("ai" and "business", never "ai-business"),
+  and AT LEAST TWO of them SPECIFIC named things rather than broad subjects.
+  More tags is better than fewer -- they are what the reader's preferences are
+  learned from, and "sports" alone teaches nothing about whether they wanted
+  Boca Juniors or Formula 1.
   Mix two kinds: the SUBJECT (prefer the vocabulary below, always English) and the
   SPECIFIC named things the article is really about — place (country, US state,
   Argentine province, city), company or organisation, football club/league/federation.
@@ -129,7 +139,8 @@ INSTRUCTIONS:
   "premier-league". Names keep their own spelling without accents; countries use
   their English form. At most three words, and only for a name.
 
-KNOWN TOPICS:
+KNOWN TOPICS (spellings already in use, for the SUBJECT tags only -- this is
+not a menu, and the SPECIFIC tags will usually not be in it):
 {vocab_block}
 
 Return ONLY a JSON object. No explanation, no markdown, no preamble.
@@ -281,7 +292,8 @@ INSTRUCTIONS:
 
 def profile_prompt(liked: list[str], disliked: list[str],
                    boosted: list[str] | None = None,
-                   hidden: list[str] | None = None) -> str:
+                   hidden: list[str] | None = None,
+                   evidence: str = "") -> str:
     liked_block = (
         "\n".join(f"- {item}" for item in liked[:100]) or "None yet."
     )
@@ -303,7 +315,7 @@ ARTICLES THE READER LIKED (found valuable):
 {liked_block}
 
 ARTICLES THE READER DISLIKED (did not find valuable):
-{disliked_block}{stance_block}
+{disliked_block}{stance_block}{evidence}
 
 Write a concise paragraph of 3-5 sentences describing:
 1. The subjects this reader follows — name the actual competitions, teams,

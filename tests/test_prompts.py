@@ -251,3 +251,43 @@ def test_the_profile_is_forbidden_from_prescribing_style():
     text = prompts.profile_prompt(["a: b"], ["c: d"])
     assert "Do NOT describe writing style" in text
     assert "analytical depth" in text
+
+
+# ── tagging density ───────────────────────────────────────────────────────────
+# Measured on the owner's 2,149 votes: affinity predicts at AUC 0.657 for an
+# article carrying one tag, 0.752 for two, 0.780 for three or four. The model
+# was averaging 2.1 while the prompt asked for "3-6", and rare tags carry twice
+# the signal of common ones (mean deviation 0.286 against 0.147). Tags are the
+# training data, so thin tagging is a thin signal.
+
+@pytest.mark.parametrize("builder", [
+    lambda p: prompts.scoring_prompt(p, "t", "s"),
+    lambda p: prompts.batch_scoring_prompt(p, [{"id": 1, "title": "t", "snippet": "s"}]),
+])
+def test_both_scorers_ask_for_more_tags_than_they_used_to(builder):
+    text = " ".join(builder("Likes Formula 1.").split())
+    assert "4-8" in text
+    assert "3-6" not in text
+
+
+@pytest.mark.parametrize("builder", [
+    lambda p: prompts.scoring_prompt(p, "t", "s"),
+    lambda p: prompts.batch_scoring_prompt(p, [{"id": 1, "title": "t", "snippet": "s"}]),
+])
+def test_both_scorers_require_specific_tags_not_just_subjects(builder):
+    text = " ".join(builder("Likes Formula 1.").split())
+    assert "AT LEAST TWO" in text
+    # Rare, specific tags are where the signal is; broad ones barely move.
+    assert "Boca Juniors or Formula 1" in text
+
+
+@pytest.mark.parametrize("builder", [
+    lambda p: prompts.scoring_prompt(p, "t", "s", vocabulary=["politics", "economy"]),
+    lambda p: prompts.batch_scoring_prompt(p, [{"id": 1, "title": "t", "snippet": "s"}],
+                                           vocabulary=["politics", "economy"]),
+])
+def test_the_known_vocabulary_is_not_offered_as_a_menu(builder):
+    """It listed the 20 most *common* tags and said "prefer" them, which is a
+    push toward exactly the generic tags that carry the least signal."""
+    text = " ".join(builder("Likes Formula 1.").split())
+    assert "not a menu" in text

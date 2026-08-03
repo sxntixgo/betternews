@@ -15,6 +15,9 @@ import { Toolbar } from './components/Toolbar';
 import { ManageFeeds } from './screens/ManageFeeds';
 import { Profile } from './screens/Profile';
 import { Settings } from './screens/Settings';
+import { AdminUsers } from './screens/AdminUsers';
+import { CallLog } from './screens/CallLog';
+import { Insights } from './screens/Insights';
 import { SignIn } from './screens/SignIn';
 import './App.css';
 
@@ -45,6 +48,9 @@ export default function App() {
   const [showProfile, setShowProfile] = useState(false);
   const [showFeeds, setShowFeeds] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showUsers, setShowUsers] = useState(false);
+  const [showInsights, setShowInsights] = useState(false);
+  const [showLog, setShowLog] = useState(false);
   const [theme, setThemeState] = useState<ThemePreference>(() => loadTheme());
   const [reading, setReading] = useState<number | null>(null);
   // At <=720px the carried-over stylesheet parks the sidebar off-screen and
@@ -186,7 +192,12 @@ export default function App() {
     // Offered only to an admin. Every endpoint behind it checks again -- this
     // is about not showing a reader a door that answers 403.
     ...(me?.role === 'admin'
-      ? [{ id: 'settings', label: 'Open settings', run: () => setShowSettings(true) }]
+      ? [
+          { id: 'settings', label: 'Open settings', run: () => setShowSettings(true) },
+          { id: 'users', label: 'Manage users', run: () => setShowUsers(true) },
+          { id: 'insights', label: 'Open insights', run: () => setShowInsights(true) },
+          { id: 'ollama-log', label: 'Open the Ollama log', run: () => setShowLog(true) },
+        ]
       : []),
     { id: 'signout', label: 'Sign out', run: () => { void api.logout().finally(() => setSignedIn(false)); } },
     { id: 'shortcuts', label: 'Show keyboard shortcuts', run: () => setShowShortcuts(true) },
@@ -353,6 +364,13 @@ export default function App() {
           setReloads((n) => n + 1);   // de-clickbait and padding change the list
         }} />
       )}
+      {showUsers && me?.role === 'admin' && (
+        <AdminUsers onClose={() => setShowUsers(false)} />
+      )}
+      {showInsights && me?.role === 'admin' && (
+        <Insights onClose={() => setShowInsights(false)} />
+      )}
+      {showLog && me?.role === 'admin' && <CallLog onClose={() => setShowLog(false)} />}
       {showShortcuts && <ShortcutsOverlay onClose={() => setShowShortcuts(false)} />}
       {showPalette && (
         <CommandPalette commands={commands} onClose={() => setShowPalette(false)} />

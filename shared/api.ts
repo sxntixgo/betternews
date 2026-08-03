@@ -226,6 +226,106 @@ export interface TopicRule {
   adjustment: number;
 }
 
+/** A user as the admin table needs them, activity included. */
+export interface AdminUser {
+  id: number;
+  username: string;
+  role: string;
+  must_change_password: boolean;
+  created_at: string | null;
+  last_login_at: string | null;
+  votes: number;
+  read_count: number;
+}
+
+export interface AdminUserList {
+  users: AdminUser[];
+  /** Your own id. The client must not offer Delete on your own row. */
+  me: number;
+}
+
+/** One bucket of the score histogram. All 20 are always sent, empties included. */
+export interface HistogramBucket {
+  lo: number;
+  hi: number;
+  n: number;
+}
+
+/** How often the score agreed with the vote. */
+export interface Agreement {
+  votes: number;
+  agreed: number;
+  /** null when nothing has been voted on. A rate over no votes is not 0%. */
+  rate: number | null;
+  likes: number;
+  dislikes: number;
+  likes_ok: number;
+  dislikes_ok: number;
+}
+
+export interface FeedAccuracy {
+  feed: string;
+  likes: number;
+  dislikes: number;
+  articles: number;
+}
+
+export interface TopicAccuracy {
+  topic: string;
+  likes: number;
+  dislikes: number;
+}
+
+export interface PipelineRun {
+  started_at: string | null;
+  finished_at: string | null;
+  scored_n: number;
+  summarized_n: number;
+  errors_n: number;
+  skipped: boolean;
+  seconds: number | null;
+}
+
+export interface Insights {
+  threshold: number;
+  histogram: HistogramBucket[];
+  agreement: Agreement;
+  /** null with no votes: a suggestion from no data is a number with no meaning. */
+  suggestion: { threshold: number; rate: number; votes: number } | null;
+  per_feed: FeedAccuracy[];
+  per_topic: TopicAccuracy[];
+  pipeline: { unscored: number; unsummarized: number; hidden: number; ready: number; total: number };
+  runs: PipelineRun[];
+  /** Why the last run failed. A 0-scored run in ~0s is broken, not idle. */
+  llm_error: string | null;
+}
+
+/** One Ollama request and what came back. */
+export interface OllamaCall {
+  id: number;
+  at: string | null;
+  action: string | null;
+  model: string | null;
+  endpoint: string | null;
+  ok: boolean;
+  status_code: number | null;
+  duration_ms: number | null;
+  request_preview: string | null;
+  response_preview: string | null;
+  error: string | null;
+}
+
+export interface OllamaLog {
+  enabled: boolean;
+  keep: number;
+  only_failed: boolean;
+  summary: { total: number; failed: number; newest: string | null };
+  calls: OllamaCall[];
+  /** An empty log means no calls are being made, or none are needed. This says which. */
+  queue: Record<string, number>;
+  last_run: string | null;
+}
+
 export interface ListQuery {
   feed?: number;
   topic?: string;
@@ -658,6 +758,59 @@ export class BetterNewsClient {
     return this.request<{ renormalized: number }>('/settings/topics', {
       method: 'POST', body: JSON.stringify({ action: 'renormalize' }),
     });
+  }
+
+  // ── admin and ops, all admin only ──────────────────────────────────────────
+
+  adminUsers() {
+    return this.request<AdminUserList>('/admin/users');
+  }
+
+  /** 409 on the last admin: an instance with no admin cannot repair itself. */
+  setUserRole(id: number, role: 'user' | 'admin') {
+    return this.request<AdminUserList>(`/admin/users/${id}/role`, {
+      method: 'POST', body: JSON.stringify({ role }),
+    });
+  }
+
+  deleteUser(id: number) {
+    return this.request<AdminUserList>(`/admin/users/${id}/delete`, { method: 'POST' });
+  }
+
+  /**
+   * Returns the new password once. It is stored nowhere else, so a client that
+   * drops it has to reset again.
+   */
+  resetUserPassword(id: number, password?: string) {
+    return this.request<{ username: string; password: string }>(
+      `/admin/users/${id}/reset-password`,
+      { method: 'POST', body: JSON.stringify({ password }) },
+    );
+  }
+
+  /** Every insights panel in one call: they are only ever read together. */
+  insights() {
+    return this.request<Insights>('/insights');
+  }
+
+  applyThreshold(threshold: number) {
+    return this.request<{ threshold: number }>('/insights/threshold', {
+      method: 'POST', body: JSON.stringify({ threshold }),
+    });
+  }
+
+  ollamaLog(failedOnly = false) {
+    return this.request<OllamaLog>(`/ollama-log${failedOnly ? '?failed=1' : ''}`);
+  }
+
+  setOllamaLog(enabled: boolean) {
+    return this.request<{ enabled: boolean }>('/ollama-log/toggle', {
+      method: 'POST', body: JSON.stringify({ enabled }),
+    });
+  }
+
+  clearOllamaLog() {
+    return this.request<{ cleared: number }>('/ollama-log/clear', { method: 'POST' });
   }
 }
 

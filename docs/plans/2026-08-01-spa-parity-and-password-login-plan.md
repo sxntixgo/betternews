@@ -16,6 +16,13 @@ vote, manage feeds, change every setting, administer users, read insights. The
 HTMX reading templates are gone, and `npm run e2e:live` passes against the real
 stack.
 
+> **Met on paper by Phase 9, and that turned out to be the problem.** The
+> criteria above are about *tasks being possible*, and every one of them is.
+> They say nothing about the reader getting the same thing on screen, which is
+> how a flat sidebar, a dead PWA and a settings toggle that does nothing all
+> passed. **Part two** (Phases 10–13) is the corrected list, and its criteria
+> are visual and behavioural rather than route-shaped.
+
 ## Where this starts from
 
 ```
@@ -388,6 +395,219 @@ decision rather than an abandonment.
 - A native app screen for Settings — the phone is for reading
 - Internationalising the SPA; the server-rendered UI is English-only too
 
+---
+
+# Part two — the gaps Phases 1–9 left
+
+Added 2026-08-03, after the cut-over, because "parity" was claimed on the
+strength of *endpoint* coverage. Every HTML route has an API equivalent and
+every API endpoint has a test; that was never the same as the reader getting
+the same thing on screen, and the difference is what follows.
+
+**How these were found.** The old templates were pulled back out of git
+(`git show 4b3d760~1:templates/…`) and diffed against the SPA class-for-class,
+then each candidate was checked in the source rather than inferred. Everything
+below is a verified gap, not a suspicion. Where something is *not* a gap it is
+said so, so nobody re-checks it: article cards, dismiss/read/saved styling, the
+digest, search, export, keyboard shortcuts, swipe, and the Refresh-then-poll
+loop all reached parity.
+
+---
+
+## Phase 10 — Design tokens and shared primitives  ·  **Opus** (tokens) → **Sonnet** (rollout)
+
+**The gap, measured.** The tracker's `index.css` defines **96 custom
+properties**; betternews' SPA defines **8** (`--bg`, `--fg`, `--muted`,
+`--accent`, `--border`, `--like-bg`, `--dislike-bg`, `--focus-bg`). The SPA did
+not adopt a design language — it inherited `static/style.css` from the Flask app
+and grew React on top. So:
+
+* **40+ hardcoded hex values** in `App.css`, `#d14343` alone appearing 13 times
+  and `#ff8080` 8 times. Both are error red, both were typed by hand, and
+  neither survives a theme change.
+* **No type tokens.** The SPA hardcodes `-apple-system, BlinkMacSystemFont…`;
+  the tracker has `--font-ui` (IBM Plex Sans) and `--font-mono` (IBM Plex Mono).
+* **No radius tokens.** `border-radius: 6px` appears ~10 times literally; the
+  tracker has `--radius-sm` / `--radius-md`.
+* **No semantic layer.** The tracker separates `--color-surface` from
+  `--color-bg`, and `--color-hairline` from `--color-hairline-strong`, and has
+  `--color-danger` / `--color-success` / `--color-focus`. Betternews has one
+  background and one border, so a card and the page behind it are the same
+  colour and every "surface" is faked with a border.
+
+**Tasks.**
+
+1. **`web/src/index.css` becomes the token sheet.** Port the tracker's
+   structure, not its palette wholesale — betternews is a reader, not a Kanban
+   board, so the seven `--stage-*` accents have no analogue. What transfers:
+   the light/dark pair, `color-scheme`, the surface/hairline split, the semantic
+   trio, `--font-ui`/`--font-mono`, `--radius-sm`/`--radius-md`, and
+   `:focus-visible` outlines driven by `--color-focus`.
+   *Verify.* `web/src/App.css` contains **no hex literal at all** — assert it in
+   a test, because this is the kind of thing that decays one merge at a time.
+
+2. **`Modal.tsx`, one of them.** Nine files hand-roll
+   `<div className="modal-backdrop" onClick={onClose}>`: `Settings`,
+   `ManageFeeds`, `AdminUsers`, `Insights`, `CallLog`, `Profile`, `Reader`,
+   `CommandPalette`, `ShortcutsOverlay`. **None has `role="dialog"`,
+   `aria-modal`, a focus trap, or focus restoration** — and the old HTML reader
+   was a native `<dialog aria-modal="true">`, so the cut-over was an
+   accessibility *regression*. Copy the tracker's `Modal.tsx` approach: focus
+   the first focusable child on open, trap Tab within the container, restore
+   focus to the trigger on close, close on Escape, take an `ariaLabel`.
+   *Verify.* A Playwright test per modal: Tab cycles inside and never reaches
+   the page behind; Escape closes; focus returns to the control that opened it.
+
+3. **`button.primary`, and one button style.** The tracker gives every button a
+   token-driven border and hover, with `.primary` inverting to ink-on-bg.
+   Betternews has `button`, `.btn-icon`, `.btn-secondary` and several inline
+   exceptions.
+
+**Why first.** Phases 11–13 all add UI. Adding it before the tokens exist means
+writing hex values that Phase 10 then has to hunt down.
+
+**Out of scope.** Not adopting IBM Plex as a webfont bundle unless it can be
+self-hosted — a strict CSP and a LAN-only box make a Google Fonts link both a
+privacy leak and a hang when the WAN is down. Ship the stack with Plex *named
+first* and the system fonts behind it; bundling the woff2 is a follow-up.
+
+---
+
+## Phase 11 — Reading parity the cut-over missed  ·  **Sonnet**
+
+Three verified regressions in the thing people actually use.
+
+### 11.1 The sidebar lost its tag grouping
+
+**What the HTML did.** `_sidebar_feeds.html` grouped feeds under their tags,
+each group collapsible with the open/closed state persisted to `localStorage`
+(`sidebar-collapsed-<name>`), leftovers under **Untagged**, and the Hidden group
+listing per-feed hidden counts.
+
+**What the SPA does.** One flat list of every feed.
+
+This matters more than it sounds: tagging feeds is a feature the owner asked
+for and uses (`POST /api/v1/feeds/{id}/tags`), `Feed.tags` is already in
+`shared/api.ts`, and **the SPA ignores the field entirely** — so the tags exist,
+are editable, and do nothing.
+
+*Verify.* With two tags and one untagged feed, the sidebar shows three groups
+plus Untagged; collapsing one and reloading keeps it collapsed; the Hidden group
+lists per-feed counts.
+
+### 11.2 Embeds are a link, and the setting says otherwise
+
+Settings offers **"Hydrate Twitter and Instagram embeds"**. The HTML reader
+honoured it: an `embed` block became `<blockquote class="twitter-tweet">` and a
+lazily-injected `platform.twitter.com/widgets.js` turned it into a real embed.
+The SPA renders `<a>{platform} post</a>` whether the toggle is on or off, so
+**the setting is very nearly a no-op** and is the only lying control in the app.
+
+Two honest options, and this needs a decision rather than a default:
+
+| | |
+|---|---|
+| **Hydrate** | Restore the widget scripts. Costs a third-party script per platform and the privacy that implies on a LAN-only reader. |
+| **Relabel** | Drop the toggle; render a styled card (platform, author, link). Nothing loads from Twitter or Instagram, ever. |
+
+**Recommendation: relabel.** The reason this app exists is to read without the
+feed's own framing; injecting Twitter's script to render a tweet is the opposite
+of that, and it is the one place the app would phone home.
+
+### 11.3 A hidden article no longer says why it was hidden
+
+The HTML card showed `Hidden: {{ score_reason }}` as text on any article below
+the threshold. The SPA puts `score_reason` in a `title` tooltip on the score
+badge — invisible on a phone, which is where the hidden list is actually
+reviewed.
+
+*Verify.* An article with `status='hidden'` renders its reason as visible text
+in the Hidden view.
+
+---
+
+## Phase 12 — The PWA, which the cut-over dropped entirely  ·  **Sonnet**
+
+**Not a gap in polish — a whole capability.** The Flask app shipped
+`static/manifest.json` and `static/sw.js`, registered the worker from
+`base.html`, and was installable on a phone home screen. `web/` has **no
+manifest and no service worker**, and `web/index.html` links neither.
+
+The consequences are already in the code and already dead:
+
+* `favicon.ts` calls `navigator.setAppBadge()` — **a no-op outside an installed
+  PWA**, so the unread badge silently does nothing.
+* `App.css` still styles `.offline-bar` — carried over from the Flask
+  stylesheet, driven by nothing, since no code reads `navigator.onLine`.
+* Phase 9 added a service-worker *unregister* to `base.html` to clear the old
+  one. That was right for the old worker and leaves the app with none.
+
+**Tasks.** A `manifest.webmanifest` (name "Better News", the existing icons,
+`display: standalone`, `start_url: /`); a service worker that caches the app
+shell so a cold start offline shows the UI rather than a browser error; an
+online/offline listener that drives the existing `.offline-bar`.
+
+**Deliberately not offline *reading*.** That was already deferred (D2) and it is
+a much larger thing — it needs a local store of article bodies and a write queue
+for votes cast while offline. The shell and an honest offline banner are worth
+having on their own.
+
+*Verify.* Chrome reports the app as installable; Playwright asserts the manifest
+link and a registered worker; going offline shows the bar and hides it on
+reconnect.
+
+---
+
+## Phase 13 — Settings depth the API never sent  ·  **Sonnet**
+
+The models panel is the clearest case, and it is an **API** gap as much as a UI
+one. `llm_config.Action` carries `guidance`, `json_output` and `heavy`;
+`GET /api/v1/settings/models` sends none of them, so the SPA could not show them
+even if it wanted to.
+
+What the HTML panel had and the SPA does not:
+
+* **Per-job guidance** — a sentence on what that job needs from a model.
+* **`JSON` and `every article` tags** per job, which are *why* the
+  recommendation is what it is.
+* **The reasoning-model explanation** — that gpt-oss and deepseek-r1 spend their
+  output budget thinking, which is fatal for the JSON jobs and expensive per
+  article, but right for the rare free-text ones. This is the single most
+  load-bearing paragraph in Settings: it is the knowledge that stops someone
+  picking a model that fails silently on every call.
+* **Default vs explicit.** The old select distinguished *"Default (llama3.2:3b)"*
+  — inherited — from an explicit choice, so you could tell whether a job was
+  configured or just falling back. The SPA shows the resolved name either way.
+* **A not-installed model kept in the select** rather than silently replaced.
+
+**Tasks.** Add `guidance`, `json_output`, `heavy` and `inherited` to the
+`ModelAction` contract and serializer; rebuild the panel around them.
+
+*Verify.* `tests/test_api_contract.py` covers the new fields — it already parses
+`ModelAction`, so it fails until they are sent. A Playwright test asserts the
+reasoning-model guidance is on screen, since that is the part with a six-week
+outage behind it.
+
+---
+
+## What is explicitly *not* in Part two
+
+Checked and found at parity — recorded so it is not re-audited:
+
+* Article cards: score badge, thumbnail, reading time, duplicate count,
+  original title, topic chips, summary, and the read/saved/dismissed styling.
+* The reader's folded padding groups (`<details>` per aside group).
+* Digest, search, Markdown export, `j`/`k`/`l`/`s`/`o`/`r`, the command palette,
+  the shortcuts overlay, swipe-to-vote and swipe-to-dismiss.
+* Refresh: polls `/status` every 3s against `last_pipeline_run_at` with a
+  five-minute deadline, matching the old page.
+* The empty-list diagnosis, added *during* Phase 9 for exactly this reason.
+
+Still deferred, unchanged: newsletter IMAP ingest (C4), true offline reading
+(D2), and the mobile app, which has never been launched on a device.
+
+---
+
 ## Open questions
 
 1. **Does the SPA need `/register`?** The first account is created once, and
@@ -401,9 +621,19 @@ decision rather than an abandonment.
 
 | Model | Tasks |
 |---|---|
-| **Opus** | 1.1 login endpoint · 1.2 token lifecycle · 7 settings API shape · 9 cut-over |
-| **Sonnet** | 1.3 sign-in screen · 2 reading API · 3 reading parity · 4 interactions · 5 accounts · 6 feeds · 8 admin/ops |
+| **Opus** | 1.1 login endpoint · 1.2 token lifecycle · 7 settings API shape · 9 cut-over · **10 design tokens** |
+| **Sonnet** | 1.3 sign-in screen · 2 reading API · 3 reading parity · 4 interactions · 5 accounts · 6 feeds · 8 admin/ops · **10 rollout · 11 reading gaps · 12 PWA · 13 settings depth** |
 | **Haiku** | `CLAUDE.md` updates after each phase |
 
-Opus takes the auth model, the settings shape, and the deletion — the decisions
-that are expensive or impossible to reverse.
+Opus takes the auth model, the settings shape, the deletion, and the token
+vocabulary — the decisions that are expensive or impossible to reverse. A
+palette every stylesheet then references is one of those; the rollout after it
+is mechanical.
+
+## Suggested order for Part two
+
+10 first and on its own: 11–13 all add UI, and adding it before the tokens
+exist means writing hex values that Phase 10 then has to hunt down. After that
+11 → 12 → 13, hardest-used first. **11.2 needs a decision before it starts**
+(hydrate embeds, or drop the toggle and render a card) — everything else is
+unblocked.

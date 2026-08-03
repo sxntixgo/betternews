@@ -112,8 +112,8 @@ function ModelsPanel() {
           <li key={a.id} className={`action-model ${a.installed === false ? 'action-model-missing' : ''}`}>
             <div className="action-model-info">
               <strong>{a.label}</strong>
-              {a.json_output && <span className="action-tag">JSON</span>}
-              {a.heavy && <span className="action-tag">every article</span>}
+              {a.json_output && <span className="pill action-tag">JSON</span>}
+              {a.heavy && <span className="pill action-tag">every article</span>}
               <p className="muted">{a.description}</p>
               <p className="muted action-guidance">{a.guidance}</p>
             </div>

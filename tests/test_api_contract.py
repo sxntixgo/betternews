@@ -225,6 +225,34 @@ def test_ollama_log_fields_match_the_contract(client, app, token):
     assert set(body["calls"][0]) == declared_fields("OllamaCall")
 
 
+def test_a_field_declared_as_a_string_is_sent_as_one(client, app, token):
+    """Field *names* matching is not the same as types matching.
+
+    `last_run` is declared `string | null` and was sent as the whole pipeline
+    run row, because the helper that stringifies timestamps only converts
+    things with `.isoformat()` and a dict fell straight through. The client
+    called .slice() on it and the screen went blank. Names alone could not
+    catch that.
+    """
+    from sqlalchemy import text as _t
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        db.execute(_t("INSERT INTO pipeline_runs (started_at, finished_at, scored_n) "
+                      "VALUES (now(), now(), 3)"))
+        db.commit()
+        db.close()
+    body = client.get("/api/v1/ollama-log", headers=token).get_json()
+    assert isinstance(body["last_run"], str), \
+        f"declared string, sent {type(body['last_run']).__name__}"
+    assert body["last_run"].startswith("20")
+
+    insights = client.get("/api/v1/insights", headers=token).get_json()
+    run = insights["runs"][0]
+    for field in ("started_at", "finished_at"):
+        assert isinstance(run[field], str), field
+
+
 def test_diagnosis_fields_match_the_contract(client, token):
     """The empty-list explanation. Its `kind` is a union the client branches on,
     so an unlisted value would silently fall through to a default."""

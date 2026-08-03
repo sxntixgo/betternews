@@ -301,7 +301,7 @@ export default function App() {
               <IconButton label="Insights" onClick={() => setShowInsights(true)}
                           d="M3 3v18h18 M7 15l4-4 3 3 5-6" />
               <IconButton label="Ollama log" onClick={() => setShowLog(true)}
-                          d="M4 17l6-6-6-6 M12 19h8" />
+                          d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z M14 2v6h6 M8 13h8 M8 17h5" />
             </div>
           )}
           <div className="sidebar-tools">
@@ -315,20 +315,28 @@ export default function App() {
                         onClick={() => { void api.logout().finally(() => setSignedIn(false)); }}
                         d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4 M16 17l5-5-5-5 M21 12H9" />
           </div>
-          <label className="muted" htmlFor="theme-select">Theme</label>
-          <select
-            id="theme-select"
-            value={theme}
-            onChange={(e) => {
-              const next = e.target.value as ThemePreference;
-              setTheme(next);
-              setThemeState(next);
-            }}
-          >
-            <option value="system">System</option>
-            <option value="light">Light</option>
-            <option value="dark">Dark</option>
-          </select>
+          {/* Three icons, not a dropdown: it is a three-state preference used
+              often enough that opening a menu to change it is a step too many.
+              System is a monitor, not "auto", because what it follows is the
+              machine's setting. */}
+          <div className="theme-picker" role="radiogroup" aria-label="Theme">
+            {THEMES.map(({ value, label, d }) => (
+              <button
+                key={value}
+                className={`btn-icon ${theme === value ? 'active' : ''}`}
+                role="radio"
+                aria-checked={theme === value}
+                title={label}
+                aria-label={label}
+                onClick={() => { setTheme(value); setThemeState(value); }}
+              >
+                <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                  <path fill="none" stroke="currentColor" strokeWidth="1.8"
+                        strokeLinecap="round" strokeLinejoin="round" d={d} />
+                </svg>
+              </button>
+            ))}
+          </div>
         </div>
       </aside>
 
@@ -438,3 +446,15 @@ function IconButton({ label, d, onClick }: {
     </button>
   );
 }
+
+/** System, light and dark. `d` is the icon path; the label is both tooltip and
+ *  accessible name. */
+const THEMES: { value: ThemePreference; label: string; d: string }[] = [
+  { value: 'system', label: 'Follow the system',
+    d: 'M3 4h18v12H3z M8 20h8 M12 16v4' },
+  { value: 'light', label: 'Light',
+    d: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z M12 2v2 M12 20v2 M2 12h2 M20 12h2 '
+       + 'M4.9 4.9l1.4 1.4 M17.7 17.7l1.4 1.4 M4.9 19.1l1.4-1.4 M17.7 6.3l1.4-1.4' },
+  { value: 'dark', label: 'Dark',
+    d: 'M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z' },
+];

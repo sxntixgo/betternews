@@ -94,7 +94,7 @@ export function Sidebar({
       onClick={() => onFeed(f.id)}
     >
       <span className="sidebar-feed-title">{f.title}</span>
-      {f.unread > 0 && <span className="sidebar-feed-count">{f.unread}</span>}
+      {f.unread > 0 && <span className="pill sidebar-feed-count">{f.unread}</span>}
     </button>
   );
 
@@ -128,7 +128,7 @@ export function Sidebar({
           >
             <span className="sidebar-feed-title">All feeds</span>
             {feeds && feeds.unread > 0 && (
-              <span className="sidebar-feed-count">{feeds.unread}</span>
+              <span className="pill sidebar-feed-count">{feeds.unread}</span>
             )}
           </button>
           {/* Where the server UI kept it: beside the list it edits, not buried
@@ -155,7 +155,7 @@ export function Sidebar({
         onClick={onSaved}
       >
         <span className="sidebar-feed-title">Saved</span>
-        {feeds && feeds.saved > 0 && <span className="sidebar-feed-count">{feeds.saved}</span>}
+        {feeds && feeds.saved > 0 && <span className="pill sidebar-feed-count">{feeds.saved}</span>}
       </button>
 
       <div className={`sidebar-group ${collapsed.has('hidden') ? 'collapsed' : ''}`}>
@@ -174,7 +174,7 @@ export function Sidebar({
           >
             <span className="sidebar-feed-title">Hidden</span>
             {feeds && feeds.hidden > 0 && (
-              <span className="sidebar-feed-count">{feeds.hidden}</span>
+              <span className="pill sidebar-feed-count">{feeds.hidden}</span>
             )}
           </button>
         </div>
@@ -189,7 +189,7 @@ export function Sidebar({
                 onClick={() => onHiddenFeed(f.id)}
               >
                 <span className="sidebar-feed-title">{f.title}</span>
-                <span className="sidebar-feed-count">{f.hidden}</span>
+                <span className="pill sidebar-feed-count">{f.hidden}</span>
               </button>
             ))}
           </div>

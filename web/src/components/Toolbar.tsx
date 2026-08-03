@@ -87,14 +87,20 @@ export function Toolbar({
         value={text}
         onChange={(e) => setText(e.target.value)}
       />
-      <div className="sort-toggle">
-        <button className={sort === 'score' ? 'active' : ''} onClick={() => onSort('score')}>
-          Score
-        </button>
-        <button className={sort === 'date' ? 'active' : ''} onClick={() => onSort('date')}>
-          Date
-        </button>
-      </div>
+      {/* One control with two states, not two buttons that happen to be
+          adjacent. Date is the default and the left-hand position, so the knob
+          resting at "off" means newest-first. */}
+      <button
+        className="switch"
+        role="switch"
+        aria-checked={sort === 'score'}
+        aria-label="Sort by score instead of date"
+        onClick={() => onSort(sort === 'score' ? 'date' : 'score')}
+      >
+        <span className="switch-label">Date</span>
+        <span className="switch-track"><span className="switch-knob" /></span>
+        <span className="switch-label">Score</span>
+      </button>
     </>
   );
 }

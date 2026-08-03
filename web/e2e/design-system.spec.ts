@@ -146,3 +146,87 @@ test.describe('nothing is command-palette-only', () => {
     expect(nameless).toBe(0);
   });
 });
+
+// ── controls and metrics ──────────────────────────────────────────────────────
+
+test.describe('the shared pill', () => {
+  test.beforeEach(async ({ page }) => {
+    await signedIn(page);
+    await mockApi(page);
+    await page.goto('/');
+    await page.waitForSelector('.article-row');
+  });
+
+  test('every pill is the same height, on touch too', async ({ page, isMobile }) => {
+    // Topic chips are buttons, and a blanket 40px touch target turned an 11px
+    // inline chip into the tallest thing on the card. They were three separate
+    // near-misses before this — three radii and three paddings.
+    const heights = await page.evaluate(() => {
+      const h = (s: string) => document.querySelector(s)?.getBoundingClientRect().height ?? null;
+      return { chip: h('.topic-chip'), count: h('.sidebar-feed-count'), badge: h('.score-badge') };
+    });
+    expect(new Set(Object.values(heights)).size, JSON.stringify(heights)).toBe(1);
+    // The size floor is a touch-target rule, so it only applies on a coarse
+    // pointer -- 22px is right for a mouse and would be mean on a thumb.
+    if (isMobile) {
+      expect(heights.chip!).toBeGreaterThanOrEqual(24);   // WCAG 2.5.8
+      expect(heights.chip!).toBeLessThanOrEqual(30);      // and not a button
+    }
+  });
+
+  test('no ad-hoc pill radii survive in App.css', () => {
+    const css = readFileSync(new URL('../src/App.css', import.meta.url), 'utf8');
+    expect(css).not.toContain('999px');
+  });
+});
+
+test('sort is one switch defaulting to date', async ({ page }) => {
+  await signedIn(page);
+  await mockApi(page);
+  await page.goto('/');
+  await page.waitForSelector('.article-row');
+
+  // One control with two states, not two buttons that happen to be adjacent.
+  const sw = page.getByRole('switch', { name: /sort by score/i });
+  await expect(sw).toBeVisible();
+  await expect(sw).toHaveAttribute('aria-checked', 'false');
+
+  const sorted = page.waitForRequest((r) => r.url().includes('sort=score'));
+  await sw.click();
+  await sorted;
+  await expect(sw).toHaveAttribute('aria-checked', 'true');
+});
+
+test('theme is three icons, and the current one is marked', async ({ page, isMobile }) => {
+  await signedIn(page);
+  await mockApi(page);
+  await page.goto('/');
+  await page.waitForSelector('.article-row');
+  // The theme picker lives in the sidebar, which is off-screen on a phone.
+  if (isMobile) {
+    await page.locator('.drawer-toggle').click();
+    await expect(page.locator('.sidebar')).toHaveClass(/open/);
+  }
+
+  const group = page.getByRole('radiogroup', { name: 'Theme' });
+  await expect(group.getByRole('radio')).toHaveCount(3);
+  // A dropdown made a three-state preference cost a menu to change.
+  await expect(page.locator('select#theme-select')).toHaveCount(0);
+
+  const dark = group.getByRole('radio', { name: 'Dark' });
+  await dark.click();
+  await expect(dark).toHaveAttribute('aria-checked', 'true');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+});
+
+test('on a phone the list is not flush against the screen edge', async ({ page, isMobile }) => {
+  test.skip(!isMobile, 'phone only');
+  await signedIn(page);
+  await mockApi(page);
+  await page.goto('/');
+  await page.waitForSelector('.article-row');
+  // It started at exactly 0: the thumbnail and score badge sat on the glass.
+  const x = await page.evaluate(() =>
+    document.querySelector('.article-row')!.getBoundingClientRect().x);
+  expect(x).toBeGreaterThanOrEqual(8);
+});

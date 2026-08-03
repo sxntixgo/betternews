@@ -68,28 +68,41 @@ test.describe('discoverability', () => {
 });
 
 test.describe('theme', () => {
-  test('offers system, light and dark', async ({ page }) => {
-    const select = page.locator('#theme-select');
-    await expect(select.locator('option')).toHaveCount(3);
+  // Three icons now, not a dropdown: a three-state preference used this often
+  // should not cost opening a menu to change.
+  async function pick(page: import('@playwright/test').Page, name: string) {
+    if (test.info().project.name === 'phone'
+        && (await page.locator('.sidebar.open').count()) === 0) {
+      await page.locator('.drawer-toggle').click();
+    }
+    await page.getByRole('radiogroup', { name: 'Theme' })
+      .getByRole('radio', { name }).click();
+  }
 
-    await select.selectOption('dark');
+  test('offers system, light and dark', async ({ page }) => {
+    await expect(page.getByRole('radiogroup', { name: 'Theme' })
+      .getByRole('radio')).toHaveCount(3);
+    await pick(page, 'Dark');
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-    await select.selectOption('light');
+    await pick(page, 'Light');
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   });
 
   test('the choice survives a reload', async ({ page }) => {
-    await page.locator('#theme-select').selectOption('dark');
+    await pick(page, 'Dark');
     await page.reload();
     await page.waitForSelector('.article-row');
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-    // The one sanctioned localStorage key.
-    expect(await page.evaluate(() => Object.keys(localStorage))).toEqual(['theme']);
+    // Only UI preferences in localStorage, never a credential: the theme, and
+    // the sidebar's collapsed groups, which are the same kind of thing.
+    const keys = await page.evaluate(() => Object.keys(localStorage).sort());
+    expect(keys).toContain('theme');
+    expect(keys.every((k) => k === 'theme' || k === 'sidebar-collapsed')).toBe(true);
   });
 
   test('system follows the OS', async ({ page }) => {
     await page.emulateMedia({ colorScheme: 'dark' });
-    await page.locator('#theme-select').selectOption('system');
+    await pick(page, 'Follow the system');
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
     await page.emulateMedia({ colorScheme: 'light' });
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');

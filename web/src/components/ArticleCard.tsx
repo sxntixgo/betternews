@@ -52,7 +52,7 @@ export function ArticleCard({
       <div className="article-content">
         <div className="article-row-header">
           {article.score !== null && (
-            <span className="score-badge" title={article.score_reason ?? ''}>
+            <span className="pill score-badge" title={article.score_reason ?? ''}>
               {Math.round(article.score * 100)}%
             </span>
           )}
@@ -72,7 +72,7 @@ export function ArticleCard({
         {article.topics.length > 0 && (
           <p className="topic-chips">
             {article.topics.map((t) => (
-              <button className="topic-chip" key={t} onClick={() => onTopic?.(t)}>
+              <button className="pill topic-chip" key={t} onClick={() => onTopic?.(t)}>
                 {t}
               </button>
             ))}

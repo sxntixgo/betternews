@@ -128,13 +128,10 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
   white-space: nowrap;
 }
 .sidebar-feed-count {
-  font-size: 12px;
   color: var(--color-ink-muted);
   background: var(--color-hairline);
-  padding: 1px 6px;
-  border-radius: var(--radius-lg);
-  min-width: 20px;
-  text-align: center;
+  min-width: 22px;
+  justify-content: center;
 }
 .sidebar-feed.active .sidebar-feed-count { color: var(--color-ink); }
 
@@ -258,26 +255,32 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
     font-size: 13px;
   }
   .modal-body { padding: 20px 16px; }
+  /* Borders would be two stray lines at the screen edge, but the side padding
+     stays: without it the thumbnail and the score badge sit flush against the
+     glass. The list started at x=0 on a phone. */
+  #digest-panel:not(:empty),
+  #article-list {
+    border-left: 0;
+    border-right: 0;
+    padding-left: 12px;
+    padding-right: 12px;
+  }
 }
 
 .site-content { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 /* The reading column is a surface in front of the page, which is what makes
-   the warm background read as a background rather than as the card colour. */
-.site-main {
-  padding: 16px;
-  max-width: 720px;
-  margin: 0 auto;
-  width: 100%;
-  box-sizing: border-box;
+   the warm background read as a background rather than as the card colour.
+   On `#article-list` and the digest, not `.site-main` -- that class came from
+   the server templates and does not exist in this app, so the rule that used
+   to be here styled nothing at all. */
+#digest-panel:not(:empty),
+#article-list {
+  padding: 0 16px;
   background: var(--color-surface);
   border-left: 1px solid var(--color-hairline);
   border-right: 1px solid var(--color-hairline);
-  min-height: 100vh;
 }
-@media (max-width: 720px) {
-  /* No room for a margin either side, so the border would be two stray lines. */
-  .site-main { border-left: 0; border-right: 0; }
-}
+#article-list { padding-bottom: 24px; min-height: 60vh; }
 
 
 .search-input {
@@ -318,11 +321,50 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
   max-width: 60ch;
 }
 
-.sort-toggle { display: flex; border: 1px solid var(--color-hairline); border-radius: var(--radius-md); overflow: hidden; }
-.sort-btn { border: none; border-radius: 0; padding: 4px 10px; font-size: 13px; color: var(--color-ink-muted); background: var(--color-bg); }
-.sort-btn:hover { color: var(--color-ink); border-color: transparent; }
-.sort-btn.active { background: var(--color-accent); color: var(--color-on-accent); }
-.sort-btn.active:hover { border-color: transparent; }
+/* A switch: one control, two states. It replaced two adjacent buttons, which
+   read as two independent actions rather than a choice between two. */
+.switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  background: none;
+  padding: 4px 2px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--color-ink-muted);
+}
+.switch-track {
+  position: relative;
+  width: 30px;
+  height: 17px;
+  flex: none;
+  border-radius: var(--radius-pill);
+  background: var(--color-hairline);
+  border: 1px solid var(--color-hairline-strong);
+  transition: background-color 0.15s ease;
+}
+.switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 11px;
+  height: 11px;
+  border-radius: var(--radius-pill);
+  background: var(--color-ink-muted);
+  transition: transform 0.15s ease, background-color 0.15s ease;
+}
+.switch[aria-checked='true'] .switch-track {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+.switch[aria-checked='true'] .switch-knob {
+  transform: translateX(13px);
+  background: var(--color-on-accent);
+}
+/* The active side is the one in ink; the other stays muted. */
+.switch[aria-checked='false'] .switch-label:first-of-type,
+.switch[aria-checked='true'] .switch-label:last-of-type { color: var(--color-ink); }
 
 /* Article list — flat rows */
 .article-row {
@@ -396,12 +438,9 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 }
 
 .score-badge {
-  font-size: 11px;
   font-weight: 600;
   color: var(--color-ink-muted);
   background: var(--color-hairline);
-  border-radius: var(--radius-sm);
-  padding: 1px 5px;
   flex-shrink: 0;
 }
 
@@ -500,7 +539,6 @@ button:disabled { opacity: 0.4; cursor: default; }
    in every state so they don't read as buttons in the feed list. */
 [data-theme="dark"] .btn-icon:hover { border-color: var(--color-hairline); }
 [data-theme="dark"] button { border-color: var(--color-hairline); }
-[data-theme="dark"] .sort-toggle { border-color: var(--color-hairline); }
 [data-theme="dark"] .sidebar-feed,
 [data-theme="dark"] .sidebar-feed:hover,
 [data-theme="dark"] .sidebar-collapse,
@@ -508,9 +546,15 @@ button:disabled { opacity: 0.4; cursor: default; }
 
 /* Touch devices: bump tap targets to ~44px per Apple/Material guidelines. */
 @media (pointer: coarse) {
-  button, .btn-icon, .btn-external, .sidebar-feed, .sidebar-collapse, .sidebar-manage {
+  /* `:not(.pill)` matters. Topic chips are buttons, so a blanket 40px turned an
+     11px inline chip into a 40px-tall oval on every phone -- the tallest thing
+     on the card, for its least important text. Pills get a smaller target
+     below: still comfortably past the 24px WCAG 2.5.8 minimum, without
+     pretending a tag is a primary action. */
+  button:not(.pill), .btn-icon, .btn-external, .sidebar-feed, .sidebar-collapse, .sidebar-manage {
     min-height: 40px;
   }
+  .pill { min-height: 26px; }
   .btn-icon, .sidebar-collapse, .sidebar-manage { min-width: 40px; }
   .article-actions-inline .btn-icon { padding: 8px 10px; }
 }
@@ -815,14 +859,13 @@ dialog[open] { display: flex; flex-direction: column; }
 }
 
 /* Topic chips */
-.topic-chips { margin: 4px 0 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.topic-chips { margin: 5px 0 0; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .topic-chip {
-  font-size: 11px;
+  /* Shape and metrics come from .pill; only the colours are local. */
   color: var(--color-ink-muted);
   border: 1px solid var(--color-hairline);
-  /* A pill, not a scale value -- deliberately not a token. */
-  border-radius: 999px;
-  padding: 1px 8px;
+  background: none;
+  cursor: pointer;
   text-decoration: none;
 }
 .topic-chip:hover { color: var(--color-ink); border-color: var(--color-ink); }
@@ -894,13 +937,9 @@ dialog[open] { display: flex; flex-direction: column; }
 .action-suggestion-warn { color: var(--color-danger); }
 .action-guidance { font-size: 12px; }
 .action-tag {
-  font-size: 10px;
   letter-spacing: .04em;
   color: var(--color-ink-muted);
   border: 1px solid var(--color-hairline);
-  border-radius: var(--radius-sm);
-  padding: 0 4px;
-  vertical-align: 1px;
 }
 .action-model-missing > .action-model-info strong { color: var(--color-danger); }
 @media (max-width: 600px) {
@@ -1230,3 +1269,12 @@ kbd {
 }
 .sidebar-manage { flex: none; padding: 4px; color: var(--color-ink-muted); }
 .sidebar-manage:hover { color: var(--color-ink); }
+
+/* Three states, one row. `.active` is the chosen one, not a hover state. */
+.theme-picker { display: flex; gap: 2px; }
+.theme-picker .btn-icon { padding: 5px 7px; color: var(--color-ink-muted); }
+.theme-picker .btn-icon:hover { color: var(--color-ink); background: var(--color-surface-2); }
+.theme-picker .btn-icon.active {
+  color: var(--color-on-accent);
+  background: var(--color-accent);
+}

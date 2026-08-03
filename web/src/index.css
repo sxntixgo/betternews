@@ -147,6 +147,33 @@
   --radius-sm: 3px;
   --radius-md: 6px;
   --radius-lg: 10px;
+  /* Fully round. Its own token because "pill" is a shape decision, not a step
+     on the scale -- every ad-hoc `border-radius: 999px` was one of these. */
+  --radius-pill: 999px;
+
+  /* One pill. Topic chips, unread counts, score badges and the model tags were
+     four separate near-misses -- three radii and three paddings between them --
+     which is why they never quite lined up next to each other. */
+  --pill-padding: 2px 8px;
+  --pill-font-size: 11px;
+  /* Set explicitly: `line-height: normal` on an 11px font renders differently
+     per family, so the pill's height moved when the font stack changed. */
+  --pill-line-height: 16px;
+}
+
+/* Compose it: `class="pill"` plus whatever colour the context needs. */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  /* Transparent by default so a bordered pill and a filled one are the same
+     height. Without it the border added 2px only to the ones that had one, and
+     a topic chip sat 2px taller than the score badge beside it. */
+  border: 1px solid transparent;
+  padding: var(--pill-padding);
+  font-size: var(--pill-font-size);
+  line-height: var(--pill-line-height);
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
 }
 
 /* The Vite template ships an opinionated demo stylesheet -- centred text, a

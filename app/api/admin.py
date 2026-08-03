@@ -192,7 +192,13 @@ def ollama_log():
         # An empty log has two very different meanings: no calls are being made,
         # or none are needed. The queue is what tells them apart.
         "queue": dict(pipeline_status.counts(db)),
-        "last_run": _iso(pipeline_status.last_run(db)),
+        # `pipeline_status.last_run` returns the whole run *row*, not a
+        # timestamp. `_iso` only converts things that have `.isoformat()`, so a
+        # dict fell straight through and the API sent an object where the
+        # contract promised a string -- and the client called .slice() on it,
+        # which threw and took the whole screen down. Only the finish time is
+        # wanted here.
+        "last_run": _iso((pipeline_status.last_run(db) or {}).get("finished_at")),
     })
 
 

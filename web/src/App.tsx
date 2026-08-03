@@ -9,6 +9,7 @@ import { Digest } from './components/Digest';
 import { ShortcutsOverlay } from './components/ShortcutsOverlay';
 import { drawFavicon, askForNotificationsOnce, notifyHighScores } from './favicon';
 import { isEditableTarget } from './keyboard';
+import { watchConnectivity } from './pwa';
 import { useSwipe } from './useSwipe';
 import { applyTheme, loadTheme, setTheme, watchSystemTheme, type ThemePreference } from './theme';
 import { Toolbar } from './components/Toolbar';
@@ -60,6 +61,10 @@ export default function App() {
   // rules assume, so without this the sidebar was not merely hidden on a phone
   // -- it was unreachable, and no desktop viewport would ever show that.
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // `.offline-bar` was carried over from the server stylesheet and styled all
+  // this time with nothing to show it.
+  const [online, setOnline] = useState(true);
+  useEffect(() => watchConnectivity(setOnline), []);
 
   // A 401 from anywhere drops straight back to sign-in rather than leaving the
   // reader staring at an empty list.
@@ -328,6 +333,12 @@ export default function App() {
       </aside>
 
       <main className="site-content">
+        {!online && (
+          <div className="offline-bar" role="status">
+            Offline — showing what is already loaded. Votes and saves will fail
+            until you reconnect.
+          </div>
+        )}
         <header className="site-header">
           <Toolbar
             search={search}

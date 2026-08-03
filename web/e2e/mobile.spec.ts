@@ -68,7 +68,10 @@ test.describe('phone layout', () => {
       .poll(async () => (await sidebar.boundingBox())!.x)
       .toBeGreaterThanOrEqual(0);
 
-    await page.locator('.sidebar-feed').filter({ hasText: 'The Verge' }).click();
+    // The Verge is listed under its tag and again under Hidden, so this has to
+    // say which. Picking a feed closes the drawer either way.
+    await page.locator('.sidebar-group').filter({ hasText: 'tech' })
+      .locator('.sidebar-feed').filter({ hasText: 'The Verge' }).first().click();
     await expect(sidebar).not.toHaveClass(/open/);
   });
 

@@ -98,3 +98,51 @@ test('closing a modal returns focus to what opened it', async ({ page }) => {
   const after = await page.evaluate(() => document.activeElement?.className ?? '');
   expect(after).toBe(before);
 });
+
+// ── every action has a visible control ────────────────────────────────────────
+
+test.describe('nothing is command-palette-only', () => {
+  test.beforeEach(async ({ page }) => {
+    await signedIn(page);
+    await mockApi(page);
+    await page.goto('/');
+    await page.waitForSelector('.article-row');
+  });
+
+  // Settings, Users, Insights, the Ollama log, Manage feeds and Sign out were
+  // all reachable *only* through Ctrl-K, which put the app's whole admin
+  // surface behind a shortcut you had to already know existed.
+  const CONTROLS = ['Settings', 'Users', 'Insights', 'Ollama log',
+                    'Manage feeds', 'Sign out', 'Keyboard shortcuts'];
+
+  for (const name of CONTROLS) {
+    test(`an admin can click "${name}" without the palette`, async ({ page }) => {
+      await expect(page.getByRole('button', { name, exact: true })).toBeVisible();
+    });
+  }
+
+  test('a plain reader sees the reader controls and none of the admin ones', async ({ page }) => {
+    await page.route('**/api/v1/me', (r) => r.fulfill({
+      json: { id: 2, username: 'plain', role: 'user', must_change_password: false,
+              declickbait: false, content_filter_mode: 'off' },
+    }));
+    await page.reload();
+    await page.waitForSelector('.article-row');
+    for (const name of ['Settings', 'Users', 'Insights', 'Ollama log', 'Manage feeds']) {
+      await expect(page.getByRole('button', { name, exact: true })).toHaveCount(0);
+    }
+    // Still theirs to reach: their own account and the way out. The profile
+    // button is named for the reader, so its accessible name is the username.
+    await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'plain' })).toBeVisible();
+  });
+
+  test('every icon-only control has an accessible name', async ({ page }) => {
+    // An icon with no name is a mystery to a screen reader and to a tooltip.
+    const nameless = await page.locator('.sidebar-footer button, .sidebar-manage')
+      .evaluateAll((els) => els
+        .filter((el) => !el.textContent?.trim() && !el.getAttribute('aria-label'))
+        .length);
+    expect(nameless).toBe(0);
+  });
+});

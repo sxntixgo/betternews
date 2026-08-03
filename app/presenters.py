@@ -89,17 +89,20 @@ def clean_content(text: str, title: str = "", description: str = "") -> str:
     return '\n'.join(cleaned)
 
 
-def to_blocks(text: str, embeds_enabled: bool = False,
+def to_blocks(text: str,
               aside_kinds: list[str | None] | None = None) -> list[dict]:
     """Group consecutive bullet-prefixed lines into list blocks for rendering.
 
     Lines starting with ``-``, ``*``, ``•`` (and similar marks) followed by a
     space are turned into ``<li>`` items grouped under a single ``<ul>``.
 
-    When ``embeds_enabled`` is true, a line that is *only* a Twitter/X or
-    Instagram permalink becomes an ``embed`` block; the modal turns those into
-    proper blockquotes the official scripts can hydrate. When disabled the URL
-    falls through as a normal paragraph.
+    A line that is *only* a Twitter/X or Instagram permalink becomes an
+    ``embed`` block, which the client renders as a card naming the platform.
+    This used to be behind an `embeds_enabled` setting, back when the block
+    became a `<blockquote>` that the official widget scripts hydrated into a
+    real embed. Nothing is fetched from Twitter or Instagram any more, so there
+    is nothing left to opt out of -- and the setting had become a no-op that
+    still claimed otherwise.
 
     ``aside_kinds`` carries one entry per non-empty line, tagging blocks that
     `content_filter` judged to be padding.
@@ -113,15 +116,14 @@ def to_blocks(text: str, embeds_enabled: bool = False,
             continue
         idx += 1
         kind = aside_kinds[idx] if aside_kinds and idx < len(aside_kinds) else None
-        if embeds_enabled:
-            em = embed_match(s)
-            if em:
-                current = None
-                b = {"type": "embed", "platform": em[0], "url": em[1]}
-                if kind:
-                    b["aside"] = kind
-                blocks.append(b)
-                continue
+        em = embed_match(s)
+        if em:
+            current = None
+            b = {"type": "embed", "platform": em[0], "url": em[1]}
+            if kind:
+                b["aside"] = kind
+            blocks.append(b)
+            continue
         m = _BULLET_RE.match(s)
         # A bullet run is only continued while its aside classification matches,
         # so a rail starting mid-list doesn't drag the real items into the aside.
@@ -162,20 +164,20 @@ def group_blocks(blocks: list[dict]) -> list[dict]:
     return groups
 
 
-def content_blocks(text: str, embeds_enabled: bool, mode: str,
+def content_blocks(text: str, mode: str,
                    stored_asides: str | None = None) -> tuple[list[dict], int]:
     """Grouped blocks for the reader, plus how many were classified as padding.
 
     In ``off`` mode nothing is classified, so the body renders whole.
     """
     if mode == content_filter.MODE_OFF:
-        blocks = to_blocks(text, embeds_enabled=embeds_enabled)
+        blocks = to_blocks(text)
         return group_blocks(blocks), 0
     lines = [ln.strip() for ln in text.split('\n') if ln.strip()]
     kinds = content_filter.classify_lines(
         lines, content_filter.load_stored(stored_asides)
     )
-    blocks = to_blocks(text, embeds_enabled=embeds_enabled, aside_kinds=kinds)
+    blocks = to_blocks(text, aside_kinds=kinds)
     n = sum(1 for b in blocks if b.get("aside"))
     return group_blocks(blocks), n
 

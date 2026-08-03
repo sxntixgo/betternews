@@ -1204,12 +1204,11 @@ def test_applying_recommendations_writes_every_job_at_once(client, token):
 def test_reader_settings_round_trip(client, token):
     body = client.post(f"{API}/settings/reader", headers=auth(token),
                        json={"declickbait": True, "content_filter_mode": "highlight",
-                             "content_filter_llm": True, "embeds": True,
+                             "content_filter_llm": True,
                              "notify_high_score": True}).get_json()
     assert body["declickbait"] is True
     assert body["content_filter_mode"] == "highlight"
     assert body["content_filter_llm"] is True
-    assert body["embeds"] is True
     assert body["notify_high_score"] is True
 
 

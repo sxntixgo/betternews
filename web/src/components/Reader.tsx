@@ -85,14 +85,24 @@ function BlockView({ block }: { block: ArticleDetail['blocks'][number]['blocks']
     );
   }
   if (block.type === 'embed') {
-    // The server recognised a bare Twitter/Instagram permalink. Without the
-    // official widget scripts, a link is honest and works.
+    // A card, deliberately not a real embed. The server-rendered reader
+    // injected platform.twitter.com/widgets.js and instagram.com/embed.js to
+    // hydrate these, behind a setting — so the one place this app phoned home
+    // was to render someone else's framing of a story, which is the opposite of
+    // what it is for. The setting went with it: it had stopped doing anything
+    // and still claimed otherwise.
+    const name = block.platform === 'twitter' ? 'X' : 'Instagram';
     return (
-      <p className="embed">
-        <a href={block.url} target="_blank" rel="noopener noreferrer">
-          {block.platform} post
-        </a>
-      </p>
+      <a
+        className={`embed-card embed-${block.platform}`}
+        href={block.url}
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        <span className="embed-platform">{name}</span>
+        <span className="embed-url">{block.url.replace(/^https?:\/\//, '')}</span>
+        <span className="embed-open">Open on {name} ↗</span>
+      </a>
     );
   }
   return <p>{block.text}</p>;

@@ -12,6 +12,7 @@ import { isEditableTarget } from './keyboard';
 import { useSwipe } from './useSwipe';
 import { applyTheme, loadTheme, setTheme, watchSystemTheme, type ThemePreference } from './theme';
 import { Toolbar } from './components/Toolbar';
+import { Sidebar } from './components/Sidebar';
 import { ManageFeeds } from './screens/ManageFeeds';
 import { Profile } from './screens/Profile';
 import { Settings } from './screens/Settings';
@@ -269,57 +270,46 @@ export default function App() {
 
       <aside className={`sidebar ${drawerOpen ? 'open' : ''}`}>
         <div className="sidebar-brand">Better News</div>
-        <button
-          className={`sidebar-feed ${feed === undefined && !saved ? 'active' : ''}`}
-          onClick={() => choose(() => {
-            setFeed(undefined);
-            setSaved(false);
-            setHidden(false);
-          })}
-        >
-          All feeds
-          {feeds && feeds.unread > 0 && <span className="sidebar-feed-count">{feeds.unread}</span>}
-        </button>
-        {feeds?.feeds.map((f) => (
-          <button
-            key={f.id}
-            className={`sidebar-feed sidebar-feed-nested ${feed === f.id ? 'active' : ''}`}
-            onClick={() => choose(() => {
-              setFeed(f.id);
-              setSaved(false);
-              setHidden(false);
-            })}
-          >
-            {f.title}
-            {f.unread > 0 && <span className="sidebar-feed-count">{f.unread}</span>}
-          </button>
-        ))}
-        <button
-          className={`sidebar-feed ${saved ? 'active' : ''}`}
-          onClick={() => choose(() => {
-            setSaved(true);
-            setFeed(undefined);
-            setHidden(false);
-          })}
-        >
-          Saved
-          {feeds && feeds.saved > 0 && <span className="sidebar-feed-count">{feeds.saved}</span>}
-        </button>
-        <button
-          className={`sidebar-feed ${hidden ? 'active' : ''}`}
-          onClick={() => choose(() => {
-            setHidden(true);
-            setSaved(false);
-            setFeed(undefined);
-          })}
-        >
-          Hidden
-          {feeds && feeds.hidden > 0 && <span className="sidebar-feed-count">{feeds.hidden}</span>}
-        </button>
+        <Sidebar
+          feeds={feeds}
+          feed={feed}
+          saved={saved}
+          hidden={hidden}
+          onAll={() => choose(() => { setFeed(undefined); setSaved(false); setHidden(false); })}
+          onFeed={(id) => choose(() => { setFeed(id); setSaved(false); setHidden(false); })}
+          onSaved={() => choose(() => { setSaved(true); setFeed(undefined); setHidden(false); })}
+          onHidden={() => choose(() => { setHidden(true); setSaved(false); setFeed(undefined); })}
+          onHiddenFeed={(id) => choose(() => { setHidden(true); setSaved(false); setFeed(id); })}
+          onManageFeeds={me?.role === 'admin' ? () => setShowFeeds(true) : undefined}
+        />
         <div className="sidebar-footer">
-          <button className="btn-icon" title="Your profile" onClick={() => setShowProfile(true)}>
-            {me?.username ?? 'Profile'}
-          </button>
+          {/* Every one of these was reachable only through the command palette,
+              which meant the app's whole admin surface was behind a keyboard
+              shortcut you had to already know existed. The server UI had the
+              same icons in the same corner. */}
+          {me?.role === 'admin' && (
+            <div className="sidebar-tools">
+              <IconButton label="Settings" onClick={() => setShowSettings(true)}
+                          d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z" />
+              <IconButton label="Users" onClick={() => setShowUsers(true)}
+                          d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M22 21v-2a4 4 0 0 0-3-3.9 M16 3.1a4 4 0 0 1 0 7.8" />
+              <IconButton label="Insights" onClick={() => setShowInsights(true)}
+                          d="M3 3v18h18 M7 15l4-4 3 3 5-6" />
+              <IconButton label="Ollama log" onClick={() => setShowLog(true)}
+                          d="M4 17l6-6-6-6 M12 19h8" />
+            </div>
+          )}
+          <div className="sidebar-tools">
+            <button className="btn-icon sidebar-username" title="Your profile"
+                    onClick={() => setShowProfile(true)}>
+              {me?.username ?? 'Profile'}
+            </button>
+            <IconButton label="Keyboard shortcuts" onClick={() => setShowShortcuts(true)}
+                        d="M2 6h20v12H2z M6 10h.01 M10 10h.01 M14 10h.01 M18 10h.01 M8 14h8" />
+            <IconButton label="Sign out"
+                        onClick={() => { void api.logout().finally(() => setSignedIn(false)); }}
+                        d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4 M16 17l5-5-5-5 M21 12H9" />
+          </div>
           <label className="muted" htmlFor="theme-select">Theme</label>
           <select
             id="theme-select"
@@ -420,5 +410,20 @@ export default function App() {
         <CommandPalette commands={commands} onClose={() => setShowPalette(false)} />
       )}
     </div>
+  );
+}
+
+/** A labelled icon button. `label` is both the tooltip and the accessible name,
+ *  so an icon-only control is never nameless to a screen reader. */
+function IconButton({ label, d, onClick }: {
+  label: string; d: string; onClick: () => void;
+}) {
+  return (
+    <button className="btn-icon" title={label} aria-label={label} onClick={onClick}>
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+        <path fill="none" stroke="currentColor" strokeWidth="1.8"
+              strokeLinecap="round" strokeLinejoin="round" d={d} />
+      </svg>
+    </button>
   );
 }

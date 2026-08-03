@@ -9,10 +9,12 @@ export const ME: Me = {
 
 export const FEEDS: FeedList = {
   feeds: [
-    { id: 7, title: 'The Verge', unread: 16, hidden: 4, saved: 0, paused: false, tags: [] },
-    { id: 8, title: 'LA NACION', unread: 120, hidden: 9, saved: 1, paused: false, tags: [] },
+    { id: 7, title: 'The Verge', unread: 16, hidden: 4, saved: 0, paused: false, tags: ['tech'] },
+    { id: 8, title: 'LA NACION', unread: 120, hidden: 9, saved: 1, paused: false,
+      tags: ['argentina'] },
+    { id: 9, title: 'Untagged Blog', unread: 3, hidden: 0, saved: 0, paused: false, tags: [] },
   ],
-  unread: 136, saved: 1, hidden: 13,
+  unread: 139, saved: 1, hidden: 13,
 };
 
 export function article(id: number, over: Partial<Article> = {}): Article {
@@ -24,6 +26,7 @@ export function article(id: number, over: Partial<Article> = {}): Article {
     summary: 'A summary that runs to a couple of lines so the card has real height on a narrow screen.',
     score: 0.8,
     score_reason: 'Matches your interests.',
+    hidden: false,
     topics: ['economy', 'politics'],
     feed_id: 8,
     thumbnail_url: null,

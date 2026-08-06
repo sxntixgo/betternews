@@ -55,27 +55,46 @@ VALID = frozenset(k for k, _ in KINDS)
 DEFAULT = "news"
 
 
-def normalize(raw) -> str:
+def normalize(raw, valid=None) -> str:
     """One of `VALID`, always.
 
     Anything unrecognised becomes the default rather than being stored: an
     invented kind would sit in the affinity table forever with a sample size of
     one, which is exactly the fragmentation the closed set exists to prevent.
     """
+    allowed = VALID if valid is None else frozenset(valid)
+    fallback = DEFAULT if valid is None else (list(valid)[-1] if valid else DEFAULT)
     if not isinstance(raw, str):
-        return DEFAULT
+        return fallback
     slug = raw.strip().lower().replace("_", "-").replace(" ", "-")
-    return slug if slug in VALID else DEFAULT
+    return slug if slug in allowed else fallback
 
 
-def prompt_block() -> str:
-    """The vocabulary, for the scoring prompts."""
-    lines = "\n".join(f"    {k} — {d}" for k, d in KINDS)
+def parse(text: str) -> tuple[tuple[str, str], ...]:
+    """`slug — description` per line, as the reader edits it in Settings."""
+    from app import prompt_overrides
+    return tuple(prompt_overrides.parse_kinds(text))
+
+
+def prompt_block_from(vocab) -> str:
+    """The vocabulary block for an arbitrary set, so an edited one renders the
+    same way the built-in does."""
+    lines = "\n".join(f"    {k} — {d}" for k, d in vocab)
+    # The worked example names kinds from the vocabulary actually in force. A
+    # hardcoded pair would cite kinds an edited list may not contain, which is
+    # the one instruction in here guaranteed to confuse rather than help.
+    a = vocab[0][0] if vocab else DEFAULT
+    b = vocab[1][0] if len(vocab) > 1 else DEFAULT
     return (
         "- kind: EXACTLY ONE of the following, describing the shape of the "
         "article rather than its subject. Take the first that fits:\n"
         f"{lines}\n"
-        "  This is not the topic. A fixture list about Boca Juniors is "
-        '"fixture"; a transfer story about Boca Juniors is "transfer". The '
-        "reader may want one and not the other."
+        "  This is not the topic. Two articles about the same football club can "
+        f'be "{a}" and "{b}" — same subject, and the reader may want one and '
+        "not the other."
     )
+
+
+def prompt_block() -> str:
+    """The built-in vocabulary, for the scoring prompts."""
+    return prompt_block_from(KINDS)

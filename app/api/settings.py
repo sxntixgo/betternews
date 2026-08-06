@@ -11,6 +11,7 @@ All of it is admin-only, as on the HTML side.
 """
 
 from flask import jsonify, request
+from sqlalchemy import text as sql
 
 from app import llm_config, ollama_client, retention, topics as topics_mod
 from app.api import api_admin, bp, error
@@ -335,3 +336,89 @@ def topics_save():
 
     db.commit()
     return topics_get()
+
+
+# ── prompts ───────────────────────────────────────────────────────────────────
+
+@bp.get("/settings/prompts")
+@api_admin
+def prompts_get():
+    """What is actually sent to the model, and which parts can be changed.
+
+    The rendered prompts are here because the Ollama log truncates at 1,500
+    characters and the scoring prompt is roughly twice that -- so the only way
+    to read the whole thing was to have it in front of you in the source.
+    """
+    from app import prompt_overrides, prompts as prompt_mod
+    from app.pipeline import SCORING_SNIPPET_CHARS
+
+    db = get_db()
+    over = prompt_overrides.load(db)
+
+    # A real article if there is one: a rendered prompt full of "lorem ipsum"
+    # does not show whether the snippet is being truncated in a useful place.
+    row = db.execute(sql(
+        "SELECT title, raw_snippet FROM articles "
+        "WHERE raw_snippet IS NOT NULL ORDER BY id DESC LIMIT 1")).mappings().first()
+    title = row["title"] if row else "An example headline"
+    snippet = (row["raw_snippet"] if row else "The article text.")[:SCORING_SNIPPET_CHARS]
+
+    profile = (db.execute(sql(
+        "SELECT profile_text FROM preferences ORDER BY user_id LIMIT 1")).scalar() or "")
+    vocab = topics_mod.vocabulary(db)
+
+    return jsonify({
+        "slots": [
+            {
+                "id": slot,
+                "label": spec["label"],
+                "help": spec["help"],
+                "value": over[slot],
+                "default": spec["default"](),
+                "is_default": prompt_overrides.is_default(db, slot),
+            }
+            for slot, spec in prompt_overrides.SLOTS.items()
+        ],
+        # Read-only: these are templates, and an edit that drops {title} does
+        # not raise -- it produces a confident score for an article the model
+        # never saw.
+        "rendered": [
+            {"id": "scoring", "label": "Relevance scoring and tagging",
+             "text": prompt_mod.scoring_prompt(profile, title, snippet,
+                                               vocabulary=vocab, overrides=over)},
+            {"id": "scoring_batch", "label": "Relevance scoring (batched)",
+             "text": prompt_mod.batch_scoring_prompt(
+                 profile, [{"id": 1, "title": title, "snippet": snippet}],
+                 vocabulary=vocab, overrides=over)},
+            {"id": "summary", "label": "Article summaries",
+             "text": prompt_mod.summarization_prompt(snippet)},
+            {"id": "profile", "label": "Preference profile",
+             "text": prompt_mod.profile_prompt([title], [], evidence="")},
+            {"id": "digest", "label": "What you missed",
+             "text": prompt_mod.digest_prompt([{"id": 1, "title": title, "summary": snippet[:200]}])},
+        ],
+        "locked": [why for _, why in prompt_overrides.INVARIANTS],
+    })
+
+
+@bp.post("/settings/prompts")
+@api_admin
+def prompts_save():
+    """Save one slot. An empty value resets it to the default.
+
+    Refuses anything that would break a prompt at a distance: the check renders
+    the real scoring prompts with the edit applied and looks for the delimiters
+    and the JSON shape, rather than trusting that a slot only affects itself.
+    """
+    from app import prompt_overrides
+
+    db = get_db()
+    body = request.get_json(silent=True) or {}
+    slot = body.get("slot", "")
+    if slot not in prompt_overrides.SLOTS:
+        return error(f"Unknown prompt setting: {slot}", 400)
+    problem = prompt_overrides.save(db, slot, body.get("value", ""))
+    if problem:
+        return error(problem, 400)
+    db.commit()
+    return prompts_get()

@@ -133,7 +133,7 @@ test('the retention window round-trips', async ({ page }) => {
 
 test('muting a topic is an admin rule, and says so', async ({ page }) => {
   await openSettings(page);
-  const panel = page.locator('.settings-panel').last();
+  const panel = page.locator('.settings-panel').filter({ hasText: 'These apply to everyone' });
   await expect(panel).toContainText('These apply to everyone');
   const row = panel.locator('tr').filter({ hasText: 'crypto' });
   await row.getByRole('button', { name: 'Mute' }).click();
@@ -143,6 +143,62 @@ test('muting a topic is an admin rule, and says so', async ({ page }) => {
 test('tidying topics reports how many were re-tagged', async ({ page }) => {
   await openSettings(page);
   await page.getByRole('button', { name: 'Tidy existing topics' }).click();
-  await expect(page.locator('.settings-panel').last().locator('.prefs-saved'))
-    .toContainText('8 articles re-tagged');
+  await expect(page.locator('.settings-panel').filter({ hasText: 'These apply to everyone' })
+    .locator('.prefs-saved')).toContainText('8 articles re-tagged');
+});
+
+test.describe('prompts', () => {
+  test('the whole prompt is visible, not the log’s truncation', async ({ page }) => {
+    await openSettings(page);
+    // The Ollama log stores 1,500 characters and the scoring prompt is about
+    // twice that, so this was the only half you could not read.
+    const row = page.locator('.prompt-rendered').filter({ hasText: 'Relevance scoring' });
+    await row.locator('button').click();
+    const text = await row.locator('pre').innerText();
+    expect(text.length).toBeGreaterThan(1500);
+    expect(text).toContain('<article_snippet>');
+  });
+
+  test('the locked parts are named on screen', async ({ page }) => {
+    await openSettings(page);
+    // A reader should be able to see what they cannot break, and why.
+    await expect(page.locator('.prompt-locked li')).toHaveCount(3);
+    await expect(page.locator('.prompt-locked')).toContainText('data, not instructions');
+  });
+
+  test('editing a slot changes what is sent', async ({ page }) => {
+    await openSettings(page);
+    const slot = page.locator('.prompt-slot').filter({ hasText: 'How many topics' });
+    await slot.locator('textarea').fill('2-3');
+    await slot.getByRole('button', { name: 'Save' }).click();
+    await expect(slot.locator('.prefs-saved')).toBeVisible();
+
+    const row = page.locator('.prompt-rendered').filter({ hasText: 'Relevance scoring' });
+    await row.locator('button').click();
+    await expect(row.locator('pre')).toContainText('2-3 lowercase slugs');
+  });
+
+  test('a bad edit is refused with the server’s reason', async ({ page }) => {
+    await openSettings(page);
+    const slot = page.locator('.prompt-slot').filter({ hasText: 'How many topics' });
+    await slot.locator('textarea').fill('lots');
+    await slot.getByRole('button', { name: 'Save' }).click();
+    await expect(page.locator('.settings-panel').last().locator('.error'))
+      .toContainText('range like 4-8');
+  });
+
+  test('an edited slot is marked, and resets', async ({ page }) => {
+    await openSettings(page);
+    const slot = page.locator('.prompt-slot').filter({ hasText: 'How many topics' });
+    const reset = slot.getByRole('button', { name: 'Reset to default' });
+    await expect(reset).toBeDisabled();
+
+    await slot.locator('textarea').fill('2-3');
+    await slot.getByRole('button', { name: 'Save' }).click();
+    await expect(slot.locator('.kind-chip')).toHaveText('edited');
+
+    await reset.click();
+    await expect(slot.locator('textarea')).toHaveValue('4-8');
+    await expect(slot.locator('.kind-chip')).toHaveCount(0);
+  });
 });

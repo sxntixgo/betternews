@@ -13,6 +13,7 @@ from sqlalchemy import text
 
 from app import (affinity as affinity_mod, content_filter, extract,
                  kinds as kinds_mod, llm_config,
+                 prompt_overrides,
                  prompts, ollama_client,
                  topics as topics_mod, youtube)
 from app.db import get_db_direct, get_setting, set_setting
@@ -146,6 +147,10 @@ def score_new_articles(db, profile_text: str) -> int:
     owner = affinity_mod.owner_id(db)
     aff = affinity_mod.topic_affinity(db, owner) if owner is not None else {}
     kind_aff = affinity_mod.kind_affinity(db, owner) if owner is not None else {}
+    # The reader's edits, or the defaults. Read once: they cannot change
+    # mid-run, and every prompt in the run must be built the same way.
+    overrides = prompt_overrides.load(db)
+    kind_vocab = [k for k, _ in kinds_mod.parse(overrides["kinds"])] or None
     try:
         global_threshold = float(get_setting(db, "score_threshold", "") or SCORE_THRESHOLD)
     except ValueError:
@@ -156,14 +161,14 @@ def score_new_articles(db, profile_text: str) -> int:
         chunk = articles[start:start + SCORING_BATCH_SIZE]
         results = None
         if len(chunk) > 1:
-            results = _score_batch(chunk, profile_text, model, base_url, vocab)
+            results = _score_batch(chunk, profile_text, model, base_url, vocab, overrides)
             if results is None:
                 # Batched JSON is the least reliable part of this; never drop
                 # articles because of it.
                 log.warning("Batch scoring unusable for %d articles — "
                             "falling back to one call each", len(chunk))
         if results is None:
-            results = _score_individually(chunk, profile_text, model, base_url, vocab)
+            results = _score_individually(chunk, profile_text, model, base_url, vocab, overrides)
 
         for article in chunk:
             result = results.get(article["id"])
@@ -172,14 +177,15 @@ def score_new_articles(db, profile_text: str) -> int:
                             article["id"])
                 continue
             try:
-                _persist_score(db, article, result, rule_map, global_threshold, aff, kind_aff)
+                _persist_score(db, article, result, rule_map, global_threshold,
+                               aff, kind_aff, kind_vocab)
                 scored += 1
             except Exception as exc:
                 log.error("Error scoring article id=%d: %s", article["id"], exc)
     return scored
 
 
-def _score_batch(chunk, profile_text, model, base_url, vocab) -> dict | None:
+def _score_batch(chunk, profile_text, model, base_url, vocab, overrides=None) -> dict | None:
     """One call for the whole chunk, or None if the reply is unusable."""
     items = [{"id": a["id"],
               "title": a["title"],
@@ -188,7 +194,8 @@ def _score_batch(chunk, profile_text, model, base_url, vocab) -> dict | None:
     try:
         reply = ollama_client.generate(
             model=model,
-            prompt=prompts.batch_scoring_prompt(profile_text, items, vocabulary=vocab),
+            prompt=prompts.batch_scoring_prompt(profile_text, items, vocabulary=vocab,
+                                                overrides=overrides),
             expect_json=True, base_url=base_url, action="scoring (batch)",
         )
     except Exception as exc:
@@ -230,7 +237,7 @@ def _score_batch(chunk, profile_text, model, base_url, vocab) -> dict | None:
     return out
 
 
-def _score_individually(chunk, profile_text, model, base_url, vocab) -> dict:
+def _score_individually(chunk, profile_text, model, base_url, vocab, overrides=None) -> dict:
     out = {}
     for article in chunk:
         snippet = (article["raw_snippet"] or "")[:SCORING_SNIPPET_CHARS]
@@ -238,7 +245,7 @@ def _score_individually(chunk, profile_text, model, base_url, vocab) -> dict:
             reply = ollama_client.generate(
                 model=model,
                 prompt=prompts.scoring_prompt(profile_text, article["title"], snippet,
-                                              vocabulary=vocab),
+                                              vocabulary=vocab, overrides=overrides),
                 expect_json=True, base_url=base_url, action="scoring",
             )
         except Exception as exc:
@@ -250,11 +257,11 @@ def _score_individually(chunk, profile_text, model, base_url, vocab) -> dict:
 
 
 def _persist_score(db, article, result, rule_map, global_threshold,
-                   aff=None, kind_aff=None) -> None:
+                   aff=None, kind_aff=None, kind_vocab=None) -> None:
     score = max(0.0, min(1.0, float(result.get("score", 0.5))))
     reason = str(result.get("reason", ""))
     article_topics = topics_mod.normalize(result.get("topics"))
-    kind = kinds_mod.normalize(result.get("kind"))
+    kind = kinds_mod.normalize(result.get("kind"), kind_vocab)
 
     # The reader's votes outrank the model's opinion wherever they exist. On the
     # owner's 2,149 votes the model's score separated likes from dislikes at
@@ -535,7 +542,8 @@ def _regenerate_one(db, user_id: int) -> bool:
     # and it named none of their top four. Handing it the arithmetic removes the
     # inference that was going wrong.
     prompt = prompts.profile_prompt(liked, disliked, boosted=boosted, hidden=hidden,
-                                    evidence=affinity_mod.evidence_block(db, user_id))
+                                    evidence=affinity_mod.evidence_block(db, user_id),
+                                    overrides=prompt_overrides.load(db))
     new_profile = ollama_client.generate(
         model=llm_config.model_for(db, "profile"), prompt=prompt,
         expect_json=False, base_url=ollama_base(db),

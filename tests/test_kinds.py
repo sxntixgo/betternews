@@ -37,8 +37,19 @@ def test_every_kind_is_described_for_the_tagger():
     block = kinds.prompt_block()
     for k in kinds.VALID:
         assert k in block, f"{k} has no description in the prompt"
-    # The distinction the whole axis exists for.
-    assert "A fixture list about Boca Juniors" in block
+    # The worked example names kinds from the vocabulary actually in force,
+    # not a hardcoded pair -- an edited list may not contain "fixture" at all,
+    # and citing kinds that do not exist is the one instruction guaranteed to
+    # confuse rather than help.
+    assert f'"{kinds.KINDS[0][0]}" and "{kinds.KINDS[1][0]}"' in block
+    assert "same subject" in block
+
+
+def test_the_worked_example_follows_an_edited_vocabulary():
+    block = kinds.prompt_block_from((("opinion", "someone arguing"),
+                                     ("report", "what happened")))
+    assert '"opinion" and "report"' in block
+    assert "fixture" not in block
 
 
 def test_news_is_the_fallback_and_is_listed_last():

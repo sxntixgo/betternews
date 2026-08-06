@@ -1800,3 +1800,102 @@ def test_dismiss_all_respects_the_feed_and_saved_filters(client, app, token):
         db.close()
     assert client.post(f"{API}/articles/dismiss-all?saved=1",
                        headers=auth(token)).get_json()["dismissed"] == 1
+
+
+# ── prompt inspection and editing ─────────────────────────────────────────────
+# Prompts are templates, not prose: `scoring_prompt` interpolates six things and
+# dropping one does not raise, it produces a confident score for an article the
+# model never saw. So the opinions are editable and the contracts are not.
+
+def test_prompts_show_what_is_actually_sent(client, app, token):
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        add_article(db, add_feed(db), seq=1, guid="pr", raw_snippet="Body text here.")
+        db.close()
+    body = client.get(f"{API}/settings/prompts", headers=auth(token)).get_json()
+    ids = {r["id"] for r in body["rendered"]}
+    assert {"scoring", "scoring_batch", "summary", "profile", "digest"} <= ids
+    scoring = next(r for r in body["rendered"] if r["id"] == "scoring")
+    # The whole thing, not the 1,500-character truncation the call log stores.
+    assert len(scoring["text"]) > 1500
+    assert "Body text here." in scoring["text"], "renders with a real article"
+
+
+def test_every_editable_slot_reports_its_default(client, token):
+    body = client.get(f"{API}/settings/prompts", headers=auth(token)).get_json()
+    slots = {s["id"]: s for s in body["slots"]}
+    assert {"scoring_rules", "kinds", "tag_range", "profile_framing"} == set(slots)
+    for s in slots.values():
+        assert s["is_default"] is True
+        assert s["value"] == s["default"]
+        assert s["label"] and s["help"]
+
+
+def test_editing_a_slot_changes_the_rendered_prompt(client, token):
+    body = client.post(f"{API}/settings/prompts", headers=auth(token),
+                       json={"slot": "tag_range", "value": "2-3"}).get_json()
+    scoring = next(r for r in body["rendered"] if r["id"] == "scoring")
+    assert "2-3 lowercase" in scoring["text"]
+    assert next(s for s in body["slots"] if s["id"] == "tag_range")["is_default"] is False
+
+
+def test_an_empty_value_resets_to_the_default(client, token):
+    client.post(f"{API}/settings/prompts", headers=auth(token),
+                json={"slot": "tag_range", "value": "2-3"})
+    body = client.post(f"{API}/settings/prompts", headers=auth(token),
+                       json={"slot": "tag_range", "value": ""}).get_json()
+    slot = next(s for s in body["slots"] if s["id"] == "tag_range")
+    assert slot["is_default"] is True and slot["value"] == "4-8"
+
+
+def test_an_edit_that_would_break_the_scorer_is_refused(client, token):
+    """The check renders the real prompts with the edit applied rather than
+    trusting that a slot only affects itself."""
+    r = client.post(f"{API}/settings/prompts", headers=auth(token),
+                    json={"slot": "kinds", "value": "only-one — nothing else"})
+    assert r.status_code == 400
+    assert "at least two" in r.get_json()["error"].lower()
+
+
+@pytest.mark.parametrize("value,fragment", [
+    ("9-2", "low first"),
+    ("banana", "range like"),
+    ("1-99", "between 1 and 12"),
+])
+def test_a_nonsense_tag_range_is_refused(client, token, value, fragment):
+    r = client.post(f"{API}/settings/prompts", headers=auth(token),
+                    json={"slot": "tag_range", "value": value})
+    assert r.status_code == 400
+    assert fragment in r.get_json()["error"]
+
+
+def test_kinds_must_each_carry_a_description(client, token):
+    r = client.post(f"{API}/settings/prompts", headers=auth(token),
+                    json={"slot": "kinds", "value": "alpha\nbeta — has one"})
+    assert r.status_code == 400
+    assert "description" in r.get_json()["error"]
+
+
+def test_an_unknown_slot_is_refused(client, token):
+    assert client.post(f"{API}/settings/prompts", headers=auth(token),
+                       json={"slot": "everything", "value": "x"}).status_code == 400
+
+
+def test_an_edited_vocabulary_reaches_the_scorer(client, app, token):
+    """The point of the feature: change the kinds and the model is told about
+    the new ones, not the built-in list."""
+    client.post(f"{API}/settings/prompts", headers=auth(token),
+                json={"slot": "kinds",
+                      "value": "opinion — someone arguing\nreport — what happened"})
+    body = client.get(f"{API}/settings/prompts", headers=auth(token)).get_json()
+    scoring = next(r for r in body["rendered"] if r["id"] == "scoring")
+    assert "opinion — someone arguing" in scoring["text"]
+    assert "fixture —" not in scoring["text"], "the built-in list is gone"
+
+
+def test_the_locked_parts_are_named(client, token):
+    """A reader should be able to see what they are not allowed to break."""
+    body = client.get(f"{API}/settings/prompts", headers=auth(token)).get_json()
+    assert len(body["locked"]) >= 3
+    assert any("inject" in w or "data, not instructions" in w for w in body["locked"])

@@ -156,6 +156,7 @@ export async function mockApi(page: Page) {
     r.fulfill({ json: article(1, { state: { read: false, saved: false, dismissed: false, opinion: 'liked' } }) }));
   await mockSettings(page);
   await mockAdmin(page);
+  await mockPrompts(page);
 }
 
 /** Admin users, insights and the call log. Stateful, for the same reason. */
@@ -424,5 +425,43 @@ export async function mockEverything(
   await page.route('**/api/v1/**', (r) => {
     if (r.request().url().endsWith('/api/v1/me')) return r.fallback();
     return r.fulfill({ status, json: body as object });
+  });
+}
+
+/** The prompt inspector and its editable slots. */
+export async function mockPrompts(page: Page) {
+  const slots = [
+    { id: 'scoring_rules', label: 'How relevance is judged', help: 'Subject against style.',
+      value: '- Subject first.', default: '- Subject first.', is_default: true },
+    { id: 'kinds', label: 'Story kinds', help: 'One per line.',
+      value: 'fixture — when to watch\nnews — a reported event',
+      default: 'fixture — when to watch\nnews — a reported event', is_default: true },
+    { id: 'tag_range', label: 'How many topics to ask for', help: 'More is better.',
+      value: '4-8', default: '4-8', is_default: true },
+    { id: 'profile_framing', label: 'What the profile should describe', help: 'Subjects, not style.',
+      value: 'Name the subjects.', default: 'Name the subjects.', is_default: true },
+  ];
+  await page.route('**/api/v1/settings/prompts', (r) => {
+    if (r.request().method() === 'POST') {
+      const b = r.request().postDataJSON() as { slot: string; value: string };
+      if (b.slot === 'tag_range' && b.value && !/^\d+-\d+$/.test(b.value)) {
+        return r.fulfill({ status: 400,
+          json: { error: 'Give a range like 4-8, low first.', status: 400 } });
+      }
+      const s = slots.find((x) => x.id === b.slot)!;
+      s.value = b.value || s.default;
+      s.is_default = !b.value;
+    }
+    return r.fulfill({ json: {
+      slots,
+      rendered: [
+        { id: 'scoring', label: 'Relevance scoring and tagging',
+          text: `READER INTEREST PROFILE:\n...\n<article_snippet>\nBody\n</article_snippet>\n- topics: ${slots[2].value} lowercase slugs\n${'x'.repeat(1600)}` },
+        { id: 'summary', label: 'Article summaries', text: 'Summarize this.' },
+      ],
+      locked: ['the delimiter that marks feed text as data, not instructions',
+               'the instruction not to follow what a feed says',
+               'the JSON shape the scorer is parsed with'],
+    } });
   });
 }

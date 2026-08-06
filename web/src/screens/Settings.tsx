@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type {
-  ModelSettings, OllamaSettings, ReaderSettings, RetentionSettings, TopicRule,
+  ModelSettings, OllamaSettings, PromptSettings, ReaderSettings,
+  RetentionSettings, TopicRule,
 } from '@shared/api';
 import { api } from '../api/client';
 import { Modal } from '../components/Modal';
@@ -30,6 +31,8 @@ export function Settings({ onClose }: { onClose: () => void }) {
         <RetentionPanel />
         <h3>Topic rules</h3>
         <TopicsPanel />
+        <h3>Prompts</h3>
+        <PromptsPanel />
       </div>
     </Modal>
   );
@@ -306,6 +309,103 @@ function TopicsPanel() {
         setNote(`${renormalized} articles re-tagged.`);
         void load();
       }}>Tidy existing topics</button>
+    </div>
+  );
+}
+
+
+/**
+ * What the model is actually told, and the parts of it you may change.
+ *
+ * Deliberately not a textarea over the whole prompt. They are templates —
+ * `scoring_prompt` interpolates six values, and dropping `{title}` does not
+ * raise, it produces a confident score for an article the model never saw. So
+ * the opinions are editable, the contracts are not, and every save is checked
+ * by rendering the real prompts and looking for the invariants.
+ */
+function PromptsPanel() {
+  const [state, setState] = useState<PromptSettings | null>(null);
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState<string | null>(null);
+  const [shown, setShown] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.promptSettings().then((p) => {
+      setState(p);
+      setDraft(Object.fromEntries(p.slots.map((s) => [s.id, s.value])));
+    }).catch(() => {});
+  }, []);
+  if (!state) return <p className="loading">Loading…</p>;
+
+  async function save(slot: string, value: string) {
+    setError(null);
+    setSaved(null);
+    try {
+      const next = await api.savePrompt(slot, value);
+      setState(next);
+      setDraft(Object.fromEntries(next.slots.map((s) => [s.id, s.value])));
+      setSaved(slot);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  return (
+    <div className="settings-panel">
+      <p className="muted">
+        These are sent to the model on every article. The parts below are
+        judgement calls and yours to change; the rest of each template is not
+        editable, because an edit that drops a placeholder does not fail loudly
+        — it scores an article the model never saw.
+      </p>
+      <ul className="prompt-locked">
+        {state.locked.map((w) => <li key={w}>Kept: {w}</li>)}
+      </ul>
+
+      {error && <p className="error">{error}</p>}
+
+      {state.slots.map((slot) => (
+        <div className="prompt-slot" key={slot.id}>
+          <label htmlFor={`prompt-${slot.id}`}>
+            <strong>{slot.label}</strong>
+            {!slot.is_default && <span className="pill kind-chip">edited</span>}
+          </label>
+          <p className="muted">{slot.help}</p>
+          <textarea
+            id={`prompt-${slot.id}`}
+            value={draft[slot.id] ?? ''}
+            rows={Math.min(14, Math.max(2, (draft[slot.id] ?? '').split('\n').length + 1))}
+            onChange={(e) => setDraft({ ...draft, [slot.id]: e.target.value })}
+          />
+          <div className="settings-actions">
+            <button onClick={() => save(slot.id, draft[slot.id] ?? '')}>Save</button>
+            {/* Empty resets rather than blanking: a cleared slot falls back to
+                the built-in text, so there is no way to end up with none. */}
+            <button className="btn-secondary" disabled={slot.is_default}
+                    onClick={() => save(slot.id, '')}>
+              Reset to default
+            </button>
+            {saved === slot.id && <span className="prefs-saved">Saved.</span>}
+          </div>
+        </div>
+      ))}
+
+      <h4>What is actually sent</h4>
+      <p className="muted">
+        Rendered with a real article. The Ollama log truncates at 1,500
+        characters and the scoring prompt is about twice that, so this is the
+        only place the whole thing is visible.
+      </p>
+      {state.rendered.map((r) => (
+        <div className="prompt-rendered" key={r.id}>
+          <button className="btn-secondary"
+                  onClick={() => setShown(shown === r.id ? null : r.id)}>
+            {shown === r.id ? '▾' : '▸'} {r.label} ({r.text.length} chars)
+          </button>
+          {shown === r.id && <pre>{r.text}</pre>}
+        </div>
+      ))}
     </div>
   );
 }

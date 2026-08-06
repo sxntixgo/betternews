@@ -6,6 +6,11 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Re-run by hand, without pushing. Added during an Actions outage where jobs
+  # were cancelled after waiting 15 minutes for a runner: `gh run rerun` refuses
+  # a run in that state, so the only way back to a green check was an empty
+  # commit. This is the button that should have existed.
+  workflow_dispatch:
 
 concurrency:
   # A second push to the same branch cancels the first; no point paying for a

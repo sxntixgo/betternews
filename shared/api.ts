@@ -370,6 +370,32 @@ export interface OllamaLog {
   last_run: string | null;
 }
 
+/** One editable part of a prompt. The rest of the template is not editable —
+ *  see `locked` on {@link PromptSettings}. */
+export interface PromptSlot {
+  id: string;
+  label: string;
+  help: string;
+  value: string;
+  default: string;
+  is_default: boolean;
+}
+
+export interface RenderedPrompt {
+  id: string;
+  label: string;
+  /** The whole prompt, not the Ollama log's 1,500-character preview. */
+  text: string;
+}
+
+export interface PromptSettings {
+  slots: PromptSlot[];
+  rendered: RenderedPrompt[];
+  /** What an edit is not allowed to remove, in words, so the reader can see
+   *  what is fixed and why. */
+  locked: string[];
+}
+
 export interface ListQuery {
   feed?: number;
   topic?: string;
@@ -794,6 +820,17 @@ export class BetterNewsClient {
   setTopicRule(action: 'mute' | 'boost' | 'clear', topic: string, adjustment?: number) {
     return this.request<{ topics: TopicRule[] }>('/settings/topics', {
       method: 'POST', body: JSON.stringify({ action, topic, adjustment }),
+    });
+  }
+
+  promptSettings() {
+    return this.request<PromptSettings>('/settings/prompts');
+  }
+
+  /** An empty value resets that slot to the default. */
+  savePrompt(slot: string, value: string) {
+    return this.request<PromptSettings>('/settings/prompts', {
+      method: 'POST', body: JSON.stringify({ slot, value }),
     });
   }
 

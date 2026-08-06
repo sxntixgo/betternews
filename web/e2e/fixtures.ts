@@ -28,6 +28,7 @@ export function article(id: number, over: Partial<Article> = {}): Article {
     score_reason: 'Matches your interests.',
     hidden: false,
     topics: ['economy', 'politics'],
+    kind: 'news',
     feed_id: 8,
     thumbnail_url: null,
     reading_time: '4',

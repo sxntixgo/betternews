@@ -88,6 +88,10 @@ articles = Table(
     Column("title_was_clickbait", Boolean),
     Column("aside_spans", JSONB),
     Column("topics", ARRAY(Text)),
+    # The second tagging axis: what *kind* of story, not what it is about.
+    # `boca-juniors` alone is 48% liked -- noise -- because it contains both
+    # fixture listings and transfer news. See app/kinds.py.
+    Column("kind", Text),
     Column("cluster_id", Text),
     Column("score", Float),
     Column("score_reason", Text),
@@ -181,6 +185,7 @@ votes = Table(
     # affinity is computed from these, so without the snapshot the reader's
     # learned preferences would quietly decay every time the pruner ran.
     Column("topics_snapshot", ARRAY(Text)),
+    Column("kind_snapshot", Text),
     _ts(name="created_at", nullable=False, server_default=func.now()),
     CheckConstraint("value IN (1,-1)", name="value_valid"),
 )

@@ -1278,3 +1278,12 @@ kbd {
   color: var(--color-on-accent);
   background: var(--color-accent);
 }
+
+/* The story kind, beside the topics but visibly not one of them: a reader can
+   want Boca Juniors transfer news and not Boca Juniors fixture listings. */
+.kind-chip {
+  color: var(--color-ink-muted);
+  background: var(--color-surface-2);
+  border-color: var(--color-hairline);
+  font-style: italic;
+}

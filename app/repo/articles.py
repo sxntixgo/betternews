@@ -239,7 +239,7 @@ def record_vote(db, user_id: int, article_id: int, value: int) -> None:
     preference profile losing the vote — see docs/feature-plan.md 0.9d.
     """
     row = db.execute(
-        select(A.c.title, A.c.summary, A.c.topics).where(A.c.id == article_id)
+        select(A.c.title, A.c.summary, A.c.topics, A.c.kind).where(A.c.id == article_id)
     ).first()
     db.execute(V.insert().values(
         user_id=user_id, article_id=article_id, value=value,
@@ -249,6 +249,7 @@ def record_vote(db, user_id: int, article_id: int, value: int) -> None:
         # article later would mean the reader's learned preferences decayed
         # every time retention ran.
         topics_snapshot=row[2] if row else None,
+        kind_snapshot=row[3] if row else None,
     ))
     _upsert_state(db, user_id, article_id,
                   opinion="liked" if value == 1 else "disliked")

@@ -4,6 +4,10 @@ Edit this file to tune scoring, summarization, or profile regeneration behavior.
 """
 
 
+from app import kinds as kinds_mod
+
+KIND_BLOCK = kinds_mod.prompt_block()
+
 SCORING_RULES = """- What the article is ABOUT is the primary signal. If its subject, competition,
   company, place or person appears in the reader's profile, it is relevant --
   score it 0.7 or above.
@@ -70,6 +74,8 @@ INSTRUCTIONS:
       ("boca-juniors", "real-madrid", "premier-league", "conmebol", "copa-libertadores")
   - SUBJECT slugs are ALWAYS in English. "politica" and "politics" must not both exist.
   - SPECIFIC slugs keep the name's own spelling, without accents: "cordoba", "sao-paulo".
+
+{KIND_BLOCK}
     Use the English form of a country: "spain", not "espana".
   - ONE thing per slug. "ai" and "business", never "ai-business" or "tech-economy-politics".
   - At most three words in a slug, and only for a name: "santiago-del-estero" is
@@ -83,7 +89,7 @@ not a menu, and the SPECIFIC tags will usually not be in it):
 {vocab_block}
 
 Required JSON format:
-{{"score": 0.75, "reason": "one sentence explaining the score", "topics": ["slug", "slug"]}}"""
+{{"score": 0.75, "reason": "one sentence explaining the score", "topics": ["slug", "slug"], "kind": "news"}}"""
 
 
 def batch_scoring_prompt(profile_text: str, items: list[dict],
@@ -139,6 +145,8 @@ INSTRUCTIONS:
   "premier-league". Names keep their own spelling without accents; countries use
   their English form. At most three words, and only for a name.
 
+{KIND_BLOCK}
+
 KNOWN TOPICS (spellings already in use, for the SUBJECT tags only -- this is
 not a menu, and the SPECIFIC tags will usually not be in it):
 {vocab_block}
@@ -146,7 +154,7 @@ not a menu, and the SPECIFIC tags will usually not be in it):
 Return ONLY a JSON object. No explanation, no markdown, no preamble.
 
 Required JSON format:
-{{"results": [{{"id": 1, "score": 0.75, "reason": "one sentence", "topics": ["slug", "slug"]}}]}}"""
+{{"results": [{{"id": 1, "score": 0.75, "reason": "one sentence", "topics": ["slug", "slug"], "kind": "news"}}]}}"""
 
 
 def summarization_prompt(full_text: str) -> str:

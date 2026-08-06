@@ -11,7 +11,8 @@ from datetime import datetime, timezone
 
 from sqlalchemy import text
 
-from app import (affinity as affinity_mod, content_filter, extract, llm_config,
+from app import (affinity as affinity_mod, content_filter, extract,
+                 kinds as kinds_mod, llm_config,
                  prompts, ollama_client,
                  topics as topics_mod, youtube)
 from app.db import get_db_direct, get_setting, set_setting
@@ -144,6 +145,7 @@ def score_new_articles(db, profile_text: str) -> int:
     # than per article: it is one grouped query and it cannot change mid-run.
     owner = affinity_mod.owner_id(db)
     aff = affinity_mod.topic_affinity(db, owner) if owner is not None else {}
+    kind_aff = affinity_mod.kind_affinity(db, owner) if owner is not None else {}
     try:
         global_threshold = float(get_setting(db, "score_threshold", "") or SCORE_THRESHOLD)
     except ValueError:
@@ -170,7 +172,7 @@ def score_new_articles(db, profile_text: str) -> int:
                             article["id"])
                 continue
             try:
-                _persist_score(db, article, result, rule_map, global_threshold, aff)
+                _persist_score(db, article, result, rule_map, global_threshold, aff, kind_aff)
                 scored += 1
             except Exception as exc:
                 log.error("Error scoring article id=%d: %s", article["id"], exc)
@@ -247,15 +249,18 @@ def _score_individually(chunk, profile_text, model, base_url, vocab) -> dict:
     return out
 
 
-def _persist_score(db, article, result, rule_map, global_threshold, aff=None) -> None:
+def _persist_score(db, article, result, rule_map, global_threshold,
+                   aff=None, kind_aff=None) -> None:
     score = max(0.0, min(1.0, float(result.get("score", 0.5))))
     reason = str(result.get("reason", ""))
     article_topics = topics_mod.normalize(result.get("topics"))
+    kind = kinds_mod.normalize(result.get("kind"))
 
     # The reader's votes outrank the model's opinion wherever they exist. On the
     # owner's 2,149 votes the model's score separated likes from dislikes at
     # AUC 0.524 -- a coin flip -- against 0.756 for their own topic like-rates.
-    score, learned = affinity_mod.adjust(score, article_topics, aff or {})
+    score, learned = affinity_mod.adjust(score, article_topics, aff or {},
+                                        kind, kind_aff or {})
     if learned:
         reason = f"{learned}. {reason}".strip()
 
@@ -269,9 +274,9 @@ def _persist_score(db, article, result, rule_map, global_threshold, aff=None) ->
 
     db.execute(
         text("UPDATE articles SET score=:score, score_reason=:reason, "
-             "status=:status, topics=:topics WHERE id=:id"),
+             "status=:status, topics=:topics, kind=:kind WHERE id=:id"),
         {"score": score, "reason": reason, "status": status,
-         "topics": article_topics or None, "id": article["id"]},
+         "topics": article_topics or None, "kind": kind, "id": article["id"]},
     )
     db.commit()
     log.info("Scored article id=%d score=%.2f status=%s", article["id"], score, status)

@@ -40,6 +40,14 @@ SMOOTHING = 8.0
 MIN_TOTAL_VOTES = 40
 MIN_PER_CLASS = 8
 
+# How much of the score the *kind* of article accounts for, against its subject.
+# Swept on the real votes with a keyword proxy for kinds: 0.00 (topics only)
+# 0.752, 0.25 -> 0.758, 0.40 -> 0.761, 0.50 -> 0.761, 0.75 -> 0.753. A broad
+# plateau, so the midpoint. The proxy could only label 5% of articles as
+# anything but "news", which makes that a floor rather than an estimate -- a
+# tagger that labels all of them separates considerably more.
+KIND_WEIGHT = 0.45
+
 
 def topic_affinity(db, user_id: int) -> dict[str, float]:
     """Like-rate per topic for one reader, smoothed, for topics with evidence.
@@ -75,6 +83,38 @@ def topic_affinity(db, user_id: int) -> dict[str, float]:
     }
 
 
+def kind_affinity(db, user_id: int) -> dict[str, float]:
+    """Like-rate per *kind* of article, on the same terms as topics.
+
+    Separate from `topic_affinity` rather than folded in as another tag,
+    because averaging it with four subject tags would give it a fifth of the
+    weight. It deserves more than that: every article has exactly one kind, so
+    the estimates are dense and reliable where a 763-topic vocabulary is thin.
+    """
+    rows = db.execute(text("""
+        SELECT kind_snapshot                       AS kind,
+               COUNT(*)                            AS n,
+               COUNT(*) FILTER (WHERE value = 1)   AS likes
+        FROM votes
+        WHERE user_id = :u AND kind_snapshot IS NOT NULL
+        GROUP BY 1
+    """), {"u": user_id}).mappings().all()
+    if not rows:
+        return {}
+
+    total = sum(r["n"] for r in rows)
+    liked = sum(r["likes"] for r in rows)
+    disliked = total - liked
+    if (total < MIN_TOTAL_VOTES
+            or liked < MIN_PER_CLASS or disliked < MIN_PER_CLASS):
+        return {}
+    baseline = liked / total
+    return {
+        r["kind"]: (r["likes"] + SMOOTHING * baseline) / (r["n"] + SMOOTHING)
+        for r in rows if r["n"] >= MIN_VOTES
+    }
+
+
 def owner_id(db) -> int | None:
     """Whose votes drive the shared score.
 
@@ -87,21 +127,35 @@ def owner_id(db) -> int | None:
     return row[0] if row and row[0] is not None else None
 
 
-def adjust(llm_score: float, topics: list[str], affinity: dict[str, float]) -> tuple[float, str | None]:
+def adjust(llm_score: float, topics: list[str], affinity: dict[str, float],
+           kind: str | None = None,
+           kind_affinity_map: dict[str, float] | None = None) -> tuple[float, str | None]:
     """The reader's own record where it exists, the model's guess where it does not.
 
-    Not an average of the two. Blending measured *worse* than affinity alone
-    (0.632 against 0.756), because averaging a real signal with a noisy one
-    mostly adds noise.
+    Two axes: what the article is about, and what kind of article it is. Both
+    are needed -- `boca-juniors` is 48% liked on its own, which is noise,
+    because it contains both fixture listings (12.5%) and transfer news.
+
+    Not an average with the model's score. Blending those measured *worse* than
+    affinity alone (0.632 against 0.756): averaging a real signal with a noisy
+    one mostly adds noise.
     """
-    if not affinity or not topics:
+    known = [affinity[t] for t in topics if t in affinity] if affinity else []
+    topic_score = sum(known) / len(known) if known else None
+    kind_score = (kind_affinity_map or {}).get(kind or "")
+
+    if topic_score is None and kind_score is None:
         return llm_score, None
-    known = [affinity[t] for t in topics if t in affinity]
-    if not known:
-        return llm_score, None
-    score = sum(known) / len(known)
-    matched = [t for t in topics if t in affinity]
-    return score, f"Your votes on {', '.join(sorted(matched)[:3])}"
+
+    if topic_score is None:
+        return kind_score, f"Your votes on {kind} articles"
+    if kind_score is None:
+        matched = sorted(t for t in topics if t in affinity)
+        return topic_score, f"Your votes on {', '.join(matched[:3])}"
+
+    score = KIND_WEIGHT * kind_score + (1 - KIND_WEIGHT) * topic_score
+    matched = sorted(t for t in topics if t in affinity)
+    return score, f"Your votes on {', '.join(matched[:2])} and {kind} articles"
 
 
 def evidence_block(db, user_id: int, limit: int = 14) -> str:

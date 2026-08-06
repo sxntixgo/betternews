@@ -37,6 +37,9 @@ export interface Article {
    *  showing as text rather than hiding in a tooltip. */
   hidden: boolean;
   topics: string[];
+  /** What *kind* of story: fixture, transfer, analysis… See app/kinds.py.
+   *  Null on articles scored before kinds existed. */
+  kind: string | null;
   feed_id: number | null;
   thumbnail_url: string | null;
   reading_time: string | null;

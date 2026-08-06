@@ -175,3 +175,49 @@ def test_scoring_writes_the_readers_record_into_the_reason(db_conn, reader):
     assert row["score"] > 0.5
     assert row["score_reason"].startswith("Your votes on formula-1")
     assert row["status"] == "scored", "no longer hidden"
+
+
+# ── the second axis ───────────────────────────────────────────────────────────
+
+def _vote_kind(db, user_id, value, kind, topics=None):
+    db.execute(text(
+        "INSERT INTO votes (user_id, value, topics_snapshot, kind_snapshot) "
+        "VALUES (:u, :v, :t, :k)"),
+        {"u": user_id, "v": value, "t": topics, "k": kind})
+
+
+def test_a_kind_the_reader_rejects_scores_below_one_they_keep(db_conn, reader):
+    for _ in range(20):
+        _vote_kind(db_conn, reader, -1, "fixture")
+        _vote_kind(db_conn, reader, 1, "transfer")
+    db_conn.commit()
+    ka = affinity.kind_affinity(db_conn, reader)
+    assert ka["fixture"] < 0.3 < ka["transfer"]
+
+
+def test_the_kind_pulls_down_a_subject_the_reader_otherwise_likes(db_conn):
+    """The case this axis was built for. `boca-juniors` sits at 48% -- noise --
+    because it holds both fixture listings and transfer news."""
+    topic = {"boca-juniors": 0.48}
+    fixture, _ = affinity.adjust(0.9, ["boca-juniors"], topic, "fixture", {"fixture": 0.12})
+    transfer, _ = affinity.adjust(0.9, ["boca-juniors"], topic, "transfer", {"transfer": 0.71})
+    assert fixture < 0.35 < transfer, "same subject, opposite outcome"
+
+
+def test_the_kind_alone_is_enough_when_the_subject_is_unknown(db_conn):
+    score, note = affinity.adjust(0.8, ["never-seen"], {}, "fixture", {"fixture": 0.12})
+    assert score == 0.12
+    assert "fixture articles" in note
+
+
+def test_the_reason_names_both_axes(db_conn):
+    _, note = affinity.adjust(0.5, ["boca-juniors"], {"boca-juniors": 0.5},
+                              "fixture", {"fixture": 0.1})
+    assert "boca-juniors" in note and "fixture" in note
+
+
+def test_kind_affinity_needs_both_kinds_of_vote_too(db_conn, reader):
+    for _ in range(60):
+        _vote_kind(db_conn, reader, 1, "fixture")
+    db_conn.commit()
+    assert affinity.kind_affinity(db_conn, reader) == {}

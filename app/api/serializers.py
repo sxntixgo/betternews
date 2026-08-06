@@ -30,6 +30,9 @@ def article(row, declickbait: bool) -> dict:
         # filtered out for scoring low, so it can say so next to the reason.
         "hidden": d.get("status") == "hidden",
         "topics": list(d.get("topics") or []),
+        # What kind of story, not what it is about. The reader can like a
+        # subject and reject one shape of article within it.
+        "kind": d.get("kind"),
         "feed_id": d.get("feed_id"),
         "thumbnail_url": d.get("thumbnail_url"),
         "reading_time": d.get("reading_time"),

@@ -71,6 +71,12 @@ export function ArticleCard({
         )}
         {article.topics.length > 0 && (
           <p className="topic-chips">
+            {/* The kind sits with the topics but reads differently: it is the
+                shape of the story, and the reader may want one shape of a
+                subject and not another. */}
+            {article.kind && article.kind !== 'news' && (
+              <span className="pill kind-chip">{article.kind}</span>
+            )}
             {article.topics.map((t) => (
               <button className="pill topic-chip" key={t} onClick={() => onTopic?.(t)}>
                 {t}

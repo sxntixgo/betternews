@@ -450,8 +450,16 @@ def summarize_scored_articles(db) -> int:
                     expect_json=False,
                     base_url=base_url,
                 )
-            if summary is None:
-                log.warning("Summarization skipped for article id=%d", article["id"])
+            # `is None` was not enough. A model that answers with whitespace --
+            # or with nothing but its own reasoning, which is what a reasoning
+            # model does to a plain-text prompt -- returns a string, so it slid
+            # past this guard and the article was marked `summarized` with an
+            # empty summary. It then shows in the list with no summary and is
+            # never retried, because only `scored` articles are picked up again.
+            if summary is None or not summary.strip():
+                log.warning("Summarization produced nothing for article id=%d; "
+                            "leaving it scored so the next run retries it",
+                            article["id"])
                 continue
 
             aside_spans = None

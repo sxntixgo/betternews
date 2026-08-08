@@ -649,3 +649,41 @@ def test_string_true_does_rewrite():
     from app.pipeline import _clean_title_from
     result = {"was_clickbait": "True", "clean_title": "A rewrite"}
     assert _clean_title_from(result, "Original headline") == ("A rewrite", 1)
+
+
+@patch("app.pipeline.extract.extract")
+@patch("app.pipeline.ollama_client.generate")
+def test_a_blank_summary_leaves_the_article_for_the_next_run(mock_gen, mock_fetch, memory_db):
+    """`is None` was not enough.
+
+    A model that answers with whitespace -- or with nothing but its own
+    reasoning, which is what a reasoning model does to a plain-text prompt --
+    returns a *string*. That slid past the guard, the article was marked
+    `summarized` with an empty summary, and it then appeared in the reading list
+    with no summary and was never retried, because only `scored` articles are
+    picked up again.
+    """
+    mock_fetch.return_value = ("Full article text here.", None, "http")
+    mock_gen.return_value = "   "
+    article_id = add_article(memory_db, add_feed(memory_db), status="scored")
+
+    assert summarize_scored_articles(memory_db) == 0
+
+    row = memory_db.execute(text("SELECT summary, status FROM articles WHERE id=:p0"),
+                            {"p0": article_id}).mappings().first()
+    assert row["status"] == "scored", "still queued, so the next run tries again"
+    assert row["summary"] != "", "whatever was there is not replaced with blank"
+
+
+@patch("app.pipeline.extract.extract")
+@patch("app.pipeline.ollama_client.generate")
+def test_a_summary_is_stored_trimmed(mock_gen, mock_fetch, memory_db):
+    mock_fetch.return_value = ("Full article text here.", None, "http")
+    mock_gen.return_value = "  A real summary.  "
+    article_id = add_article(memory_db, add_feed(memory_db), status="scored")
+
+    assert summarize_scored_articles(memory_db) == 1
+    row = memory_db.execute(text("SELECT summary, status FROM articles WHERE id=:p0"),
+                            {"p0": article_id}).mappings().first()
+    assert row["status"] == "summarized"
+    assert row["summary"] == "A real summary."

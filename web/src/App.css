@@ -564,12 +564,7 @@ button:disabled { opacity: 0.4; cursor: default; }
    what the reader is actually there for; a column costs one button's width
    instead. Must come after the coarse-pointer block above, which sets the
    padding these buttons inherit. */
-@media (max-width: 720px) {
-  .article-actions-inline {
-    flex-direction: column;
-    gap: 4px;
-  }
-}
+
 
 .btn-read {
   font-size: 12px;
@@ -1324,4 +1319,120 @@ kbd {
   border: 1px solid var(--color-hairline);
   border-radius: var(--radius-md);
   background: var(--color-surface-2);
+}
+
+@media (max-width: 720px) {
+  /* Compact reading list. Measured before: a card was 175px on a 664px screen,
+     so fewer than four fitted and the list was mostly scrolling. The height was
+     not where it looked -- the three vote buttons stacked into a 128px column,
+     and the content stacked four separate rows (title, chips, summary, and a
+     40px "Open" block in its own left column).
+     Two rows now: everything small on one line with the actions, then the text. */
+  .article-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "text text  text"
+      "meta chips actions";
+    align-items: center;
+    column-gap: 8px;
+    row-gap: 3px;
+    padding: 8px 0;
+  }
+  /* One line only. Two chips is what fits beside the time and the actions;
+     a third wrapped onto its own row and gave back the height this whole
+     layout exists to save. */
+  .topic-chips .pill:nth-child(n + 3) { display: none; }
+  .topic-chips {
+    grid-area: chips;
+    flex-wrap: nowrap;
+    overflow: hidden;
+    min-width: 0;
+  }
+  /* Truncate each tag rather than letting the row clip one. Real topics are
+     nothing like the "economy" in the fixtures -- "copa-libertadores" and
+     "buenos-aires" are ordinary here, and container-level clipping cut them
+     mid-word at whatever column the edge happened to fall on. An ellipsis is
+     legible and looks deliberate; a slice does not. */
+  .topic-chips .pill {
+    /* 13ch fits every kind in the vocabulary whole -- "match-report" is the
+       longest at 12 -- and most topics too. Only the genuinely long ones like
+       "copa-libertadores" ellipsise, and they stay recognisable. */
+    max-width: 13ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: inline-block;
+    line-height: var(--pill-line-height);
+  }
+  /* The kind earns more room: it is one of nine known words, and it is the one
+     that says why the article scored what it did. */
+  .topic-chips .kind-chip { max-width: 13ch; }
+
+  .article-left {
+    grid-area: meta;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    /* Not the desktop column's fixed 72px -- as a row it has to size to its
+       contents, or the Open link overflows and lands on top of the chips. */
+    width: auto;
+    min-width: 0;
+  }
+  /* A thumbnail belongs to the desktop layout's left column. On a phone it
+     would be the tallest thing on the card, for the least information. */
+  .article-thumb { display: none; }
+  /* One line. The clock glyph and the number were wrapping onto separate
+     lines, which made this the tallest thing in the meta row. */
+  .reading-time {
+    display: inline-flex;
+    align-items: center;
+    margin-top: 0;
+    white-space: nowrap;
+    flex: none;
+  }
+  .article-left { flex-wrap: nowrap; }
+  /* Gone on a phone, and this is the trade that makes the tags legible. It was
+     ~75px of a ~366px row, and it duplicates the card itself: tapping anywhere
+     opens the reader, which carries its own "↗ Open in browser". Spending that
+     width on "copa-libert…" instead of "copa-…" is the better use -- a tag
+     truncated past recognition is noise, not information. */
+  .article-left .btn-external { display: none; }
+
+  /* Back to a row. As a column these were the tallest thing on the card. */
+  .article-actions-inline {
+    grid-area: actions;
+    flex-direction: row;
+    align-items: center;
+    gap: 0;
+  }
+  /* Still 40px. Shrinking these would buy 8px a card and cost the tap target
+     someone deliberately set; the height came from stacking them, not their
+     size. */
+  .article-actions-inline .btn-icon {
+    min-height: 40px;
+    min-width: 40px;
+    padding: 4px 6px;
+  }
+
+  .article-content { grid-area: text; min-width: 0; }
+
+  /* Two lines each. A third line of either is rarely what decides whether to
+     open something, and it costs ~20px per card every time. */
+  .article-title,
+  .article-summary {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  /* Tighter leading on a phone. At 1.45 two lines of title and two of summary
+     spend 12px purely on the gaps between them. */
+  .article-title { -webkit-line-clamp: 2; line-height: 1.28; }
+  .article-summary { -webkit-line-clamp: 2; line-height: 1.32; margin-top: 3px; }
+  .article-row-header { align-items: baseline; }
+
+  /* Chips join the meta line rather than claiming a row of their own. */
+  .topic-chips { margin: 0; gap: 4px; }
+  .topic-chips .pill { --pill-padding: 1px 6px; --pill-font-size: 10px; }
+  .original-title, .dup-note { display: none; }
 }

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { mockApi, signedIn } from './fixtures';
+import { article, mockApi, signedIn } from './fixtures';
 
 /**
  * The SPA on a phone.
@@ -28,13 +28,16 @@ test.describe('phone layout', () => {
     expect(overflow, 'horizontal overflow in px').toBeLessThanOrEqual(0);
   });
 
-  test('the action buttons stack into a column', async ({ page }) => {
-    const box = page.locator('.article-actions-inline').first();
-    await expect(box).toHaveCSS('flex-direction', 'column');
-
-    const buttons = await box.locator('.btn-icon').all();
-    const tops = await Promise.all(buttons.map(async (b) => (await b.boundingBox())!.y));
-    expect(new Set(tops).size, 'each button on its own row').toBe(buttons.length);
+  test('the buttons never sit beside the headline', async ({ page }) => {
+    // This used to assert the buttons stacked into a column, which was the
+    // mechanism rather than the goal: a column kept them out of the headline's
+    // way, and cost 128px of height doing it -- the tallest thing on the card.
+    // They are a row on the meta line now, below the text, which serves the
+    // same goal better. The test asserts the goal.
+    const title = (await page.locator('.article-title').first().boundingBox())!;
+    const actions = (await page.locator('.article-actions-inline').first().boundingBox())!;
+    expect(actions.y, 'actions belong below the headline, not beside it')
+      .toBeGreaterThanOrEqual(title.y + title.height - 1);
   });
 
   test('tap targets stay at least 40px', async ({ page }) => {
@@ -97,6 +100,90 @@ test.describe('phone layout', () => {
 
     const ids = await page.locator('.article-title').allInnerTexts();
     expect(new Set(ids).size, 'no article appears twice').toBe(ids.length);
+  });
+  test('the card is compact enough to see five at a time', async ({ page }) => {
+    // Measured before this layout: 175px per card on a 664px viewport, so
+    // fewer than four fitted and reading the list was mostly scrolling. The
+    // height was not where it looked -- the three vote buttons stacked into a
+    // 128px column and the tags took a row of their own.
+    const m = await page.evaluate(() => {
+      const row = document.querySelector('.article-row') as HTMLElement;
+      const h = row.getBoundingClientRect().height;
+      return { h, perScreen: window.innerHeight / h };
+    });
+    expect(m.h).toBeLessThan(145);
+    expect(m.perScreen).toBeGreaterThan(4.5);
+  });
+  test('the meta line stays on one line', async ({ page }) => {
+    // Everything small shares a row with the actions. If any of it wraps, the
+    // card grows by a whole line and the layout has failed at its one job.
+    const row = page.locator('.article-row').first();
+    const heights = await row.evaluate((el) => {
+      const g = (s: string) => {
+        const n = el.querySelector(s) as HTMLElement | null;
+        return n ? n.getBoundingClientRect().height : 0;
+      };
+      return { left: g('.article-left'), chips: g('.topic-chips'),
+               actions: g('.article-actions-inline') };
+    });
+    // 41, not 40: the action buttons are deliberately 40px tap targets, so a
+    // single row of them is exactly 40 and only a wrap exceeds it.
+    for (const [name, h] of Object.entries(heights)) {
+      expect(h, `${name} wrapped onto a second line`).toBeLessThan(41);
+    }
+  });
+  test('long tags truncate, and a long list is capped', async ({ page }) => {
+    // The fixtures use "economy" and "politics". Real topics here are
+    // "copa-libertadores" and "buenos-aires", and six on one article is
+    // ordinary -- at which point container-level clipping cut a tag mid-word
+    // at whatever column the edge fell on.
+    await page.route('**/api/v1/articles?*', (r) => r.fulfill({ json: {
+      articles: [
+        article(1, { kind: 'match-report',
+                     topics: ['copa-libertadores', 'boca-juniors', 'argentina', 'football'] }),
+        article(2, { kind: 'analysis',
+                     topics: ['immigration', 'us', 'politics', 'democracy', 'conflict', 'economy'] }),
+      ],
+      next_offset: null, diagnosis: null } }));
+    await page.reload();
+    await page.waitForSelector('.article-row');
+
+    const rows = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('.article-row')).map((row) => {
+        const chips = row.querySelector('.topic-chips') as HTMLElement;
+        const shown = Array.from(chips.children)
+          .filter((c) => getComputedStyle(c).display !== 'none') as HTMLElement[];
+        return {
+          height: Math.round(row.getBoundingClientRect().height),
+          shown: shown.length,
+          // Ellipsis rather than a slice: the box is narrower than the text.
+          truncated: shown.some((c) => c.scrollWidth > c.clientWidth + 1),
+          rowClipped: chips.scrollWidth > chips.clientWidth + 1,
+        };
+      }));
+
+    for (const r of rows) {
+      expect(r.shown, 'at most two tags share the meta line').toBeLessThanOrEqual(2);
+      expect(r.rowClipped, 'the row must not clip a tag mid-word').toBe(false);
+      expect(r.height, 'long tags must not grow the card').toBeLessThan(145);
+    }
+    // The four-topic article has a long kind and a long first topic, so at
+    // least one of them has to be ellipsised rather than escaping its box.
+    expect(rows[0].truncated).toBe(true);
+  });
+
+  test('the meta row does not overlap itself', async ({ page }) => {
+    // The left column keeps a fixed 72px width on desktop; as a row that made
+    // the Open link overflow and sit on top of the tags.
+    const boxes = await page.locator('.article-row').first().evaluate((el) => {
+      const b = (s: string) => {
+        const n = el.querySelector(s) as HTMLElement | null;
+        return n ? n.getBoundingClientRect() : null;
+      };
+      const left = b('.article-left'); const chips = b('.topic-chips');
+      return left && chips ? { leftRight: left.right, chipsLeft: chips.left } : null;
+    });
+    if (boxes) expect(boxes.leftRight).toBeLessThanOrEqual(boxes.chipsLeft + 1);
   });
 });
 

@@ -69,21 +69,6 @@ export function ArticleCard({
             + {article.duplicate_count} other feed{article.duplicate_count === 1 ? '' : 's'}
           </p>
         )}
-        {article.topics.length > 0 && (
-          <p className="topic-chips">
-            {/* The kind sits with the topics but reads differently: it is the
-                shape of the story, and the reader may want one shape of a
-                subject and not another. */}
-            {article.kind && article.kind !== 'news' && (
-              <span className="pill kind-chip">{article.kind}</span>
-            )}
-            {article.topics.map((t) => (
-              <button className="pill topic-chip" key={t} onClick={() => onTopic?.(t)}>
-                {t}
-              </button>
-            ))}
-          </p>
-        )}
         {article.summary && <p className="article-summary">{article.summary}</p>}
         {/* Visible text, not a tooltip on the score badge. The hidden list is
             reviewed on a phone, where there is no hover. */}
@@ -91,6 +76,26 @@ export function ArticleCard({
           <p className="hidden-reason">Hidden: {article.score_reason}</p>
         )}
       </div>
+
+      {/* A sibling of the content, not inside it: on a phone the grid puts this
+          on the same line as the reading time and the actions, so the tags cost
+          nothing vertically. Inside `.article-content` they were a row of their
+          own, 26px on every card. */}
+      {article.topics.length > 0 && (
+        <p className="topic-chips">
+          {/* The kind reads differently from a topic: it is the shape of the
+              story, and the reader may want one shape of a subject and not
+              another. */}
+          {article.kind && article.kind !== 'news' && (
+            <span className="pill kind-chip">{article.kind}</span>
+          )}
+          {article.topics.map((t) => (
+            <button className="pill topic-chip" key={t} onClick={() => onTopic?.(t)}>
+              {t}
+            </button>
+          ))}
+        </p>
+      )}
 
       {/* A column of the row, right of the text -- same as the server UI, so the
           title and summary stop at the same edge. */}

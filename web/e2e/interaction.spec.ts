@@ -93,11 +93,14 @@ test.describe('theme', () => {
     await page.reload();
     await page.waitForSelector('.article-row');
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-    // Only UI preferences in localStorage, never a credential: the theme, and
-    // the sidebar's collapsed groups, which are the same kind of thing.
+    // Only UI preferences in localStorage, never a credential. This list is
+    // the allowlist: anything new here should be a display choice with no auth
+    // meaning, and adding to it should feel like a decision.
+    const ALLOWED = ['theme', 'sidebar-collapsed', 'density'];
     const keys = await page.evaluate(() => Object.keys(localStorage).sort());
     expect(keys).toContain('theme');
-    expect(keys.every((k) => k === 'theme' || k === 'sidebar-collapsed')).toBe(true);
+    const unexpected = keys.filter((k) => !ALLOWED.includes(k));
+    expect(unexpected, `unexpected localStorage keys: ${unexpected.join(', ')}`).toEqual([]);
   });
 
   test('system follows the OS', async ({ page }) => {

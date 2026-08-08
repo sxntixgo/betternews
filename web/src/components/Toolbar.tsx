@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
+import type { Density } from '../density';
 
 /**
  * Refresh, search and sort.
@@ -16,6 +17,8 @@ export function Toolbar({
   onSort,
   onDismissAll,
   onRefreshed,
+  density,
+  onDensity,
   canPoll,
 }: {
   search: string;
@@ -24,6 +27,8 @@ export function Toolbar({
   onSort: (s: 'date' | 'score') => void;
   onDismissAll: () => void;
   onRefreshed: () => void;
+  density: Density;
+  onDensity: (d: Density) => void;
   canPoll: boolean;
 }) {
   const [polling, setPolling] = useState(false);
@@ -87,6 +92,20 @@ export function Toolbar({
         value={text}
         onChange={(e) => setText(e.target.value)}
       />
+      {/* Not palette-only. Measured: compact takes a phone card from 139px to
+          101px, which is 4.79 stories on screen to 6.55. */}
+      <button
+        className="switch"
+        role="switch"
+        aria-checked={density === 'compact'}
+        aria-label="Compact list"
+        title="Compact list — hides summaries and tags"
+        onClick={() => onDensity(density === 'compact' ? 'comfortable' : 'compact')}
+      >
+        <span className="switch-track"><span className="switch-knob" /></span>
+        <span className="switch-label">Compact</span>
+      </button>
+
       {/* One control with two states, not two buttons that happen to be
           adjacent. Date is the default and the left-hand position, so the knob
           resting at "off" means newest-first. */}

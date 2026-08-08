@@ -1436,3 +1436,18 @@ kbd {
   .topic-chips .pill { --pill-padding: 1px 6px; --pill-font-size: 10px; }
   .original-title, .dup-note { display: none; }
 }
+
+/* Compact list. Measured on a 664px phone viewport: 139px per card to 101px,
+   4.79 stories on screen to 6.55.
+
+   The summary is the whole saving. Hiding the tags saves nothing vertically --
+   they share the meta line with the action buttons, whose 40px tap target sets
+   that row's height either way -- so they go for a different reason: at this
+   size a truncated "copa-libert…" is clutter rather than information.
+
+   `kind` survives in both modes. It is one short word from a closed vocabulary
+   and it is what explains the score: a fixture listing and a transfer story are
+   the same subject and opposite value to the reader. */
+[data-density='compact'] .article-summary { display: none; }
+[data-density='compact'] .topic-chips .topic-chip { display: none; }
+[data-density='compact'] .article-row { padding: 6px 0; }

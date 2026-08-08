@@ -172,6 +172,49 @@ test.describe('phone layout', () => {
     expect(rows[0].truncated).toBe(true);
   });
 
+  test('compact mode trades summaries for stories on screen', async ({ page }) => {
+    // Hiding tags alone saves nothing: they share the meta line with the
+    // action buttons, whose 40px tap target sets that row's height either way.
+    // The summary is the entire saving, which is why the toggle covers both.
+    const height = () => page.evaluate(() =>
+      (document.querySelector('.article-row') as HTMLElement).getBoundingClientRect().height);
+
+    const comfortable = await height();
+    await page.getByRole('switch', { name: 'Compact list' }).click();
+    const compact = await height();
+
+    expect(compact).toBeLessThan(comfortable - 30);
+    const perScreen = await page.evaluate(() =>
+      window.innerHeight /
+      (document.querySelector('.article-row') as HTMLElement).getBoundingClientRect().height);
+    expect(perScreen).toBeGreaterThan(6);
+
+    await expect(page.locator('.article-summary').first()).toBeHidden();
+    await expect(page.locator('.topic-chip').first()).toBeHidden();
+  });
+
+  test('the kind survives compact, because it explains the score', async ({ page }) => {
+    await page.route('**/api/v1/articles?*', (r) => r.fulfill({ json: {
+      articles: [article(1, { kind: 'fixture', topics: ['boca-juniors'] })],
+      next_offset: null, diagnosis: null } }));
+    await page.reload();
+    await page.waitForSelector('.article-row');
+    await page.getByRole('switch', { name: 'Compact list' }).click();
+    // A fixture listing and a transfer story are the same subject and opposite
+    // value; dropping that word would hide the reason for the score.
+    await expect(page.locator('.kind-chip')).toHaveText('fixture');
+    await expect(page.locator('.topic-chip')).toBeHidden();
+  });
+
+  test('the density choice survives a reload', async ({ page }) => {
+    await page.getByRole('switch', { name: 'Compact list' }).click();
+    await page.reload();
+    await page.waitForSelector('.article-row');
+    await expect(page.locator('html')).toHaveAttribute('data-density', 'compact');
+    await expect(page.getByRole('switch', { name: 'Compact list' }))
+      .toHaveAttribute('aria-checked', 'true');
+  });
+
   test('the meta row does not overlap itself', async ({ page }) => {
     // The left column keeps a fixed 72px width on desktop; as a row that made
     // the Open link overflow and sit on top of the tags.

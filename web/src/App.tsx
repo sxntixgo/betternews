@@ -12,6 +12,7 @@ import { isEditableTarget } from './keyboard';
 import { watchConnectivity } from './pwa';
 import { useSwipe } from './useSwipe';
 import { applyTheme, loadTheme, setTheme, watchSystemTheme, type ThemePreference } from './theme';
+import { applyDensity, loadDensity, setDensity, type Density } from './density';
 import { Toolbar } from './components/Toolbar';
 import { Sidebar } from './components/Sidebar';
 import { ManageFeeds } from './screens/ManageFeeds';
@@ -55,6 +56,8 @@ export default function App() {
   const [showInsights, setShowInsights] = useState(false);
   const [showLog, setShowLog] = useState(false);
   const [theme, setThemeState] = useState<ThemePreference>(() => loadTheme());
+  const [density, setDensityState] = useState<Density>(() => loadDensity());
+  useEffect(() => applyDensity(density), [density]);
   const [reading, setReading] = useState<number | null>(null);
   // At <=720px the carried-over stylesheet parks the sidebar off-screen and
   // waits for `.open`. Carrying CSS across does not carry the JavaScript its
@@ -191,6 +194,12 @@ export default function App() {
       run: () => document.getElementById('search')?.focus() },
     { id: 'sort-date', label: 'Sort by date', run: () => setSort('date') },
     { id: 'sort-score', label: 'Sort by score', run: () => setSort('score') },
+    { id: 'density', label: 'Toggle compact list (hides summaries and tags)',
+      run: () => {
+        const next = density === 'compact' ? 'comfortable' : 'compact';
+        setDensity(next);
+        setDensityState(next);
+      } },
     { id: 'theme-light', label: 'Theme: light', run: () => { setTheme('light'); setThemeState('light'); } },
     { id: 'theme-dark', label: 'Theme: dark', run: () => { setTheme('dark'); setThemeState('dark'); } },
     { id: 'theme-system', label: 'Theme: follow the system', run: () => { setTheme('system'); setThemeState('system'); } },
@@ -212,7 +221,7 @@ export default function App() {
       id: `feed-${f.id}`, label: `Go to ${f.title}`,
       run: () => { setFeed(f.id); setSaved(false); setHidden(false); },
     })),
-  ], [feeds, me]);
+  ], [feeds, me, density]);
 
   if (signedIn === null) return <p className="loading">Loading…</p>;
   if (!signedIn) return <SignIn onDone={() => setSignedIn(true)} />;
@@ -353,6 +362,8 @@ export default function App() {
             onSearch={setSearch}
             sort={sort}
             onSort={setSort}
+            density={density}
+            onDensity={(d) => { setDensity(d); setDensityState(d); }}
             canPoll={me?.role === 'admin'}
             onRefreshed={() => setReloads((n) => n + 1)}
             onDismissAll={async () => {

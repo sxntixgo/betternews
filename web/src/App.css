@@ -1451,3 +1451,18 @@ kbd {
 [data-density='compact'] .article-summary { display: none; }
 [data-density='compact'] .topic-chips .topic-chip { display: none; }
 [data-density='compact'] .article-row { padding: 6px 0; }
+
+/* Source and age, on the meta line. Both are muted and small: they qualify the
+   headline rather than competing with it. */
+.article-source,
+.article-age {
+  font-size: 11px;
+  color: var(--color-ink-muted);
+  white-space: nowrap;
+  flex: none;
+}
+.article-source {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 14ch;
+}

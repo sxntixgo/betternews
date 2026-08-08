@@ -215,6 +215,41 @@ test.describe('phone layout', () => {
       .toHaveAttribute('aria-checked', 'true');
   });
 
+  test('the meta line carries the source and the age', async ({ page }) => {
+    // The row is held open by the 40px tap targets whatever else is on it, so
+    // these cost no height -- and once the tags were hidden in compact mode it
+    // was mostly empty. Which paper ran it and how old it is are what a reader
+    // weighs before opening a headline.
+    const now = Date.now();
+    await page.route('**/api/v1/articles?*', (r) => r.fulfill({ json: {
+      articles: [
+        article(1, { feed_id: 8, published_at: new Date(now - 2 * 3600e3).toISOString() }),
+        article(2, { feed_id: 7, published_at: new Date(now - 30e3).toISOString() }),
+        article(3, { feed_id: 7, published_at: null }),
+      ],
+      next_offset: null, diagnosis: null } }));
+    await page.reload();
+    await page.waitForSelector('.article-row');
+
+    const rows = page.locator('.article-row');
+    await expect(rows.nth(0).locator('.article-source')).toHaveText('LA NACION');
+    await expect(rows.nth(0).locator('.article-age')).toHaveText('2h');
+    await expect(rows.nth(1).locator('.article-age')).toHaveText('now');
+    // No date is common in feeds; it renders as nothing rather than "NaN".
+    await expect(rows.nth(2).locator('.article-age')).toHaveCount(0);
+
+    // Still one line, and still short enough to fit beside everything else.
+    for (const h of await rows.nth(0).evaluate((el) => [
+      (el.querySelector('.article-left') as HTMLElement).getBoundingClientRect().height,
+    ])) expect(h).toBeLessThan(41);
+  });
+
+  test('the source and age survive compact mode', async ({ page }) => {
+    await page.getByRole('switch', { name: 'Compact list' }).click();
+    await expect(page.locator('.article-source').first()).toBeVisible();
+    await expect(page.locator('.article-age').first()).toBeVisible();
+  });
+
   test('the meta row does not overlap itself', async ({ page }) => {
     // The left column keeps a fixed 72px width on desktop; as a row that made
     // the Open link overflow and sit on top of the tags.

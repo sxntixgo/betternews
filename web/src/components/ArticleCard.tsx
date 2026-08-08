@@ -1,4 +1,5 @@
 import type { Article } from '@shared/api';
+import { relativeTime } from '../relativeTime';
 
 /**
  * One row of the reading list.
@@ -14,6 +15,7 @@ export function ArticleCard({
   onVote,
   onSave,
   onTopic,
+  feedName,
   focused,
 }: {
   article: Article;
@@ -21,6 +23,9 @@ export function ArticleCard({
   onVote: (a: Article, value: 1 | -1) => void;
   onSave: (a: Article) => void;
   onTopic?: (topic: string) => void;
+  /** Which paper ran it. Resolved by the shell, which already holds the feed
+   *  list for the sidebar; the article only carries `feed_id`. */
+  feedName?: string;
   focused?: boolean;
 }) {
   const s = article.state;
@@ -44,6 +49,14 @@ export function ArticleCard({
           <img className="article-thumb" src={article.thumbnail_url} alt="" loading="lazy" />
         )}
         {article.reading_time && <span className="reading-time">🕐 {article.reading_time}</span>}
+        {/* Source and age. The meta line is held open by the 40px tap targets
+            whatever else sits on it, so these cost no height -- and in compact
+            mode, with the tags hidden, it was mostly empty. Which paper ran it
+            and how old it is are what a reader weighs before opening. */}
+        {feedName && <span className="article-source">{feedName}</span>}
+        {relativeTime(article.published_at) && (
+          <span className="article-age">{relativeTime(article.published_at)}</span>
+        )}
         <a className="btn-external" href={article.url} target="_blank" rel="noopener noreferrer">
           ↗ Open
         </a>

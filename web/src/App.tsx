@@ -387,6 +387,9 @@ export default function App() {
               onVote={vote}
               onSave={save}
               onTopic={(t) => { setTopic(t); setSearch(''); }}
+              // The shell already holds the feed list for the sidebar; the article
+              // itself only carries feed_id.
+              feedName={feeds?.feeds.find((f) => f.id === a.feed_id)?.title}
             />
           ))}
           {loading && <p className="loading">Loading…</p>}

@@ -60,6 +60,8 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 .sidebar {
   width: 240px;
   flex-shrink: 0;
+  /* `overflow-y: auto` moved to the feed list below, so the footer can stay
+     put. Scrolling the whole column is what buried it. */
   border-right: 1px solid var(--color-hairline);
   /* Chrome, not content: the sidebar stays on the page colour and the article
      list lifts onto a surface in front of it. One flat background could not
@@ -71,7 +73,22 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
   position: sticky;
   top: 0;
   height: 100vh;
+  overflow: hidden;
+}
+/* The one part that scrolls. `min-height: 0` is load-bearing: a flex child
+   defaults to `min-height: auto`, which refuses to shrink below its content,
+   so without it the list simply pushes the footer out again and nothing
+   scrolls at all.
+
+   A wrapper element, because `Sidebar` returns a fragment and a fragment
+   cannot be scrolled. (`.sidebar-nav` further down is dead -- nothing renders
+   it -- so it is not the hook it looks like.) */
+.sidebar-scroll {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
 .sidebar-brand {
   font-weight: 700;
@@ -171,6 +188,11 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
   flex-direction: column;
   align-items: stretch;
   gap: 6px;
+  /* Pinned. The whole sidebar was one scrolling column, so a long feed list
+     pushed settings, sign-out and the theme picker below the fold -- on a
+     phone, where the sidebar *is* the navigation and there is no second way to
+     reach any of them. The feed list scrolls now and this does not move. */
+  flex: none;
 }
 .sidebar-footer > label { margin-top: 4px; }
 .sidebar-footer select { width: 100%; }
@@ -1517,4 +1539,64 @@ kbd {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--color-ink-muted);
+}
+
+/* ── Toolbar: words on a desktop, icons on a phone ──────────────────────────
+   Measured before: Refresh, Dismiss all, What you missed and the field wrapped
+   onto three rows on a 390x664 screen -- a 173px header, a quarter of the
+   viewport spent before the first headline, with the search box crushed to
+   53px and reading "Fi". */
+.btn-labelled {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+/* The toggle exists only at phone width; a desktop has room for the field. */
+.search-toggle { display: none; }
+
+@media (max-width: 720px) {
+  /* The icon carries it. `aria-label` is on every one of these buttons, so
+     dropping the text costs the sighted reader nothing and the screen-reader
+     user nothing either. */
+  .btn-labelled .btn-label { display: none; }
+  .btn-labelled { padding: 0 10px; }
+
+  .search-toggle { display: inline-flex; }
+  /* Hidden rather than narrow. Squeezing it into whatever space was left is
+     what produced a field showing two characters. */
+  .search-input { display: none; }
+  .search-input.open {
+    display: block;
+    /* Its own row, full width: a search field is worth a row when it is open
+       and no space at all when it is not. */
+    flex: 1 0 100%;
+    order: 1;
+  }
+}
+
+@media (max-width: 720px) {
+  /* Three rows of 40px tap targets plus gaps was 136px of a 664px screen,
+     spent on controls you touch once a week. The targets stay 40px -- that is
+     a finger, not a style -- so the saving comes from the padding and the gaps
+     between them, not from making them harder to hit. */
+  .sidebar-footer {
+    padding: 8px 10px;
+    gap: 2px;
+    /* One wrapping row instead of three fixed ones. `display: contents` lifts
+       each group's buttons into this flex container so they pack together;
+       three rows of five-ish icons becomes two.
+
+       The radiogroup keeps its role -- asserted by the theme tests, which run
+       on WebKit now, because `display: contents` used to drop elements out of
+       Safari's accessibility tree and that is exactly the kind of thing that
+       would pass here and be broken on the phone. */
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .sidebar-tools,
+  .theme-picker { display: contents; }
+  /* The tap targets stay 40px -- that is a finger, not a style. The saving
+     comes from the padding and the gaps around them. */
+  .sidebar-footer .btn-icon { padding: 6px 4px; }
 }

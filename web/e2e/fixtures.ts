@@ -474,3 +474,20 @@ export async function mockPrompts(page: Page) {
     } });
   });
 }
+
+
+/**
+ * Reveal the search field if this viewport keeps it behind a button.
+ *
+ * On a phone it is a magnifier that opens a full-width field; on a desktop the
+ * field is simply there. Asked of the page rather than of the project name --
+ * a name check silently skips on a new project, which is how three tests once
+ * failed looking like missing UI.
+ */
+export async function openSearch(page: Page) {
+  const toggle = page.locator('.search-toggle');
+  if (await toggle.isVisible()) {
+    await toggle.click();
+    await page.locator('#search').waitFor({ state: 'visible' });
+  }
+}

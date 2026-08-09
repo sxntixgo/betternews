@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { article, mockApi, signedIn } from './fixtures';
+import { article, mockAdmin, mockApi, signedIn } from './fixtures';
 
 /**
  * The SPA on a phone.
@@ -278,5 +278,89 @@ test.describe('desktop keeps its layout', () => {
       .toHaveCSS('flex-direction', 'row');
     expect((await page.locator('.sidebar').boundingBox())!.x).toBeGreaterThanOrEqual(0);
     await expect(page.locator('.drawer-toggle')).toBeHidden();
+  });
+});
+
+test.describe('the top bar and the drawer fit the screen', () => {
+  test.beforeEach(async ({ page }) => {
+    await signedIn(page);
+    await mockApi(page);
+    await mockAdmin(page);
+    await page.goto('/');
+    await page.waitForSelector('.article-row');
+  });
+
+  test('on a phone the actions are icons, and still have names', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'phone only');
+    // Measured before: Refresh, Dismiss all, What you missed and the field
+    // wrapped onto three rows -- a 173px header on a 664px screen, a quarter of
+    // the viewport spent before the first headline.
+    const header = (await page.locator('.site-header').boundingBox())!;
+    expect(header.height).toBeLessThan(130);
+
+    for (const id of ['#poll-btn', '#dismiss-all-btn', '#digest-btn']) {
+      await expect(page.locator(`${id} .btn-label`)).toBeHidden();
+    }
+    // Hiding the text must not leave a nameless button.
+    for (const name of ['Refresh', 'Dismiss all', 'What you missed', 'Search articles']) {
+      await expect(page.getByRole('button', { name })).toBeVisible();
+    }
+  });
+
+  test('on a phone the search field is behind a button', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'phone only');
+    // It used to be squeezed into whatever width was left, which was 53px --
+    // a field showing "Fi".
+    await expect(page.locator('#search')).toBeHidden();
+    await page.getByRole('button', { name: 'Search articles' }).click();
+
+    const field = page.locator('#search');
+    await expect(field).toBeVisible();
+    await expect(field).toBeFocused();      // opening it must not cost a second tap
+    expect((await field.boundingBox())!.width).toBeGreaterThan(200);
+
+    await field.fill('peso');
+    await expect(page.locator('#search')).toHaveValue('peso');
+  });
+
+  test('/ opens the field wherever it is hiding', async ({ page }) => {
+    // `/` focused the input directly. Focusing a hidden input silently does
+    // nothing, so on a phone the shortcut did nothing at all -- and an external
+    // keyboard on a tablet is exactly where someone would press it.
+    await page.keyboard.press('/');
+    await expect(page.locator('#search')).toBeFocused();
+  });
+
+  test('on a desktop the words are still there', async ({ page, isMobile }) => {
+    test.skip(isMobile, 'desktop only');
+    await expect(page.locator('#digest-btn')).toContainText('What you missed');
+    await expect(page.locator('#search')).toBeVisible();
+    // The toggle is a phone affordance; a desktop has room for the field.
+    await expect(page.locator('.search-toggle')).toBeHidden();
+  });
+
+  test('a long feed list cannot push the drawer footer off screen', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'phone only');
+    // The whole sidebar was one scrolling column, so the feed list pushed
+    // settings, sign-out and the theme picker below the fold -- on a phone,
+    // where the drawer *is* the navigation and nothing else reaches them.
+    await page.route('**/api/v1/feeds', (r) => r.fulfill({ json: {
+      feeds: Array.from({ length: 30 }, (_, i) => ({
+        id: i + 1, title: `Feed number ${i + 1}`, unread: i, hidden: 0,
+        saved: 0, paused: false, tags: [],
+      })),
+      unread: 400, saved: 0, hidden: 0,
+    } }));
+    await page.reload();
+    await page.waitForSelector('.article-row');
+    await page.locator('.drawer-toggle').click();
+
+    const vp = page.viewportSize()!;
+    const footer = (await page.locator('.sidebar-footer').boundingBox())!;
+    expect(footer.y + footer.height, 'the footer was pushed off the bottom')
+      .toBeLessThanOrEqual(vp.height);
+    // And it is reachable without scrolling to it.
+    await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
+    await expect(page.getByRole('radiogroup', { name: 'Theme' })).toBeVisible();
   });
 });

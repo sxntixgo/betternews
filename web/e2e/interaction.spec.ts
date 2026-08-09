@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { mockApi, signedIn } from './fixtures';
+import { mockApi, openSearch, signedIn } from './fixtures';
 
 test.beforeEach(async ({ page }) => {
   await signedIn(page);
@@ -36,6 +36,7 @@ test.describe('keyboard', () => {
   test('typing in the search box does not fire shortcuts', async ({ page }) => {
     // The reason isEditableTarget exists: without it, searching for "jklo"
     // scrolls the list and likes things.
+    await openSearch(page);
     await page.locator('#search').fill('jkr');
     await expect(page.locator('.article-row.focused')).toHaveCount(0);
     await expect(page.locator('.modal')).toHaveCount(0);

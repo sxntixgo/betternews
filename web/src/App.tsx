@@ -225,10 +225,18 @@ export default function App() {
         case 'w':
           setShowDigest(true);
           break;
-        case '/':
+        case '/': {
           e.preventDefault();
-          document.getElementById('search')?.focus();
+          // The field is behind a button at phone width, and focusing a hidden
+          // input silently does nothing -- so open it the way a reader would.
+          // Asked of the element rather than of the viewport: whether it is on
+          // screen is a CSS decision, and this should not hold a second copy
+          // of it.
+          const box = document.getElementById('search') as HTMLInputElement | null;
+          if (box && box.offsetParent !== null) box.focus();
+          else document.querySelector<HTMLButtonElement>('.search-toggle')?.click();
           break;
+        }
         case '?':
           setShowShortcuts(true);
           break;
@@ -348,6 +356,7 @@ export default function App() {
 
       <aside className={`sidebar ${drawerOpen ? 'open' : ''}`}>
         <div className="sidebar-brand">Better News</div>
+        <div className="sidebar-scroll">
         <Sidebar
           feeds={feeds}
           feed={feed}
@@ -360,6 +369,7 @@ export default function App() {
           onHiddenFeed={(id) => choose(() => { setHidden(true); setSaved(false); setFeed(id); })}
           onManageFeeds={me?.role === 'admin' ? () => setShowFeeds(true) : undefined}
         />
+        </div>
         <div className="sidebar-footer">
           {/* Every one of these was reachable only through the command palette,
               which meant the app's whole admin surface was behind a keyboard
@@ -378,9 +388,19 @@ export default function App() {
             </div>
           )}
           <div className="sidebar-tools">
-            <button className="btn-icon sidebar-username" title="Your profile"
+            {/* Icon on a phone, name on a desktop. In the packed footer row the
+                name was squeezed between the icons and rendered as "eade",
+                which reads as breakage rather than as a username. */}
+            <button className="btn-icon btn-labelled sidebar-username"
+                    title={`Your profile — ${me?.username ?? ''}`}
+                    aria-label={`Your profile: ${me?.username ?? 'account'}`}
                     onClick={() => setShowProfile(true)}>
-              {me?.username ?? 'Profile'}
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                <path fill="none" stroke="currentColor" strokeWidth="1.8"
+                      strokeLinecap="round" strokeLinejoin="round"
+                      d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8" />
+              </svg>
+              <span className="btn-label">{me?.username ?? 'Profile'}</span>
             </button>
             <IconButton label="Keyboard shortcuts" onClick={() => setShowShortcuts(true)}
                         d="M2 6h20v12H2z M6 10h.01 M10 10h.01 M14 10h.01 M18 10h.01 M8 14h8" />

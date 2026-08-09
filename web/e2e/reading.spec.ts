@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { article, DETAIL, mockApi, signedIn } from './fixtures';
+import { DETAIL, article, mockApi, openSearch, signedIn } from './fixtures';
 
 /**
  * The reading features the server-rendered UI has and the SPA did not:
@@ -15,6 +15,7 @@ test.beforeEach(async ({ page }) => {
 
 test('search narrows the list, and clearing it restores', async ({ page }) => {
   const before = await page.locator('.article-row').count();
+  await openSearch(page);
   await page.locator('#search').fill('quantum');
   // Debounced, as the HTML one is -- a request per keystroke would hammer FTS.
   await expect(page.locator('.article-row')).toHaveCount(1);
@@ -361,6 +362,7 @@ test.describe('keyboard votes', () => {
       voted = true;
       await r.fulfill({ json: { ok: true } });
     });
+    await openSearch(page);
     await page.locator('#search').fill('lockdown');
     await page.waitForTimeout(200);
     expect(voted).toBe(false);

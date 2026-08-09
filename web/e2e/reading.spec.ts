@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { DETAIL, article, mockApi, openSearch, signedIn } from './fixtures';
+import { DETAIL, article, mockApi, openDrawer, openSearch, signedIn } from './fixtures';
 
 /**
  * The reading features the server-rendered UI has and the SPA did not:
@@ -444,6 +444,7 @@ test('no article is ever rendered twice', async ({ page }) => {
   await page.waitForSelector('.article-row');
 
   // Compact shrinks every card, which is what brings the sentinel into view.
+  await openDrawer(page);
   await page.getByRole('switch', { name: 'Compact list' }).click();
   await page.waitForTimeout(300);
 

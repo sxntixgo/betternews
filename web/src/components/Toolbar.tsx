@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
-import type { Density } from '../density';
 
 /**
- * Refresh, search and sort.
+ * Refresh, dismiss, the briefing and search.
+ *
+ * The density and sort toggles moved into the drawer's Settings section. They
+ * are preferences, set once and left; here they cost a whole second row of a
+ * header that was already a quarter of a phone's viewport.
  *
  * Refresh is the interesting one: POST /poll returns immediately because the
  * work runs in a background thread, so the button would look inert for minutes.
@@ -31,24 +34,16 @@ const ICON = {
 export function Toolbar({
   search,
   onSearch,
-  sort,
-  onSort,
   onDismissAll,
   onDigest,
   onRefreshed,
-  density,
-  onDensity,
   canPoll,
 }: {
   search: string;
   onSearch: (q: string) => void;
-  sort: 'date' | 'score';
-  onSort: (s: 'date' | 'score') => void;
   onDismissAll: () => void;
   onDigest: () => void;
   onRefreshed: () => void;
-  density: Density;
-  onDensity: (d: Density) => void;
   canPoll: boolean;
 }) {
   const [polling, setPolling] = useState(false);
@@ -159,34 +154,7 @@ export function Toolbar({
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => { if (e.key === 'Escape' && !text) setSearchOpen(false); }}
       />
-      {/* Not palette-only. Measured: compact takes a phone card from 139px to
-          101px, which is 4.79 stories on screen to 6.55. */}
-      <button
-        className="switch"
-        role="switch"
-        aria-checked={density === 'compact'}
-        aria-label="Compact list"
-        title="Compact list — hides summaries and tags"
-        onClick={() => onDensity(density === 'compact' ? 'comfortable' : 'compact')}
-      >
-        <span className="switch-track"><span className="switch-knob" /></span>
-        <span className="switch-label">Compact</span>
-      </button>
 
-      {/* One control with two states, not two buttons that happen to be
-          adjacent. Date is the default and the left-hand position, so the knob
-          resting at "off" means newest-first. */}
-      <button
-        className="switch"
-        role="switch"
-        aria-checked={sort === 'score'}
-        aria-label="Sort by score instead of date"
-        onClick={() => onSort(sort === 'score' ? 'date' : 'score')}
-      >
-        <span className="switch-label">Date</span>
-        <span className="switch-track"><span className="switch-knob" /></span>
-        <span className="switch-label">Score</span>
-      </button>
     </>
   );
 }

@@ -29,10 +29,23 @@ export function useArticles(query: ListQuery, enabled = true, search = '') {
   // read `loading === false`, both fetch the same offset, and both append --
   // the list then shows page one twice. A ref is written synchronously.
   const inFlight = useRef(false);
+  // Which offset has already been asked for. The in-flight ref alone is not
+  // enough: it is cleared synchronously in `finally`, while `setNextOffset` is
+  // a state update that has not flushed yet. An IntersectionObserver firing in
+  // that window sees `inFlight === false` and the *stale* `nextOffset` still on
+  // its closure -- 0 on the very first page -- and appends page zero on top of
+  // page zero.
+  //
+  // Not theoretical, and not a phone thing: WebKit fires the observer inside
+  // that window and Chromium does not, so every article appeared twice on
+  // Safari and nowhere else. Offsets are strictly increasing within one query,
+  // so "have I already asked for this offset" is the honest invariant.
+  const requested = useRef<number | null>(null);
 
   const loadPage = useCallback(
     async (offset: number, replace: boolean) => {
       const mine = active.current;
+      requested.current = offset;
       inFlight.current = true;
       setLoading(true);
       setError(null);
@@ -69,6 +82,7 @@ export function useArticles(query: ListQuery, enabled = true, search = '') {
     if (!enabled) return;
     active.current = key;
     inFlight.current = false;
+    requested.current = null;
     setArticles([]);
     setNextOffset(0);
     void loadPage(0, true);
@@ -76,6 +90,13 @@ export function useArticles(query: ListQuery, enabled = true, search = '') {
 
   const loadMore = useCallback(() => {
     if (inFlight.current || nextOffset === null) return;
+    // Nothing has been asked for yet, so there is no "next" page to ask for.
+    // The sentinel's IntersectionObserver fires on mount, before the effect
+    // that loads page one has run -- on WebKit it wins that race -- and
+    // `nextOffset` is still its initial 0, so this appended page zero and the
+    // replace landed underneath it.
+    if (requested.current === null) return;
+    if (nextOffset === requested.current) return;   // stale closure; see above
     void loadPage(nextOffset, false);
   }, [nextOffset, loadPage]);
 

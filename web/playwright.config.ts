@@ -20,7 +20,11 @@ export default defineConfig({
   reporter: process.env.CI ? 'dot' : 'list',
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
-  use: { baseURL: 'http://localhost:5175', channel },
+  // `channel` is NOT set here. A top-level `use` is inherited by every project
+  // and cannot be un-set from one -- `channel: undefined` does not override it
+  // -- and WebKit rejects a Chrome channel outright. So each Chromium project
+  // opts in instead.
+  use: { baseURL: 'http://localhost:5175' },
   projects: [
     // The iPhone descriptor defaults to WebKit, which cannot use the Chrome
     // channel. Keep its metrics -- viewport, DPR, touch, isMobile -- and run
@@ -30,6 +34,17 @@ export default defineConfig({
       use: { ...devices['iPhone 13'], browserName: 'chromium', channel },
     },
     { name: 'desktop', use: { ...devices['Desktop Chrome'], channel } },
+
+    // Actual WebKit, and the reason it exists: `phone` above runs Chromium with
+    // an iPhone's *metrics*, so for the whole life of this app the engine the
+    // reader actually uses had never executed a line of it. The app then failed
+    // to load on an iPhone while every phone test passed -- a suite cannot
+    // catch an engine it does not run.
+    //
+    {
+      name: 'safari',
+      use: { ...devices['iPhone 13'] },
+    },
 
     // The live suite. Everything else mocks the API at the network layer, which
     // means no committed test has ever crossed browser -> proxy -> Flask ->

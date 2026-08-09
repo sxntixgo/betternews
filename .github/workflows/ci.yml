@@ -79,10 +79,14 @@ jobs:
       # fails here rather than in someone's browser.
       - run: npm run typecheck
 
-      - name: install chromium
-        # Only chromium: the phone project runs iPhone metrics on it rather than
-        # WebKit, so there is nothing else to download.
-        run: npx playwright install --with-deps chromium
+      - name: install browsers
+        # WebKit as well as chromium, and it is not optional. The `phone`
+        # project runs iPhone *metrics* on chromium, so for the whole life of
+        # this app the engine the reader actually uses had never executed a
+        # line of it -- and the app then failed to load on an iPhone while
+        # every phone test passed. Dropping webkit here restores that blind
+        # spot exactly.
+        run: npx playwright install --with-deps chromium webkit
 
       # The live project is skipped automatically: it needs BN_E2E_TOKEN and a
       # running stack, neither of which exists here. See web/e2e/live.spec.ts.

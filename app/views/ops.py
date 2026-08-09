@@ -34,6 +34,11 @@ def healthcheck():
         "status": "ok" if st["healthy"] else "degraded",
         "feeds_total": st["total"],
         "feeds_paused": st["paused"],
+        # Not paused, but nothing has arrived from them inside the window --
+        # the silent case, which `ingestion_stale` cannot show because that
+        # keys on the newest success across all feeds. Counts only: /health is
+        # public, so no feed titles or URLs go in this body.
+        "feeds_stale": st["stale_feeds"],
         "last_success_at": st["last_success_at"].isoformat() if st["last_success_at"] else None,
         "ingestion_stale": st["stale"],
     }

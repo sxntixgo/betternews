@@ -370,9 +370,18 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 .article-row {
   border-bottom: 1px solid var(--color-hairline);
   padding: 10px 0;
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
+  /* One layout at every width. The phone and the desktop had diverged into
+     genuinely different structures, and the desktop one stacked the reading
+     time, the source and the age into a 72px-wide, 96px-tall tower that set
+     the card's height and left the tags stranded to its right. */
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "thumb text text  actions"
+    "thumb meta chips chips";
+  column-gap: 12px;
+  row-gap: 3px;
+  align-items: start;
   transition: background-color 0.25s ease, opacity 0.2s ease;
   /* Horizontal swipe belongs to our like/dismiss handler; only let the browser
      handle vertical pan on the row. Without this the page rubber-bands
@@ -479,13 +488,18 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 }
 
 .article-left {
+  grid-area: meta;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-  width: 72px;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
 }
+.article-content { grid-area: text; min-width: 0; }
+.article-actions-inline { grid-area: actions; }
+.topic-chips { grid-area: chips; justify-self: start; align-self: center; }
+.article-thumb { grid-area: thumb; align-self: start; }
 
 .article-thumb {
   width: 72px;
@@ -1449,7 +1463,9 @@ kbd {
    and it is what explains the score: a fixture listing and a transfer story are
    the same subject and opposite value to the reader. */
 [data-density='compact'] .article-summary { display: none; }
-[data-density='compact'] .topic-chips .topic-chip { display: none; }
+@media (max-width: 720px) {
+  [data-density='compact'] .topic-chips .topic-chip { display: none; }
+}
 [data-density='compact'] .article-row { padding: 6px 0; }
 
 /* Source and age, on the meta line. Both are muted and small: they qualify the

@@ -46,12 +46,40 @@ test('the app wires up a service worker, and only in production', async ({ page 
   expect(pwa).toContain('import.meta.env.PROD');
 });
 
+test('the worker leaves every server-rendered path alone', () => {
+    // The bug this exists for: a navigation to /login is a *successful*
+    // navigation, so its response -- Flask's login page -- was stored under
+    // the key '/'. Any later navigation that failed then served that HTML as
+    // the app shell. It has no #root and loads no bundle, so the app was blank
+    // until storage was cleared, and signing in was enough to cause it.
+    const sw = readFileSync(new URL('../public/sw.js', import.meta.url), 'utf8');
+    const line = sw.split('\n').find((l) => l.includes('const SERVER_PATHS'));
+    expect(line, 'SERVER_PATHS must exist').toBeTruthy();
+    for (const p of ['api', 'login', 'register', 'logout', 'health', 'static']) {
+      expect(line, `${p} must be excluded`).toContain(p);
+    }
+    // And the guard is applied, not merely declared.
+    expect(sw).toContain('SERVER_PATHS.test(url.pathname)');
+    // Only an HTML 200 may become the shell.
+    expect(sw).toContain("includes('text/html')");
+  });
+
+  test('the cache version was bumped so poisoned caches are dropped', () => {
+    // `activate` deletes every cache that is not the current name, which is the
+    // only way to clear what v1 left on a device that had already signed in.
+    const sw = readFileSync(new URL('../public/sw.js', import.meta.url), 'utf8');
+    expect(sw).not.toContain("'shell-v1'");
+    expect(sw).toMatch(/VERSION = 'shell-v\d+'/);
+  });
+
 test('the service worker never caches the API', () => {
   // A cached reading list would show articles as unread that were read on
   // another device, and a cached 401 would lock someone out until they cleared
-  // storage.
+  // storage. /api is now covered by SERVER_PATHS along with the Flask pages.
   const sw = readFileSync(new URL('../public/sw.js', import.meta.url), 'utf8');
-  expect(sw).toContain("url.pathname.startsWith('/api/')");
+  const line = sw.split('\n').find((l) => l.includes('const SERVER_PATHS'))!;
+  expect(line).toContain('api');
+  expect(sw).toContain('SERVER_PATHS.test(url.pathname)');
 });
 
 test('going offline says so, and reconnecting clears it', async ({ page, context }) => {

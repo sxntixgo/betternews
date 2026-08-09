@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { article, mockAdmin, mockApi, signedIn } from './fixtures';
+import { article, mockAdmin, mockApi, openDrawer, signedIn } from './fixtures';
 
 /**
  * The SPA on a phone.
@@ -180,6 +180,7 @@ test.describe('phone layout', () => {
       (document.querySelector('.article-row') as HTMLElement).getBoundingClientRect().height);
 
     const comfortable = await height();
+    await openDrawer(page);
     await page.getByRole('switch', { name: 'Compact list' }).click();
     const compact = await height();
 
@@ -199,6 +200,7 @@ test.describe('phone layout', () => {
       next_offset: null, diagnosis: null } }));
     await page.reload();
     await page.waitForSelector('.article-row');
+    await openDrawer(page);
     await page.getByRole('switch', { name: 'Compact list' }).click();
     // A fixture listing and a transfer story are the same subject and opposite
     // value; dropping that word would hide the reason for the score.
@@ -207,10 +209,12 @@ test.describe('phone layout', () => {
   });
 
   test('the density choice survives a reload', async ({ page }) => {
+    await openDrawer(page);
     await page.getByRole('switch', { name: 'Compact list' }).click();
     await page.reload();
     await page.waitForSelector('.article-row');
     await expect(page.locator('html')).toHaveAttribute('data-density', 'compact');
+    await openDrawer(page);
     await expect(page.getByRole('switch', { name: 'Compact list' }))
       .toHaveAttribute('aria-checked', 'true');
   });
@@ -245,6 +249,7 @@ test.describe('phone layout', () => {
   });
 
   test('the source and age survive compact mode', async ({ page }) => {
+    await openDrawer(page);
     await page.getByRole('switch', { name: 'Compact list' }).click();
     await expect(page.locator('.article-source').first()).toBeVisible();
     await expect(page.locator('.article-age').first()).toBeVisible();
@@ -339,11 +344,14 @@ test.describe('the top bar and the drawer fit the screen', () => {
     await expect(page.locator('.search-toggle')).toBeHidden();
   });
 
-  test('a long feed list cannot push the drawer footer off screen', async ({ page, isMobile }) => {
+  test('a long feed list does not strand the lower sections', async ({ page, isMobile }) => {
     test.skip(!isMobile, 'phone only');
-    // The whole sidebar was one scrolling column, so the feed list pushed
-    // settings, sign-out and the theme picker below the fold -- on a phone,
-    // where the drawer *is* the navigation and nothing else reaches them.
+    // The drawer is five stacked sections and the feed list is the first, so
+    // with thirty feeds everything below it is off-screen until you scroll.
+    // What matters is that scrolling reaches them: an earlier version made the
+    // whole sidebar `overflow: hidden` to pin a footer that no longer exists,
+    // which would leave Settings, You and Admin unreachable on a phone -- the
+    // one place nothing else opens them.
     await page.route('**/api/v1/feeds', (r) => r.fulfill({ json: {
       feeds: Array.from({ length: 30 }, (_, i) => ({
         id: i + 1, title: `Feed number ${i + 1}`, unread: i, hidden: 0,
@@ -353,14 +361,17 @@ test.describe('the top bar and the drawer fit the screen', () => {
     } }));
     await page.reload();
     await page.waitForSelector('.article-row');
-    await page.locator('.drawer-toggle').click();
+    await openDrawer(page);
+
+    const admin = page.locator('.sidebar-section').filter({ hasText: 'Admin' });
+    await admin.scrollIntoViewIfNeeded();
 
     const vp = page.viewportSize()!;
-    const footer = (await page.locator('.sidebar-footer').boundingBox())!;
-    expect(footer.y + footer.height, 'the footer was pushed off the bottom')
-      .toBeLessThanOrEqual(vp.height);
-    // And it is reachable without scrolling to it.
-    await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
-    await expect(page.getByRole('radiogroup', { name: 'Theme' })).toBeVisible();
+    for (const name of ['Sign out', 'Ollama log']) {
+      const box = (await page.getByRole('button', { name }).boundingBox())!;
+      expect(box.y + box.height, `${name} was not reachable`).toBeLessThanOrEqual(vp.height);
+      expect(box.y, `${name} was above the viewport`).toBeGreaterThanOrEqual(0);
+    }
+    await expect(page.getByRole('radiogroup', { name: 'Theme' })).toBeAttached();
   });
 });

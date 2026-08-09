@@ -3,7 +3,7 @@ import { mockApi, signedIn } from './fixtures';
 
 async function openSettings(page: import('@playwright/test').Page) {
   await page.keyboard.press('Control+k');
-  await page.locator('.command-palette input').fill('open settings');
+  await page.locator('.command-palette input').fill('server settings');
   await page.locator('.command-item').first().click();
   await page.waitForSelector('.settings-screen');
 }
@@ -23,7 +23,7 @@ test('a plain reader is not offered settings at all', async ({ page }) => {
   await page.reload();
   await page.waitForSelector('.article-row');
   await page.keyboard.press('Control+k');
-  await page.locator('.command-palette input').fill('open settings');
+  await page.locator('.command-palette input').fill('server settings');
   await expect(page.locator('.command-item')).toHaveCount(0);
 });
 

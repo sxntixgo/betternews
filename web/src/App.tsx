@@ -281,9 +281,9 @@ export default function App() {
     // is about not showing a reader a door that answers 403.
     ...(me?.role === 'admin'
       ? [
-          { id: 'settings', label: 'Open settings', run: () => setShowSettings(true) },
+          { id: 'settings', label: 'Open server settings', run: () => setShowSettings(true) },
           { id: 'users', label: 'Manage users', run: () => setShowUsers(true) },
-          { id: 'insights', label: 'Open insights', run: () => setShowInsights(true) },
+          { id: 'insights', label: 'Open your stats', run: () => setShowInsights(true) },
           { id: 'ollama-log', label: 'Open the Ollama log', run: () => setShowLog(true) },
         ]
       : []),
@@ -354,82 +354,152 @@ export default function App() {
         onClick={() => setDrawerOpen(false)}
       />
 
+      {/* Five sections, in the order a reader reaches for them: what to read,
+          what they kept, how it looks, who they are, and what only an
+          administrator touches. It used to be one undivided list of feeds with
+          an unlabelled tray of icons underneath, so "where do I change the
+          theme" had no answer you could arrive at by looking. */}
       <aside className={`sidebar ${drawerOpen ? 'open' : ''}`}>
         <div className="sidebar-brand">Better News</div>
         <div className="sidebar-scroll">
-        <Sidebar
-          feeds={feeds}
-          feed={feed}
-          saved={saved}
-          hidden={hidden}
-          onAll={() => choose(() => { setFeed(undefined); setSaved(false); setHidden(false); })}
-          onFeed={(id) => choose(() => { setFeed(id); setSaved(false); setHidden(false); })}
-          onSaved={() => choose(() => { setSaved(true); setFeed(undefined); setHidden(false); })}
-          onHidden={() => choose(() => { setHidden(true); setSaved(false); setFeed(undefined); })}
-          onHiddenFeed={(id) => choose(() => { setHidden(true); setSaved(false); setFeed(id); })}
-          onManageFeeds={me?.role === 'admin' ? () => setShowFeeds(true) : undefined}
-        />
-        </div>
-        <div className="sidebar-footer">
-          {/* Every one of these was reachable only through the command palette,
-              which meant the app's whole admin surface was behind a keyboard
-              shortcut you had to already know existed. The server UI had the
-              same icons in the same corner. */}
-          {me?.role === 'admin' && (
-            <div className="sidebar-tools">
-              <IconButton label="Settings" onClick={() => setShowSettings(true)}
-                          d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z" />
-              <IconButton label="Users" onClick={() => setShowUsers(true)}
-                          d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M22 21v-2a4 4 0 0 0-3-3.9 M16 3.1a4 4 0 0 1 0 7.8" />
-              <IconButton label="Insights" onClick={() => setShowInsights(true)}
-                          d="M3 3v18h18 M7 15l4-4 3 3 5-6" />
-              <IconButton label="Ollama log" onClick={() => setShowLog(true)}
-                          d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z M14 2v6h6 M8 13h8 M8 17h5" />
-            </div>
-          )}
-          <div className="sidebar-tools">
-            {/* Icon on a phone, name on a desktop. In the packed footer row the
-                name was squeezed between the icons and rendered as "eade",
-                which reads as breakage rather than as a username. */}
-            <button className="btn-icon btn-labelled sidebar-username"
-                    title={`Your profile — ${me?.username ?? ''}`}
-                    aria-label={`Your profile: ${me?.username ?? 'account'}`}
-                    onClick={() => setShowProfile(true)}>
-              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-                <path fill="none" stroke="currentColor" strokeWidth="1.8"
-                      strokeLinecap="round" strokeLinejoin="round"
-                      d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8" />
-              </svg>
-              <span className="btn-label">{me?.username ?? 'Profile'}</span>
+
+          <section className="sidebar-section">
+            <h2 className="sidebar-section-title">Feeds</h2>
+            <Sidebar
+              feeds={feeds}
+              feed={feed}
+              saved={saved}
+              hidden={hidden}
+              onAll={() => choose(() => { setFeed(undefined); setSaved(false); setHidden(false); })}
+              onFeed={(id) => choose(() => { setFeed(id); setSaved(false); setHidden(false); })}
+              onHidden={() => choose(() => { setHidden(true); setSaved(false); setFeed(undefined); })}
+              onHiddenFeed={(id) => choose(() => { setHidden(true); setSaved(false); setFeed(id); })}
+              onManageFeeds={me?.role === 'admin' ? () => setShowFeeds(true) : undefined}
+            />
+          </section>
+
+          <section className="sidebar-section">
+            <h2 className="sidebar-section-title">Saved</h2>
+            <button
+              className={`sidebar-feed ${saved ? 'active' : ''}`}
+              onClick={() => choose(() => { setSaved(true); setFeed(undefined); setHidden(false); })}
+            >
+              <span className="sidebar-feed-title">Saved articles</span>
+              {feeds && feeds.saved > 0 && (
+                <span className="pill sidebar-feed-count">{feeds.saved}</span>
+              )}
             </button>
-            <IconButton label="Keyboard shortcuts" onClick={() => setShowShortcuts(true)}
-                        d="M2 6h20v12H2z M6 10h.01 M10 10h.01 M14 10h.01 M18 10h.01 M8 14h8" />
-            <IconButton label="Sign out"
-                        onClick={() => { void api.logout().finally(() => setSignedIn(false)); }}
-                        d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4 M16 17l5-5-5-5 M21 12H9" />
-          </div>
-          {/* Three icons, not a dropdown: it is a three-state preference used
-              often enough that opening a menu to change it is a step too many.
-              System is a monitor, not "auto", because what it follows is the
-              machine's setting. */}
-          <div className="theme-picker" role="radiogroup" aria-label="Theme">
-            {THEMES.map(({ value, label, d }) => (
-              <button
-                key={value}
-                className={`btn-icon ${theme === value ? 'active' : ''}`}
-                role="radio"
-                aria-checked={theme === value}
-                title={label}
-                aria-label={label}
-                onClick={() => { setTheme(value); setThemeState(value); }}
-              >
-                <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-                  <path fill="none" stroke="currentColor" strokeWidth="1.8"
-                        strokeLinecap="round" strokeLinejoin="round" d={d} />
-                </svg>
+          </section>
+
+          {/* Display preferences, and all of them per-device on purpose: the
+              right density on a phone is not the right one on a desktop. These
+              two toggles used to live in the top bar, where on a 390px screen
+              they cost a whole second row of a header that was already a
+              quarter of the viewport. */}
+          <section className="sidebar-section">
+            <h2 className="sidebar-section-title">Settings</h2>
+
+            <button
+              className="switch sidebar-switch"
+              role="switch"
+              aria-checked={density === 'compact'}
+              aria-label="Compact list"
+              title="Compact list — hides summaries and tags"
+              onClick={() => {
+                const next = density === 'compact' ? 'comfortable' : 'compact';
+                setDensity(next); setDensityState(next);
+              }}
+            >
+              <span className="switch-label">Compact</span>
+              <span className="switch-track"><span className="switch-knob" /></span>
+            </button>
+
+            {/* One control with two states, not two buttons that happen to be
+                adjacent. Date is the default and the left-hand position, so the
+                knob resting at "off" means newest-first. */}
+            <button
+              className="switch sidebar-switch"
+              role="switch"
+              aria-checked={sort === 'score'}
+              aria-label="Sort by score instead of date"
+              onClick={() => setSort(sort === 'score' ? 'date' : 'score')}
+            >
+              <span className="switch-label">Date</span>
+              <span className="switch-track"><span className="switch-knob" /></span>
+              <span className="switch-label">Score</span>
+            </button>
+
+            {/* Three icons, not a dropdown: it is a three-state preference used
+                often enough that opening a menu to change it is a step too many.
+                System is a monitor, not "auto", because what it follows is the
+                machine's setting. */}
+            {/* Labelled like the toggles above it. As a bare row of three icons
+                in a list of named settings, the one thing it did not say was
+                what it was for. */}
+            <div className="sidebar-row">
+            <span className="switch-label">Theme</span>
+            <div className="theme-picker" role="radiogroup" aria-label="Theme">
+              {THEMES.map(({ value, label, d }) => (
+                <button
+                  key={value}
+                  className={`btn-icon ${theme === value ? 'active' : ''}`}
+                  role="radio"
+                  aria-checked={theme === value}
+                  title={label}
+                  aria-label={label}
+                  onClick={() => { setTheme(value); setThemeState(value); }}
+                >
+                  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                    <path fill="none" stroke="currentColor" strokeWidth="1.8"
+                          strokeLinecap="round" strokeLinejoin="round" d={d} />
+                  </svg>
+                </button>
+              ))}
+            </div>
+            </div>
+
+            <button className="sidebar-item" onClick={() => setShowShortcuts(true)}>
+              Keyboard shortcuts
+            </button>
+          </section>
+
+          <section className="sidebar-section">
+            <h2 className="sidebar-section-title">You</h2>
+            <button className="sidebar-item" onClick={() => setShowProfile(true)}>
+              {me?.username ? `Profile — ${me.username}` : 'Profile'}
+            </button>
+            {/* Ranking accuracy: how often the score agreed with the reader.
+                Filed here rather than under Admin because it is a statement
+                about this reader's taste, not about the server -- though the
+                endpoint is still admin-only, so a plain reader is not offered
+                a button that would answer 403. */}
+            {me?.role === 'admin' && (
+              <button className="sidebar-item" onClick={() => setShowInsights(true)}>
+                Your stats
               </button>
-            ))}
-          </div>
+            )}
+            <button
+              className="sidebar-item"
+              onClick={() => { void api.logout().finally(() => setSignedIn(false)); }}
+            >
+              Sign out
+            </button>
+          </section>
+
+          {/* Hiding a control is not gating an endpoint -- every one of these is
+              behind `@api_admin` as well, and `tests/test_api.py` asserts a
+              plain reader gets a JSON 403 from each. This is only about not
+              offering a button that cannot work. */}
+          {me?.role === 'admin' && (
+            <section className="sidebar-section">
+              <h2 className="sidebar-section-title">Admin</h2>
+              <button className="sidebar-item" onClick={() => setShowUsers(true)}>Users</button>
+              <button className="sidebar-item" onClick={() => setShowSettings(true)}>
+                Server settings
+              </button>
+              <button className="sidebar-item" onClick={() => setShowLog(true)}>Ollama log</button>
+            </section>
+          )}
         </div>
       </aside>
 
@@ -444,10 +514,6 @@ export default function App() {
           <Toolbar
             search={search}
             onSearch={setSearch}
-            sort={sort}
-            onSort={setSort}
-            density={density}
-            onDensity={(d) => { setDensity(d); setDensityState(d); }}
             canPoll={me?.role === 'admin'}
             onRefreshed={() => setReloads((n) => n + 1)}
             onDigest={() => setShowDigest(true)}
@@ -562,20 +628,6 @@ export default function App() {
   );
 }
 
-/** A labelled icon button. `label` is both the tooltip and the accessible name,
- *  so an icon-only control is never nameless to a screen reader. */
-function IconButton({ label, d, onClick }: {
-  label: string; d: string; onClick: () => void;
-}) {
-  return (
-    <button className="btn-icon" title={label} aria-label={label} onClick={onClick}>
-      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-        <path fill="none" stroke="currentColor" strokeWidth="1.8"
-              strokeLinecap="round" strokeLinejoin="round" d={d} />
-      </svg>
-    </button>
-  );
-}
 
 /** System, light and dark. `d` is the icon path; the label is both tooltip and
  *  accessible name. */

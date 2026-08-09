@@ -160,6 +160,15 @@ both clients.
 - **`web/` is the reader**: Vite + React + TypeScript, served at `/` by Caddy. `shared/api.ts` is the one API contract, imported by both `web/` and `mobile/`.
 - **`web/src/index.css` is the design system** — ~30 tokens taken from `job-application-tracker` (structure *and* palette: warm neutrals, not pure white/black). **`App.css` contains no hex literal and no literal radius**, and `e2e/design-system.spec.ts` asserts both, plus that every `var(--token)` used is actually defined — a typo there is silent, the property just does not apply.
 - **`components/Modal.tsx` is the only modal.** Nine screens hand-rolled one, none with `role="dialog"`, `aria-modal`, a focus trap or focus restoration. Its focus trap filters to elements with a layout box: the OPML `<input type="file">` is `display:none`, matches the focusable selector, sorts last, and can never take focus — so the wrap never fired and Tab walked out of the dialog.
+- **The drawer is five labelled sections**: Feeds, Saved, Settings, You, Admin.
+  Reader preferences (density, sort, theme) are *Settings*; the server-side
+  admin panel is *Server settings* under Admin — two different things that were
+  both called "Settings". Density and sort used to sit in the top bar, which on
+  a 390px screen cost a whole row of a header that was already a quarter of the
+  viewport; the header is 61px now, down from 173px. `Insights` is offered as
+  *Your stats* under You because it describes this reader's taste, but the
+  endpoint is still `@api_admin`, so it stays hidden from a plain reader rather
+  than answering 403.
 - **Every action needs a visible control**, not only a command-palette entry. Sign-out, Settings, Users, Insights, the Ollama log and Manage feeds were all palette-only at one point, which put the whole admin surface behind a shortcut. `design-system.spec.ts` asserts each is clickable without the palette, that a plain reader sees none of the admin ones, and that no icon-only button is nameless.
 - **The PWA is real again**: `public/manifest.webmanifest`, `public/sw.js` (app shell only — offline *reading* is still deferred, D2), and a production-only registration in `src/pwa.ts`. Registering on the dev server caches module URLs Vite is rewriting, and Playwright reuses a developer's own server.
 - Caddy sends `/api`, `/login`, `/register`, `/logout`, `/health` and `/static` to Flask; **everything else is the SPA**, so a deep link the SPA owns gets the SPA's routing rather than Flask's 404. `~/Dev/homestack/caddy/Caddyfile`.

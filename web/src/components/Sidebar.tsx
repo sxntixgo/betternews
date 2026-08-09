@@ -2,7 +2,11 @@ import { useCallback, useState } from 'react';
 import type { Feed, FeedList } from '@shared/api';
 
 /**
- * The feed list, grouped by tag.
+ * The feed list, grouped by tag: what the "Feeds" section of the drawer holds.
+ *
+ * Saved used to sit in the middle of this, between the tag groups and Hidden.
+ * It is a section of its own now -- it is not a feed, and it was the one row
+ * here that did not answer "which source".
  *
  * The server-rendered sidebar did this and the SPA did not: it showed one flat
  * list and ignored `Feed.tags` entirely, so tagging feeds was a feature you
@@ -32,7 +36,6 @@ export interface SidebarProps {
   hidden: boolean;
   onAll: () => void;
   onFeed: (id: number) => void;
-  onSaved: () => void;
   onHidden: () => void;
   /** A feed *within* Hidden: keeps the hidden filter rather than clearing it. */
   onHiddenFeed: (id: number) => void;
@@ -64,7 +67,7 @@ function group(feeds: Feed[]): { tags: [string, Feed[]][]; untagged: Feed[] } {
 }
 
 export function Sidebar({
-  feeds, feed, saved, hidden, onAll, onFeed, onSaved, onHidden, onHiddenFeed,
+  feeds, feed, saved, hidden, onAll, onFeed, onHidden, onHiddenFeed,
   onManageFeeds,
 }: SidebarProps) {
   const [collapsed, setCollapsed] = useState<Set<string>>(loadCollapsed);
@@ -149,14 +152,6 @@ export function Sidebar({
 
       {tags.map(([tag, rows]) => group_(`tag-${tag}`, tag, rows))}
       {!flat && untagged.length > 0 && group_('untagged', 'Untagged', untagged)}
-
-      <button
-        className={`sidebar-feed ${saved ? 'active' : ''}`}
-        onClick={onSaved}
-      >
-        <span className="sidebar-feed-title">Saved</span>
-        {feeds && feeds.saved > 0 && <span className="pill sidebar-feed-count">{feeds.saved}</span>}
-      </button>
 
       <div className={`sidebar-group ${collapsed.has('hidden') ? 'collapsed' : ''}`}>
         <div className="sidebar-group-header">

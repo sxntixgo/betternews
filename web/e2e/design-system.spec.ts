@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
-import { mockApi, signedIn } from './fixtures';
+import { mockAdmin, mockApi, openDrawer, signedIn } from './fixtures';
 
 // ── the token discipline ──────────────────────────────────────────────────────
 
@@ -39,10 +39,10 @@ test('radii come from the scale', () => {
 // ── the modal contract ────────────────────────────────────────────────────────
 
 const MODALS = [
-  { command: 'open settings', selector: '.settings-screen', label: 'Settings' },
+  { command: 'server settings', selector: '.settings-screen', label: 'Settings' },
   { command: 'manage feeds', selector: '.manage-feeds', label: 'Feeds' },
   { command: 'manage users', selector: '.admin-users', label: 'Users' },
-  { command: 'open insights', selector: '.insights-screen', label: 'Insights' },
+  { command: 'your stats', selector: '.insights-screen', label: 'Insights' },
   { command: 'ollama log', selector: '.call-log', label: 'Ollama log' },
   { command: 'profile', selector: '.profile-screen', label: 'Your profile' },
 ];
@@ -88,7 +88,8 @@ test('closing a modal returns focus to what opened it', async ({ page }) => {
 
   // A keyboard user who closes a dialog should not be dumped at the top of the
   // document with their place in the page lost.
-  const opener = page.locator('.sidebar-footer button').first();
+  // The footer tray is gone; the drawer is labelled sections now.
+  const opener = page.locator('.sidebar-item').first();
   await opener.focus();
   const before = await page.evaluate(() => document.activeElement?.className ?? '');
   await page.keyboard.press('Control+k');
@@ -112,7 +113,10 @@ test.describe('nothing is command-palette-only', () => {
   // Settings, Users, Insights, the Ollama log, Manage feeds and Sign out were
   // all reachable *only* through Ctrl-K, which put the app's whole admin
   // surface behind a shortcut you had to already know existed.
-  const CONTROLS = ['Settings', 'Users', 'Insights', 'Ollama log',
+  // Named as the drawer names them: the admin section calls it "Server
+  // settings" to distinguish it from the reader's own Settings section, which
+  // holds density, sort and theme.
+  const CONTROLS = ['Server settings', 'Users', 'Your stats', 'Ollama log',
                     'Manage feeds', 'Sign out', 'Keyboard shortcuts'];
 
   for (const name of CONTROLS) {
@@ -139,7 +143,7 @@ test.describe('nothing is command-palette-only', () => {
 
   test('every icon-only control has an accessible name', async ({ page }) => {
     // An icon with no name is a mystery to a screen reader and to a tooltip.
-    const nameless = await page.locator('.sidebar-footer button, .sidebar-manage')
+    const nameless = await page.locator('.sidebar-section button, .sidebar-manage')
       .evaluateAll((els) => els
         .filter((el) => !el.textContent?.trim() && !el.getAttribute('aria-label'))
         .length);
@@ -186,6 +190,8 @@ test('sort is one switch defaulting to date', async ({ page }) => {
   await page.goto('/');
   await page.waitForSelector('.article-row');
 
+  // It lives in the drawer's Settings section now, not the top bar.
+  await openDrawer(page);
   // One control with two states, not two buttons that happen to be adjacent.
   const sw = page.getByRole('switch', { name: /sort by score/i });
   await expect(sw).toBeVisible();
@@ -197,16 +203,13 @@ test('sort is one switch defaulting to date', async ({ page }) => {
   await expect(sw).toHaveAttribute('aria-checked', 'true');
 });
 
-test('theme is three icons, and the current one is marked', async ({ page, isMobile }) => {
+test('theme is three icons, and the current one is marked', async ({ page }) => {
   await signedIn(page);
   await mockApi(page);
   await page.goto('/');
   await page.waitForSelector('.article-row');
   // The theme picker lives in the sidebar, which is off-screen on a phone.
-  if (isMobile) {
-    await page.locator('.drawer-toggle').click();
-    await expect(page.locator('.sidebar')).toHaveClass(/open/);
-  }
+  await openDrawer(page);
 
   const group = page.getByRole('radiogroup', { name: 'Theme' });
   await expect(group.getByRole('radio')).toHaveCount(3);
@@ -263,4 +266,51 @@ test('compact keeps the tags on a desktop, where they fit whole', async ({ page,
   // with 900px of room. The tag is what explains the score.
   await expect(page.locator('.article-row .article-summary').first()).toBeHidden();
   await expect(page.locator('.article-row .topic-chip').first()).toBeVisible();
+});
+
+test.describe('the drawer is five labelled sections', () => {
+  test.beforeEach(async ({ page }) => {
+    await signedIn(page);
+    await mockApi(page);
+    await mockAdmin(page);
+    await page.goto('/');
+    await page.waitForSelector('.article-row');
+    await openDrawer(page);
+  });
+
+  test('in the order a reader reaches for them', async ({ page }) => {
+    // It used to be one undivided list of feeds with an unlabelled tray of
+    // icons underneath, so "where do I change the theme" had no answer you
+    // could arrive at by looking.
+    await expect(page.locator('.sidebar-section-title'))
+      .toHaveText(['Feeds', 'Saved', 'Settings', 'You', 'Admin']);
+  });
+
+  test('the display preferences are all in Settings', async ({ page }) => {
+    // Density and sort were in the top bar, where on a 390px screen they cost
+    // a whole row of a header that was already a quarter of the viewport.
+    const settings = page.locator('.sidebar-section').filter({ hasText: 'Settings' });
+    await expect(settings.getByRole('switch', { name: 'Compact list' })).toBeVisible();
+    await expect(settings.getByRole('switch', { name: /sort by score/i })).toBeVisible();
+    await expect(settings.getByRole('radiogroup', { name: 'Theme' })).toBeVisible();
+
+    // And gone from the top bar, or they would be in two places at once.
+    await expect(page.locator('.site-header').getByRole('switch')).toHaveCount(0);
+  });
+
+  test('a plain reader gets four sections and no Admin', async ({ page }) => {
+    await page.route('**/api/v1/me', (r) => r.fulfill({
+      json: { id: 2, username: 'plain', role: 'user', must_change_password: false,
+              declickbait: false, content_filter_mode: 'off' },
+    }));
+    await page.reload();
+    await page.waitForSelector('.article-row');
+    await openDrawer(page);
+
+    await expect(page.locator('.sidebar-section-title'))
+      .toHaveText(['Feeds', 'Saved', 'Settings', 'You']);
+    // Their own account and the way out stay theirs.
+    await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
+    await expect(page.getByRole('switch', { name: 'Compact list' })).toBeVisible();
+  });
 });

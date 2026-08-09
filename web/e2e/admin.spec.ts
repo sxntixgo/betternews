@@ -21,7 +21,7 @@ test('none of the admin screens are offered to a plain reader', async ({ page })
   }));
   await page.reload();
   await page.waitForSelector('.article-row');
-  for (const command of ['manage users', 'open insights', 'ollama log']) {
+  for (const command of ['manage users', 'your stats', 'ollama log']) {
     await page.keyboard.press('Control+k');
     await page.locator('.command-palette input').fill(command);
     await expect(page.locator('.command-item')).toHaveCount(0);
@@ -77,7 +77,7 @@ test('deleting a user takes the row away', async ({ page }) => {
 // ── insights ──────────────────────────────────────────────────────────────────
 
 test('insights draws the histogram without a charting library', async ({ page }) => {
-  await open(page, 'open insights', '.insights-screen');
+  await open(page, 'your stats', '.insights-screen');
   const chart = page.locator('.bar-chart').first();
   await expect(chart.locator('.bar-primary')).toHaveCount(20);
   // The line marks the threshold: everything left of it is hidden.
@@ -85,7 +85,7 @@ test('insights draws the histogram without a charting library', async ({ page })
 });
 
 test('insights reports agreement and can adopt the suggested threshold', async ({ page }) => {
-  await open(page, 'open insights', '.insights-screen');
+  await open(page, 'your stats', '.insights-screen');
   await expect(page.locator('.modal-body')).toContainText('76%');
   await expect(page.locator('.modal-body')).toContainText('0.45 would agree 84%');
   await page.getByRole('button', { name: 'Use it' }).click();
@@ -94,7 +94,7 @@ test('insights reports agreement and can adopt the suggested threshold', async (
 
 test('a run that took 90s shows its duration', async ({ page }) => {
   // A run reporting 0 scored in ~0s is a failing run, not an idle one.
-  await open(page, 'open insights', '.insights-screen');
+  await open(page, 'your stats', '.insights-screen');
   const row = page.locator('.settings-table tr').filter({ hasText: '12 scored' });
   await expect(row).toContainText('90.0s');
   await expect(row).toContainText('1 errors');

@@ -491,3 +491,19 @@ export async function openSearch(page: Page) {
     await page.locator('#search').waitFor({ state: 'visible' });
   }
 }
+
+
+/**
+ * Open the drawer if this viewport keeps the sidebar behind one.
+ *
+ * Density, sort and theme all live in the drawer's Settings section now, so a
+ * phone test that wants any of them has to open it first. Asked of the page,
+ * never of the project name.
+ */
+export async function openDrawer(page: Page) {
+  const toggle = page.locator('.drawer-toggle');
+  if (await toggle.isVisible() && !(await page.locator('.sidebar.open').count())) {
+    await toggle.click();
+    await page.locator('.sidebar.open').waitFor();
+  }
+}

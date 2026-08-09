@@ -1,5 +1,6 @@
 import type { Article } from '@shared/api';
 import { relativeTime } from '../relativeTime';
+import { swipeJustHandled } from '../useSwipe';
 
 /**
  * One row of the reading list.
@@ -28,6 +29,24 @@ export function ArticleCard({
   feedName?: string;
   focused?: boolean;
 }) {
+  /**
+   * The card opens the reader. Only the title did before, which is a small
+   * target on a phone and not the one a reader aims at -- the thumbnail and the
+   * summary read as part of the same thing.
+   *
+   * Guarded by `closest` rather than by attaching the handler to three separate
+   * elements: the card also carries the save, like, dislike and topic buttons
+   * and an "Open in browser" link, and every one of them would otherwise open
+   * the reader as well as doing its own job. Asking the event where it came
+   * from keeps that true for anything added later, which three hand-placed
+   * handlers would not.
+   */
+  function openFromBody(e: React.MouseEvent) {
+    if ((e.target as HTMLElement).closest('button, a, input, select, textarea')) return;
+    if (swipeJustHandled()) return;
+    onOpen(article);
+  }
+
   const s = article.state;
   const classes = [
     'article-row',
@@ -43,7 +62,7 @@ export function ArticleCard({
   return (
     // Same id the server-rendered card uses, so anchoring, deep links and tests
     // can address a row without depending on its position in the list.
-    <article className={classes} id={`card-${article.id}`}>
+    <article className={classes} id={`card-${article.id}`} onClick={openFromBody}>
       {/* The thumbnail is its own grid cell, not part of the metadata. It used
           to share a 72px column with the reading time, the source and the age,
           which stacked them into a 96px tower and set the card's height. */}
@@ -71,9 +90,9 @@ export function ArticleCard({
               {Math.round(article.score * 100)}%
             </span>
           )}
-          <span className="article-title" onClick={() => onOpen(article)}>
+          <button className="article-title" onClick={() => onOpen(article)}>
             {article.title}
-          </span>
+          </button>
         </div>
 
         {article.original_title && (

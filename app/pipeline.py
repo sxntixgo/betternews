@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from sqlalchemy import text
 
 from app import (affinity as affinity_mod, content_filter, extract,
-                 kinds as kinds_mod, llm_config,
+                 kinds as kinds_mod, language, llm_config,
                  prompt_overrides,
                  prompts, ollama_client,
                  topics as topics_mod, youtube)
@@ -389,6 +389,13 @@ def _clean_title_from(result: dict, original: str) -> tuple[str | None, int]:
     if len(candidate) > MAX_CLEAN_TITLE_CHARS:
         log.warning("Discarding clean_title of %d chars (limit %d)",
                     len(candidate), MAX_CLEAN_TITLE_CHARS)
+        return None, 0
+    # The prompt asks for the article's own language; a small model translates
+    # to English anyway, and a Spanish reader was being shown English headlines
+    # over Spanish articles. Asking is not enforcing.
+    if not language.same_language(original or "", candidate):
+        log.warning("Discarding clean_title: %r is not the language of %r",
+                    candidate, original)
         return None, 0
     return candidate, 1
 

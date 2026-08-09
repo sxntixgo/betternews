@@ -11,6 +11,22 @@ import { useEffect } from 'react';
  * be remembered — deciding per event makes a diagonal scroll flicker between
  * the two.
  */
+/**
+ * When a swipe last completed.
+ *
+ * The card body opens the reader on click, and a swipe ends on the card body.
+ * Browsers normally suppress the synthetic click after a drag, but the swipe
+ * listeners are `passive: true` and so cannot `preventDefault` if a browser
+ * disagrees -- and this app is read on an iPhone, which is not a browser these
+ * tests cover. A liked article that also opened the reader would be a bad
+ * surprise, so the card asks instead of assuming.
+ */
+let lastSwipeAt = 0;
+
+export function swipeJustHandled(): boolean {
+  return Date.now() - lastSwipeAt < 400;
+}
+
 export function useSwipe(
   onLike: (id: number) => void,
   onDismiss: (id: number) => void,
@@ -84,6 +100,7 @@ export function useSwipe(
       const id = Number(row.dataset.articleId ?? row.id.replace('card-', ''));
       row.classList.remove('swipe-like-active', 'swipe-dismiss-active');
       if (ratio > 0.4 && id) {
+        lastSwipeAt = Date.now();
         if (navigator.vibrate) navigator.vibrate(10);
         if (dx > 0) onLike(id);
         else onDismiss(id);

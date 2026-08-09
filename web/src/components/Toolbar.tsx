@@ -16,6 +16,7 @@ export function Toolbar({
   sort,
   onSort,
   onDismissAll,
+  onDigest,
   onRefreshed,
   density,
   onDensity,
@@ -26,6 +27,7 @@ export function Toolbar({
   sort: 'date' | 'score';
   onSort: (s: 'date' | 'score') => void;
   onDismissAll: () => void;
+  onDigest: () => void;
   onRefreshed: () => void;
   density: Density;
   onDensity: (d: Density) => void;
@@ -82,6 +84,11 @@ export function Toolbar({
         onClick={onDismissAll}
       >
         Dismiss all
+      </button>
+      {/* The briefing, on request. It used to sit above the list and push the
+          first article below the fold on every screen. */}
+      <button id="digest-btn" title="What you missed — a briefing over your unread articles" onClick={onDigest}>
+        What you missed
       </button>
       <input
         id="search"

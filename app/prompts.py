@@ -226,6 +226,7 @@ INSTRUCTIONS:
 - summary: exactly 2-3 factual sentences. Do not editorialize. If the content is empty or unreadable, use exactly: Summary unavailable.
 - was_clickbait: true ONLY if the original title withholds its point to force a click — vague teases ("You won't believe...", "This is what happened"), unnamed subjects ("A famous actor..."), manufactured suspense, or curiosity gaps. Most ordinary headlines are NOT clickbait; say false for those.
 - clean_title: if was_clickbait is false, copy the original title EXACTLY. If true, rewrite it to state what the article actually says.
+  - Write it in the SAME LANGUAGE as the original title. A Spanish headline stays Spanish. Never translate.
   - Reveal the withheld information — that omission is the whole problem. "You won't believe what the CEO said" becomes "CEO says X".
   - Keep every proper noun, number and factual claim from the article. Invent nothing, and never add facts the content does not support.
   - Plain and declarative. No added adjectives, no opinion, no hype, no trailing punctuation.

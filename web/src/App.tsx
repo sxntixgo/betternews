@@ -47,6 +47,7 @@ export default function App() {
   // Bumped to force the list to refetch after a poll or a dismiss-all.
   const [reloads, setReloads] = useState(0);
   const [focused, setFocused] = useState(-1);
+  const [showDigest, setShowDigest] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showPalette, setShowPalette] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
@@ -133,6 +134,7 @@ export default function App() {
       if (e.key === 'Escape') {
         setShowPalette(false);
         setShowShortcuts(false);
+        setShowDigest(false);
         setReading(null);
         return;
       }
@@ -152,6 +154,9 @@ export default function App() {
         case 'l':
           if (current) void api.vote(current.id, 1).then(patch).catch(() => {});
           break;
+        case 'd':
+          if (current) void api.vote(current.id, -1).then(patch).catch(() => {});
+          break;
         case 's':
           if (current) void api.save(current.id).then(patch).catch(() => {});
           break;
@@ -160,6 +165,16 @@ export default function App() {
           break;
         case 'r':
           if (current) setReading(current.id);
+          break;
+        case 'D':
+          e.preventDefault();
+          void api.dismissAll({ feed, saved: saved || undefined,
+                                hidden: hidden || undefined, topic })
+            .then(() => setReloads((n) => n + 1))
+            .catch(() => {});
+          break;
+        case 'w':
+          setShowDigest(true);
           break;
         case '/':
           e.preventDefault();
@@ -172,7 +187,7 @@ export default function App() {
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [rows, focused, patch]);
+  }, [rows, focused, patch, feed, saved, hidden, topic]);
 
   useSwipe(
     useCallback((id: number) => { void api.vote(id, 1).then(patch).catch(() => {}); }, [patch]),
@@ -366,6 +381,7 @@ export default function App() {
             onDensity={(d) => { setDensity(d); setDensityState(d); }}
             canPoll={me?.role === 'admin'}
             onRefreshed={() => setReloads((n) => n + 1)}
+            onDigest={() => setShowDigest(true)}
             onDismissAll={async () => {
               await api.dismissAll({ feed, saved: saved || undefined,
                                      hidden: hidden || undefined, topic });
@@ -373,8 +389,6 @@ export default function App() {
             }}
           />
         </header>
-
-        <div id="digest-panel">{!search && !topic && <Digest />}</div>
 
         <div id="article-list">
           {error && <p className="error">{error}</p>}
@@ -438,6 +452,7 @@ export default function App() {
         <Insights onClose={() => setShowInsights(false)} />
       )}
       {showLog && me?.role === 'admin' && <CallLog onClose={() => setShowLog(false)} />}
+      {showDigest && <Digest onClose={() => setShowDigest(false)} />}
       {showShortcuts && <ShortcutsOverlay onClose={() => setShowShortcuts(false)} />}
       {showPalette && (
         <CommandPalette commands={commands} onClose={() => setShowPalette(false)} />

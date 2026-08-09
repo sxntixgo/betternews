@@ -258,7 +258,6 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
   /* Borders would be two stray lines at the screen edge, but the side padding
      stays: without it the thumbnail and the score badge sit flush against the
      glass. The list started at x=0 on a phone. */
-  #digest-panel:not(:empty),
   #article-list {
     border-left: 0;
     border-right: 0;
@@ -273,7 +272,6 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
    On `#article-list` and the digest, not `.site-main` -- that class came from
    the server templates and does not exist in this app, so the rule that used
    to be here styled nothing at all. */
-#digest-panel:not(:empty),
 #article-list {
   padding: 0 16px;
   background: var(--color-surface);
@@ -453,7 +451,17 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
   flex-shrink: 0;
 }
 
+/* A <button>, so a keyboard can reach the reader without the card being one
+   giant control. Everything here is undoing the user-agent button: it has to
+   read as the headline it is, not as a control. */
 .article-title {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  text-align: left;
   font-weight: 600;
   color: var(--color-ink);
   font-size: 15px;
@@ -462,6 +470,15 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
   cursor: pointer;
 }
 .article-row:hover .article-title { color: var(--color-accent); }
+/* The whole card opens the reader, so the whole card says so -- except the
+   controls on it, which do their own thing and keep the arrow. */
+.article-row { cursor: pointer; }
+.article-row button,
+.article-row a { cursor: default; }
+.article-row .article-title,
+.article-row .topic-chip,
+.article-row .btn-icon,
+.article-row .btn-external { cursor: pointer; }
 
 /* A column of .article-row, sitting to the right of the whole card. It used to
    live inside .article-row-header, where only the title made room for it and
@@ -888,14 +905,12 @@ dialog[open] { display: flex; flex-direction: column; }
 .hist-bar:hover { opacity: 1; }
 .hist-threshold { stroke: var(--color-danger); stroke-width: 2; stroke-dasharray: 4 3; }
 
-/* "What you missed" briefing */
-.digest-card {
-  border: 1px solid var(--color-hairline);
-  border-radius: var(--radius-md);
-  padding: 14px 16px;
-  margin: 0 0 16px;
-  background: var(--color-bg);
-}
+/* "What you missed" briefing. A dialog now, not a card above the list --
+   `.digest-card` and its border went with the panel, since the modal draws its
+   own surface. Capped so a long briefing scrolls inside the dialog rather than
+   growing it past the viewport on a phone. */
+.digest-modal { max-width: 620px; }
+.digest-modal .digest-body { max-height: 60vh; overflow-y: auto; }
 .digest-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
 .digest-head h2 { margin: 0; font-size: 15px; }
 .digest-meta { font-size: 12px; color: var(--color-ink-muted); }

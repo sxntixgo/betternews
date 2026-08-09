@@ -43,11 +43,35 @@ test('dismiss-all greys the list without emptying it', async ({ page }) => {
   await expect(page.locator('.article-row.dismissed').first()).toBeVisible();
 });
 
-test('the digest shows and can be dismissed', async ({ page }) => {
-  const panel = page.locator('#digest-panel');
-  await expect(panel).toContainText('Argentina');
-  await panel.locator('button').first().click();
-  await expect(panel).toBeEmpty();
+test('the digest is behind a button, not above the list', async ({ page }) => {
+  // It used to render into #digest-panel on load, which pushed the first
+  // article below the fold on every screen for prose you read once.
+  await expect(page.locator('.digest-body')).toHaveCount(0);
+
+  await page.locator('#digest-btn').click();
+  const dialog = page.getByRole('dialog', { name: 'What you missed' });
+  await expect(dialog).toContainText('Argentina');
+
+  // Dismiss is not Close: it tells the server to drop the cached briefing so
+  // the next one is rebuilt rather than served stale.
+  let dropped = false;
+  page.on('request', (r) => {
+    if (r.url().includes('/digest/dismiss')) dropped = true;
+  });
+  await dialog.getByRole('button', { name: 'Dismiss' }).click();
+  await expect(dialog).toBeHidden();
+  await expect.poll(() => dropped).toBe(true);
+});
+
+test('closing the digest does not drop the briefing', async ({ page }) => {
+  await page.locator('#digest-btn').click();
+  await expect(page.getByRole('dialog', { name: 'What you missed' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog', { name: 'What you missed' })).toBeHidden();
+  // Still there to reopen -- Close and Dismiss are different verbs.
+  await page.locator('#digest-btn').click();
+  await expect(page.getByRole('dialog', { name: 'What you missed' }))
+    .toContainText('Argentina');
 });
 
 test('a topic chip filters to that topic', async ({ page }) => {
@@ -240,4 +264,115 @@ test('an embed renders as a card and loads nothing from a third party', async ({
   // The whole reason the toggle went: widgets.js was the one thing in the app
   // that ever contacted anyone else.
   expect(external, `contacted: ${external.join(', ')}`).toEqual([]);
+});
+
+test.describe('keyboard votes', () => {
+  test('l likes and d dislikes the focused article', async ({ page }) => {
+    // `l` existed and `d` did not, so the keyboard path could approve of things
+    // and had no way to reject them -- on an app whose whole ranking is trained
+    // on exactly that judgement.
+    const votes: number[] = [];
+    await page.route('**/api/v1/articles/*/vote', async (r) => {
+      votes.push(JSON.parse(r.request().postData() || '{}').value);
+      await r.fulfill({ json: { ok: true } });
+    });
+
+    // `j` first: focus starts at -1, and clicking a row opens the reader.
+    await page.keyboard.press('j');
+    await page.keyboard.press('l');
+    await expect.poll(() => votes).toEqual([1]);
+    await page.keyboard.press('d');
+    await expect.poll(() => votes).toEqual([1, -1]);
+  });
+
+  test('dismiss-all needs Shift, so a slipped finger cannot empty the list', async ({ page }) => {
+    let calls = 0;
+    await page.route('**/api/v1/articles/dismiss-all', async (r) => {
+      calls += 1;
+      await r.fulfill({ json: { ok: true, dismissed: 3 } });
+    });
+
+    // `d` sits next to it and votes. On a bare key a mistype would clear
+    // everything shown, and there is no undo.
+    await page.keyboard.press('j');
+    await page.keyboard.press('d');
+    await page.waitForTimeout(200);
+    expect(calls).toBe(0);
+
+    await page.keyboard.press('Shift+D');
+    await expect.poll(() => calls).toBe(1);
+  });
+
+  test('typing in search does not vote', async ({ page }) => {
+    let voted = false;
+    await page.route('**/api/v1/articles/*/vote', async (r) => {
+      voted = true;
+      await r.fulfill({ json: { ok: true } });
+    });
+    await page.locator('#search').fill('lockdown');
+    await page.waitForTimeout(200);
+    expect(voted).toBe(false);
+  });
+
+  test('w opens the briefing, and the sheet lists every key', async ({ page }) => {
+    await page.keyboard.press('w');
+    await expect(page.getByRole('dialog', { name: 'What you missed' })).toBeVisible();
+    await page.keyboard.press('Escape');
+
+    // The overlay is generated from SHORTCUTS, so a key that works but is not
+    // listed means the list drifted from the handlers.
+    await page.keyboard.press('?');
+    const sheet = page.getByRole('dialog');
+    for (const k of ['d', 'w', 'Shift D']) await expect(sheet).toContainText(k);
+  });
+});
+
+test.describe('opening an article', () => {
+  test('the title, the summary and the thumbnail all open the reader', async ({ page }) => {
+    for (const target of ['.article-title', '.article-summary']) {
+      await page.locator(`.article-row ${target}`).first().click();
+      await expect(page.getByRole('dialog')).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(page.getByRole('dialog')).toBeHidden();
+    }
+  });
+
+  test('the controls on a card do their own job and nothing else', async ({ page }) => {
+    // Every one of these sits inside the card, so a naive card-level click
+    // handler would fire the reader on top of whatever they do.
+    const calls: string[] = [];
+    for (const [path, name] of [
+      ['**/api/v1/articles/*/vote', 'vote'],
+      ['**/api/v1/articles/*/save', 'save'],
+    ] as const) {
+      await page.route(path, async (r) => {
+        calls.push(name);
+        await r.fulfill({ json: { ok: true } });
+      });
+    }
+
+    const row = page.locator('.article-row').first();
+    for (const sel of ['.btn-save', '.btn-like', '.btn-dislike']) {
+      await row.locator(sel).click();
+      await expect(page.getByRole('dialog')).toBeHidden();
+    }
+    expect(calls.sort()).toEqual(['save', 'vote', 'vote']);
+
+    // A topic chip filters the list; it must not also open what it filtered.
+    await row.locator('.topic-chip').first().click();
+    await expect(page.getByRole('dialog')).toBeHidden();
+  });
+
+  test('opening in the browser does not also open the reader', async ({ page, isMobile }) => {
+    test.skip(isMobile, 'the external link is hidden on a phone');
+    const link = page.locator('.article-row .btn-external').first();
+    await expect(link).toHaveAttribute('target', '_blank');
+    // Neutralised rather than clicked: a real click opens a tab Playwright
+    // then has to chase, and the question here is only whether the card's
+    // handler stayed out of the way.
+    await link.evaluate((a: HTMLAnchorElement) => a.removeAttribute('target'));
+    await page.route('https://**', (r) => r.fulfill({ body: 'ok' }));
+    await link.click();
+    await expect(page.getByRole('dialog')).toBeHidden();
+  });
 });

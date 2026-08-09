@@ -10,7 +10,20 @@
 // The version is in the cache name: bump it and the old cache is dropped on
 // activate. Without that a stale shell survives every deploy, which is exactly
 // the "I deployed and nothing changed" failure the old worker caused.
-const VERSION = 'shell-v1';
+// Bumped to v2 deliberately: activate drops every cache that is not this
+// name, which is the only way to clear the poisoned '/' entry v1 left on
+// devices that had already signed in. Bump it whenever this file's caching
+// behaviour changes, not merely when the app does.
+const VERSION = 'shell-v2';
+
+// Paths Caddy routes to Flask, not to the SPA. The worker must not touch them.
+// /api was already excluded; the rest were not, and that was the bug: a
+// navigation to /login is a *successful* navigation, so its response -- the
+// server-rendered login page -- was being stored under the key '/'. Any later
+// navigation that failed then served Flask's login HTML as the app shell, and
+// that page has no #root and loads no bundle. A blank app, persisting until
+// storage was cleared.
+const SERVER_PATHS = /^\/(api|login|register|logout|health|static)(\/|$)/;
 
 // The built asset filenames are hashed, so they cannot be listed here. They are
 // cached as they are requested instead; only the entry point is known upfront.
@@ -41,10 +54,11 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
-  // The API is never cached. A reading list served from cache would show
-  // articles as unread that were read on another device, and a cached 401
-  // would lock someone out until they cleared storage.
-  if (url.pathname.startsWith('/api/')) return;
+  // Never cached, and never served from cache. A reading list out of cache
+  // would show articles as unread that were read on another device, a cached
+  // 401 would lock someone out until they cleared storage, and a cached login
+  // page would masquerade as the app shell.
+  if (SERVER_PATHS.test(url.pathname)) return;
 
   // A navigation always tries the network first: the shell changes on deploy
   // and a cache-first navigation is how a stale build sticks around. Falling
@@ -53,8 +67,15 @@ self.addEventListener('fetch', (e) => {
     e.respondWith(
       fetch(request)
         .then((res) => {
-          const copy = res.clone();
-          caches.open(VERSION).then((c) => c.put('/', copy));
+          // Only an HTML 200 is the shell. A redirect to /login, or anything
+          // the server returns for a path this worker should not have seen,
+          // must never end up under the key '/'.
+          const html = res.ok
+            && (res.headers.get('content-type') || '').includes('text/html');
+          if (html) {
+            const copy = res.clone();
+            caches.open(VERSION).then((c) => c.put('/', copy));
+          }
           return res;
         })
         .catch(() => caches.match('/').then((r) => r ?? Response.error())),

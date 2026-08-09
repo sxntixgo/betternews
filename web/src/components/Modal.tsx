@@ -69,17 +69,27 @@ export function Modal({ onClose, ariaLabel, className, children }: {
       if (!el) return;
       const focusable = focusableIn(el);
       if (focusable.length === 0) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      // Wrap at both ends. Without this, Tab walks out of the modal and into
-      // the article list behind it, which is still scrollable and clickable.
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
+      // Move focus ourselves on every Tab, rather than only wrapping at the
+      // two ends. The boundary version assumed the browser's own tab order
+      // matches `focusableIn()` and that focus always lands on one of those
+      // elements -- true in Chromium, false in WebKit, where Tab skips buttons
+      // and links by default (macOS Full Keyboard Access) and parks focus on
+      // <body> instead. `activeElement === last` was then never true, the wrap
+      // never fired, and Tab walked out of the dialog into the article list
+      // behind it. Safari is a browser this app is actually read in.
+      //
+      // Driving it directly costs nothing in Chromium -- same order, same wrap
+      // -- and stops the trap depending on a behaviour that varies by engine
+      // and by an OS accessibility setting.
+      e.preventDefault();
+      const idx = focusable.indexOf(document.activeElement as HTMLElement);
+      // -1 means focus is somewhere we do not manage (<body>, or the dialog
+      // container itself on open). Enter the list from whichever end the
+      // reader is heading towards.
+      const next = e.shiftKey
+        ? (idx <= 0 ? focusable.length - 1 : idx - 1)
+        : (idx === -1 || idx === focusable.length - 1 ? 0 : idx + 1);
+      focusable[next].focus();
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);

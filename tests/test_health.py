@@ -146,6 +146,51 @@ def test_some_paused_is_still_healthy(db_conn):
     assert health.ingestion_status(db_conn)["healthy"] is True
 
 
+def test_one_dead_feed_is_counted_even_though_the_app_stays_healthy(db_conn):
+    """The silent failure: something is still arriving, so nothing looks wrong.
+
+    `stale` keys on the newest success across every feed, so a single healthy
+    feed hides the rest being dead -- which on a two-feed install is half the
+    news. `healthy` stays True on purpose: this backs a container healthcheck,
+    and one broken feed is not a reason to invite a restart loop that cannot fix
+    it. It is reported so a person can see it.
+    """
+    a = add_feed(db_conn, url="https://alive.test/f")
+    d = add_feed(db_conn, url="https://dead.test/f")
+    db_conn.execute(text("UPDATE feeds SET last_success_at=now() WHERE id=:i"), {"i": a})
+    db_conn.execute(text(
+        "UPDATE feeds SET last_success_at=now() - interval '43 days' WHERE id=:i"), {"i": d})
+    db_conn.commit()
+
+    st = health.ingestion_status(db_conn)
+    assert st["stale"] is False        # something arrived recently
+    assert st["healthy"] is True       # so the container is fine
+    assert st["stale_feeds"] == 1      # but one of them has said nothing for 43 days
+
+
+def test_a_feed_that_has_never_succeeded_counts_as_stale(db_conn):
+    """`last_success_at IS NULL` is the state a newly added feed sits in when
+    its URL was wrong from the start -- never paused, never delivering."""
+    add_feed(db_conn, url="https://alive.test/f")
+    db_conn.execute(text("UPDATE feeds SET last_success_at=now()"))
+    add_feed(db_conn, url="https://never.test/f")
+    db_conn.commit()
+    assert health.ingestion_status(db_conn)["stale_feeds"] == 1
+
+
+def test_a_paused_feed_is_not_also_counted_as_stale(db_conn):
+    """Paused is already reported. Counting it twice would make the two numbers
+    add up to more than the feed list and read as worse than it is."""
+    a = add_feed(db_conn, url="https://alive.test/f")
+    p = add_feed(db_conn, url="https://paused.test/f")
+    db_conn.execute(text("UPDATE feeds SET last_success_at=now() WHERE id=:i"), {"i": a})
+    db_conn.execute(text(
+        "UPDATE feeds SET paused=true, last_success_at=NULL WHERE id=:i"), {"i": p})
+    db_conn.commit()
+    st = health.ingestion_status(db_conn)
+    assert st["paused"] == 1 and st["stale_feeds"] == 0
+
+
 # ── endpoint ───────────────────────────────────────────────────────────────────
 
 def test_health_endpoint_is_public(anon_client):
@@ -192,6 +237,7 @@ def test_health_counts_paused_feeds(client, app):
         db.commit()
         db.close()
     assert client.get("/health").json["feeds_paused"] == 1
+    assert "feeds_stale" in client.get("/health").json
 
 
 def test_retry_job_is_scheduled(app):

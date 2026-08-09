@@ -139,7 +139,10 @@ test('the sidebar has a sign-out button, not just a keyboard shortcut', async ({
   await page.goto('/');
   await page.waitForSelector('.article-row');
 
-  if (test.info().project.name === 'phone') {
+  // Asked of the page, not of the project name -- a name check silently skips
+  // on any new phone-sized project, and the failure then looks like a missing
+  // button rather than a test that forgot to open the drawer.
+  if (await page.locator('.drawer-toggle').isVisible()) {
     await page.locator('.drawer-toggle').click();
     await expect(page.locator('.sidebar')).toHaveClass(/open/);
   }

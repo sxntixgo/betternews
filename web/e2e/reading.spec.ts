@@ -65,15 +65,32 @@ test('the dismissed pile is not fetched until it is asked for', async ({ page })
 });
 
 test('scrolling keeps paging the pile once it is open', async ({ page }) => {
+  // Assert the requests, not a snapshot of the row count. Counting rows before
+  // and after raced the sentinel: under parallel load the second page had
+  // sometimes already arrived before the "before" was read, and the test then
+  // demanded growth that had already happened.
+  const offsets: string[] = [];
+  page.on('request', (r) => {
+    const u = new URL(r.url());
+    if (u.pathname.endsWith('/articles') && u.searchParams.get('dismissed') === '1') {
+      offsets.push(u.searchParams.get('offset') ?? '0');
+    }
+  });
+
   await page.locator('#dismiss-all-btn').click();
   await page.locator('.pile-toggle').click();
-  const first = await page.locator('.article-row').count();
-  expect(first).toBeGreaterThan(0);
+  await expect(page.locator('.article-row').first()).toBeVisible();
+  expect(offsets).toEqual(['0']);
 
-  // The sentinel feeds the unread list until it runs out, then this one --
-  // which is what "keeps loading as you scroll" has to mean once it is open.
-  await page.locator('.article-row').last().scrollIntoViewIfNeeded();
-  await expect.poll(() => page.locator('.article-row').count()).toBeGreaterThan(first);
+  // The sentinel feeds the unread list until it runs out, then this one -- so
+  // scrolling on has to keep asking for the next page of the pile.
+  for (let i = 0; i < 4; i++) {
+    await page.evaluate(() => window.scrollBy(0, 4000));
+    await page.waitForTimeout(200);
+  }
+  await expect.poll(() => offsets.length).toBeGreaterThan(1);
+  // Never the same page twice: that was a real bug on WebKit.
+  expect(offsets).toEqual([...new Set(offsets)]);
 });
 
 test('the digest is behind a button, not above the list', async ({ page }) => {
@@ -167,8 +184,10 @@ test('scrolling to the end never shows the same article twice', async ({ page })
   await page.reload();
   await page.waitForSelector('.article-row');
 
+  // `page.mouse.wheel` is unsupported in mobile WebKit, and scrolling the
+  // window is what the sentinel actually observes anyway.
   for (let i = 0; i < 4; i++) {
-    await page.mouse.wheel(0, 4000);
+    await page.evaluate(() => window.scrollBy(0, 4000));
     await page.waitForTimeout(200);
   }
   const titles = await page.locator('.article-row .article-title').allInnerTexts();
@@ -408,4 +427,24 @@ test.describe('opening an article', () => {
     await link.click();
     await expect(page.getByRole('dialog')).toBeHidden();
   });
+});
+
+test('no article is ever rendered twice', async ({ page }) => {
+  // This failed only on WebKit, and only after an interaction that resized the
+  // cards. `loadMore` read `nextOffset` off its closure; `inFlight` is cleared
+  // synchronously in `finally` while `setNextOffset` is a state update that has
+  // not flushed, so an IntersectionObserver firing in that window saw the
+  // initial offset of 0 and appended page zero on top of page zero.
+  await page.route('**/api/v1/articles?*', (r) => r.fulfill({ json: {
+    articles: [article(1), article(2), article(3)],
+    next_offset: null, diagnosis: null } }));
+  await page.reload();
+  await page.waitForSelector('.article-row');
+
+  // Compact shrinks every card, which is what brings the sentinel into view.
+  await page.getByRole('switch', { name: 'Compact list' }).click();
+  await page.waitForTimeout(300);
+
+  const ids = await page.locator('.article-row').evaluateAll((els) => els.map((e) => e.id));
+  expect(ids).toEqual([...new Set(ids)]);
 });

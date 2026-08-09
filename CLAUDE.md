@@ -181,6 +181,26 @@ Four suites, and it matters which is which:
 | Web (live) | `export BN_E2E_TOKEN=$(scripts/e2e-token.sh) && cd web && npm run e2e:live` | **Yes** — browser → proxy → Flask → Postgres |
 | Mobile | `cd mobile && npm test` | No — pure functions only |
 
+**The web suite runs on three projects: `desktop`, `phone` and `safari`.**
+`phone` is iPhone *metrics* on Chromium; `safari` is real WebKit. For a long
+time only the first existed, so the engine the reader actually uses had never
+executed a line of this app — and it then failed to load on an iPhone while
+every phone test passed. Turning WebKit on found three genuine bugs in an
+afternoon: articles rendered twice (`useArticles` read a stale `nextOffset`
+after the in-flight ref had already cleared), the modal focus trap leaked
+(WebKit's Tab skips buttons and links, so `activeElement === last` was never
+true), and the swipe helper could not build a `TouchEvent` at all. **Do not
+drop `webkit` from the CI browser install** — that restores the blind spot
+exactly.
+
+Two Playwright details that caused real confusion. A top-level `use.channel`
+is inherited by every project and **cannot** be un-set from one (`channel:
+undefined` does not override), and WebKit rejects a Chrome channel outright —
+so the channel is set per Chromium project instead. And tests must key
+phone-only setup on `isMobile` or on the page, never on `project.name`: a name
+check silently skipped the drawer on the new project and three failures looked
+like missing UI.
+
 CI runs the first, second and fourth on every push and pull request
 (`.github/workflows/ci.yml`). Actions is free without a minute limit here
 because the repository is public — the 2,000-minute allowance applies to private

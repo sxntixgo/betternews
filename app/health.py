@@ -84,26 +84,44 @@ def retry_paused_feeds(app) -> int:
 def ingestion_status(db) -> dict:
     """Is anything actually arriving?
 
-    `paused` counts feeds the app gave up on; `stale` means even the active ones
-    have not succeeded recently.
+    Three different questions, and they were not distinguishable before:
+
+    - `paused` — feeds the app gave up on. Visible already.
+    - `stale` — *nothing at all* has succeeded recently. This keys on
+      ``MAX(last_success_at)`` across every feed, so one healthy feed hides
+      every other feed being dead.
+    - `stale_feeds` — feeds that are not paused and yet have not succeeded
+      inside the window. This is the one that was missing, and it is the exact
+      shape of the failure this module was written for: a fault that is silent
+      because *something* is still arriving. On a two-feed install one dead
+      feed is half the news, and `paused < total` still reported "ok".
+
+    `healthy` deliberately does **not** fold in `stale_feeds`. This backs a
+    container healthcheck, and one broken feed is not a reason to mark the whole
+    app unhealthy and invite a restart loop that cannot fix it. It is reported
+    so a person can see it, not so Docker can act on it.
     """
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=STALE_AFTER_HOURS)
     row = db.execute(text("""
         SELECT COUNT(*)                                        AS total,
                COUNT(*) FILTER (WHERE paused)                  AS paused,
+               COUNT(*) FILTER (WHERE NOT paused
+                                  AND (last_success_at IS NULL
+                                       OR last_success_at < :cutoff))
+                                                               AS stale_feeds,
                MAX(last_success_at)                            AS last_success
         FROM feeds
-    """)).mappings().first()
+    """), {"cutoff": cutoff}).mappings().first()
     total = row["total"] or 0
     paused = row["paused"] or 0
+    stale_feeds = row["stale_feeds"] or 0
     last = row["last_success"]
-    stale = bool(
-        total and (last is None
-                   or last < datetime.now(timezone.utc) - timedelta(hours=STALE_AFTER_HOURS))
-    )
+    stale = bool(total and (last is None or last < cutoff))
     return {
         "total": total,
         "paused": paused,
         "active": total - paused,
+        "stale_feeds": stale_feeds,
         "last_success_at": last,
         "stale": stale,
         # No feeds at all is a fresh install, not a fault.

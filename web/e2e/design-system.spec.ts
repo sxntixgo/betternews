@@ -230,3 +230,37 @@ test('on a phone the list is not flush against the screen edge', async ({ page, 
     document.querySelector('.article-row')!.getBoundingClientRect().x);
   expect(x).toBeGreaterThanOrEqual(8);
 });
+
+test('on a desktop the card metadata is a line, not a column', async ({ page, isMobile }) => {
+  test.skip(isMobile, 'desktop only');
+  await signedIn(page);
+  await mockApi(page);
+  await page.goto('/');
+  await page.waitForSelector('.article-row');
+
+  // The reading time, the source, the age and the Open link used to share a
+  // 72px-wide column with the thumbnail, which stacked them into a 96px tower
+  // that set the card's height while the reading column beside it ran short.
+  // They belong on one line under the summary. Measured by height rather than
+  // by rule, because the stacking came from the column's width, not from a
+  // property any assertion could name.
+  const meta = await page.locator('.article-row .article-left').first().boundingBox();
+  expect(meta!.height).toBeLessThan(32);
+  expect(meta!.width).toBeGreaterThan(100);
+});
+
+test('compact keeps the tags on a desktop, where they fit whole', async ({ page, isMobile }) => {
+  test.skip(isMobile, 'desktop only');
+  await signedIn(page);
+  await mockApi(page);
+  await page.goto('/');
+  await page.waitForSelector('.article-row');
+  await page.evaluate(() => document.documentElement.setAttribute('data-density', 'compact'));
+
+  // Compact means "drop the summary". Hiding the tags too was a phone-sized
+  // judgement -- there they truncate to `copa-libert…` and read as clutter --
+  // and the rule was written unscoped, so it also stripped them from a desktop
+  // with 900px of room. The tag is what explains the score.
+  await expect(page.locator('.article-row .article-summary').first()).toBeHidden();
+  await expect(page.locator('.article-row .topic-chip').first()).toBeVisible();
+});

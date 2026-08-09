@@ -44,15 +44,17 @@ export function ArticleCard({
     // Same id the server-rendered card uses, so anchoring, deep links and tests
     // can address a row without depending on its position in the list.
     <article className={classes} id={`card-${article.id}`}>
+      {/* The thumbnail is its own grid cell, not part of the metadata. It used
+          to share a 72px column with the reading time, the source and the age,
+          which stacked them into a 96px tower and set the card's height. */}
+      {article.thumbnail_url && (
+        <img className="article-thumb" src={article.thumbnail_url} alt="" loading="lazy" />
+      )}
+
       <div className="article-left">
-        {article.thumbnail_url && (
-          <img className="article-thumb" src={article.thumbnail_url} alt="" loading="lazy" />
-        )}
         {article.reading_time && <span className="reading-time">🕐 {article.reading_time}</span>}
-        {/* Source and age. The meta line is held open by the 40px tap targets
-            whatever else sits on it, so these cost no height -- and in compact
-            mode, with the tags hidden, it was mostly empty. Which paper ran it
-            and how old it is are what a reader weighs before opening. */}
+        {/* Which paper ran it and how old it is: the two things a reader weighs
+            before opening a headline, and neither was shown before. */}
         {feedName && <span className="article-source">{feedName}</span>}
         {relativeTime(article.published_at) && (
           <span className="article-age">{relativeTime(article.published_at)}</span>

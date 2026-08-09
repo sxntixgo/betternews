@@ -401,6 +401,10 @@ export interface ListQuery {
   topic?: string;
   hidden?: boolean;
   saved?: boolean;
+  /** The dismissed pile, which the main list excludes. Its own list rather
+   *  than greyed-out rows inline: after one `dismiss-all` those rows are most
+   *  of what you scroll past. */
+  dismissed?: boolean;
   sort?: 'date' | 'score';
   limit?: number;
   offset?: number;
@@ -547,6 +551,7 @@ export class BetterNewsClient {
     if (q.topic) add('topic', q.topic);
     if (q.hidden) add('hidden', '1');
     if (q.saved) add('saved', '1');
+    if (q.dismissed) add('dismissed', '1');
     if (q.sort) add('sort', q.sort);
     if (q.limit !== undefined) add('limit', String(q.limit));
     if (q.offset !== undefined) add('offset', String(q.offset));

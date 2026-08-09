@@ -88,6 +88,55 @@ export default function App() {
     search,
   );
 
+  /**
+   * The dismissed pile: the same list, asked for separately.
+   *
+   * A second `useArticles` rather than a flag threaded through the first. They
+   * page independently -- you can be four pages into the unread list and one
+   * page into the dismissed one -- and one hook holding two offsets and two
+   * end-of-list flags would be the same two lists with the seam hidden.
+   *
+   * `enabled` is what makes the button a button: nothing is fetched until the
+   * reader asks, so the common case costs no request at all.
+   */
+  const [showDismissed, setShowDismissed] = useState(false);
+  const pile = useArticles(
+    { feed, saved: saved || undefined, hidden: hidden || undefined, topic,
+      sort, limit: 50, dismissed: true, reloads } as ListQuery & { reloads: number },
+    signedIn === true && showDismissed,
+    '',
+  );
+
+  // Searching and the Hidden view are their own answers to "what should I look
+  // at"; a dismissed pile underneath them is noise. It also resets on any
+  // filter change, so the button does not stay open over a list it was never
+  // opened for.
+  const offersDismissed = !search && !hidden;
+  useEffect(() => {
+    setShowDismissed(false);
+  }, [feed, saved, hidden, topic, search]);
+
+  /**
+   * An updated article can belong to either list, so offer it to both.
+   *
+   * `patch` maps over its own rows and replaces by id, so the list that does
+   * not hold the article is unchanged -- cheaper and far less brittle than
+   * working out which list a card came from and threading that down.
+   */
+  const patchBoth = useCallback((updated: Article) => {
+    patch(updated);
+    pile.patch(updated);
+  }, [patch, pile.patch]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // One scroll, two lists. The sentinel feeds the unread list until it runs
+  // out, then the pile -- which is what "keeps loading as the user scrolls"
+  // has to mean when the reader has already opened it.
+  const moreToLoad = hasMore || (showDismissed && pile.hasMore);
+  const loadNext = useCallback(() => {
+    if (hasMore) loadMore();
+    else if (showDismissed) pile.loadMore();
+  }, [hasMore, loadMore, showDismissed, pile.loadMore]);  // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (signedIn) void api.feeds().then(setFeeds).catch(() => {});
   }, [signedIn, articles.length, reloads]);
@@ -111,14 +160,14 @@ export default function App() {
   // Infinite scroll: load the next page when the sentinel scrolls into view.
   const sentinel = useCallback(
     (node: HTMLDivElement | null) => {
-      if (!node || !hasMore) return;
+      if (!node || !moreToLoad) return;
       const io = new IntersectionObserver((entries) => {
-        if (entries[0].isIntersecting) loadMore();
+        if (entries[0].isIntersecting) loadNext();
       });
       io.observe(node);
       return () => io.disconnect();
     },
-    [hasMore, loadMore],
+    [moreToLoad, loadNext],
   );
 
   const rows = articles;
@@ -268,8 +317,8 @@ export default function App() {
   }
 
   const vote = (a: Article, value: 1 | -1) =>
-    api.vote(a.id, value).then(patch).catch(() => {});
-  const save = (a: Article) => api.save(a.id).then(patch).catch(() => {});
+    api.vote(a.id, value).then(patchBoth).catch(() => {});
+  const save = (a: Article) => api.save(a.id).then(patchBoth).catch(() => {});
 
   // Choosing anything closes the drawer: on a phone the list is behind it.
   const choose = (fn: () => void) => {
@@ -425,6 +474,38 @@ export default function App() {
               </div>
             ) : (
               <p className="empty">Nothing to read.</p>
+            )
+          )}
+          {/* The dismissed pile, under everything else and behind a press.
+              Only offered once the unread list has actually run out -- a
+              button to load more of what you have dealt with, above things you
+              have not, would be in the way. */}
+          {offersDismissed && !hasMore && !loading && (
+            showDismissed ? (
+              <>
+                <h2 className="pile-heading">Dismissed</h2>
+                {pile.articles.map((a) => (
+                  <ArticleCard
+                    key={a.id}
+                    article={a}
+                    onOpen={(x) => setReading(x.id)}
+                    onVote={vote}
+                    onSave={save}
+                    onTopic={(t) => { setTopic(t); setSearch(''); }}
+                    // The shell already holds the feed list for the sidebar; the article
+                    // itself only carries feed_id.
+                    feedName={feeds?.feeds.find((f) => f.id === a.feed_id)?.title}
+                  />
+                ))}
+                {pile.loading && <p className="loading">Loading…</p>}
+                {!pile.loading && pile.articles.length === 0 && (
+                  <p className="empty">Nothing dismissed.</p>
+                )}
+              </>
+            ) : (
+              <button className="pile-toggle" onClick={() => setShowDismissed(true)}>
+                Show dismissed articles
+              </button>
             )
           )}
           <div ref={sentinel} />

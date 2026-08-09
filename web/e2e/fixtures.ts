@@ -134,11 +134,20 @@ export async function mockApi(page: Page) {
   await page.route('**/api/v1/me', (r) => r.fulfill({ json: ME }));
   await page.route('**/api/v1/feeds', (r) => r.fulfill({ json: FEEDS }));
   await page.route('**/api/v1/articles?*', (r) => {
-    const offset = Number(new URL(r.request().url()).searchParams.get('offset') ?? 0);
+    const q = new URL(r.request().url()).searchParams;
+    const offset = Number(q.get('offset') ?? 0);
+    // The server splits the list in two: the default excludes dismissed
+    // articles and `dismissed=1` returns only those. Mirrored here, because a
+    // mock that answered the same either way would let the client stop sending
+    // the parameter with nothing failing.
+    const wantsPile = q.get('dismissed') === '1';
+    if (wantsPile !== allDismissed) {
+      return r.fulfill({ json: { articles: [], next_offset: null } });
+    }
     const ids = Array.from({ length: 10 }, (_, i) => offset + i + 1).filter((n) => n <= 25);
     r.fulfill({
       json: {
-        articles: ids.map((n) => article(n, allDismissed
+        articles: ids.map((n) => article(n, wantsPile
           ? { state: { read: false, saved: false, dismissed: true, opinion: null } }
           : {})),
         next_offset: offset + 10 <= 25 ? offset + 10 : null,

@@ -1497,3 +1497,24 @@ kbd {
   text-overflow: ellipsis;
   max-width: 14ch;
 }
+
+/* The dismissed pile: a divider you have to cross on purpose. It sits below
+   the unread list, so it needs to read as a different section rather than as
+   more of the same -- the rows inside it are ordinary cards. */
+.pile-toggle {
+  display: block;
+  width: 100%;
+  margin: 16px 0;
+  padding: 10px;
+  color: var(--color-ink-muted);
+}
+.pile-heading {
+  margin: 20px 0 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-hairline);
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-ink-muted);
+}

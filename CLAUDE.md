@@ -82,7 +82,17 @@ Article status flow:
 new → scored → summarized → liked | disliked | dismissed
            └→ hidden  (score < threshold, skip summarization)
 ```
-`dismissed` is only set in bulk via `POST /dismiss-all` (the per-article dismiss button is removed). Votes are kept in the `votes` table even after dismiss.
+`dismissed` is set in bulk via `POST /dismiss-all` and per-article by a
+swipe-left. Votes are kept in the `votes` table even after dismiss.
+
+**The dismissed pile is its own list.** `GET /articles` excludes it;
+`?dismissed=1` returns only it, paged like anything else. This has now been
+wrong in both directions: filtering dismissed articles out entirely made a
+dismissal indistinguishable from an article that never arrived, so they were
+put back inline and greyed out — but with `dismiss-all` one button away, those
+rows became most of what a reader scrolled past. `repo.articles._visible` is
+where that decision lives. **Search does not apply it**: someone looking for an
+article they remember is not asking whether they dismissed it.
 
 `articles.clean_title` / `title_was_clickbait` hold the de-clickbaited headline (Settings → Reader → Headlines). **`articles.title` is never overwritten** — the original backs the FTS index and stays visible under the rewrite. The rewrite is only displayed when the setting is on *and* `title_was_clickbait=1`; `clean_title IS NULL` means "never processed", so pre-feature articles render unchanged. `routes._resolve_title()` is the single place that decides.
 

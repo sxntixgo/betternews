@@ -51,6 +51,10 @@ def list_articles():
         sort=request.args.get("sort", "date"),
         topic=request.args.get("topic", "").strip() or None,
         limit=_limit(), offset=_offset(),
+        # The dismissed pile is its own list, asked for explicitly. It used to
+        # be mixed into this one, greyed out, where it was most of what a
+        # reader scrolled past.
+        dismissed=request.args.get("dismissed") == "1",
     )
     declickbait = presenters.declickbait(db)
     return jsonify({

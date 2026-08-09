@@ -35,12 +35,45 @@ test('the hidden view asks for hidden articles', async ({ page, isMobile }) => {
   await expect.poll(() => asked.some((u) => u.includes('hidden=1'))).toBe(true);
 });
 
-test('dismiss-all greys the list without emptying it', async ({ page }) => {
-  const before = await page.locator('.article-row').count();
+test('dismiss-all clears the list, and the pile is one press away', async ({ page }) => {
+  await expect(page.locator('.article-row').first()).toBeVisible();
   await page.locator('#dismiss-all-btn').click();
-  // Dismissed articles stay visible; that is the whole point of the state.
-  await expect(page.locator('.article-row')).toHaveCount(before);
+
+  // They leave the reading list rather than staying in it greyed out: after
+  // one press those rows were most of what a reader scrolled past.
+  await expect(page.locator('.article-row')).toHaveCount(0);
+
+  // Reachable, just not in the way. Nothing is fetched until it is asked for.
+  const toggle = page.locator('.pile-toggle');
+  await expect(toggle).toBeVisible();
+  await toggle.click();
   await expect(page.locator('.article-row.dismissed').first()).toBeVisible();
+  await expect(page.locator('.pile-heading')).toHaveText('Dismissed');
+});
+
+test('the dismissed pile is not fetched until it is asked for', async ({ page }) => {
+  const asked: string[] = [];
+  page.on('request', (r) => {
+    if (r.url().includes('/api/v1/articles?')) asked.push(r.url());
+  });
+  await page.locator('#dismiss-all-btn').click();
+  await expect(page.locator('.pile-toggle')).toBeVisible();
+  expect(asked.some((u) => u.includes('dismissed=1'))).toBe(false);
+
+  await page.locator('.pile-toggle').click();
+  await expect.poll(() => asked.some((u) => u.includes('dismissed=1'))).toBe(true);
+});
+
+test('scrolling keeps paging the pile once it is open', async ({ page }) => {
+  await page.locator('#dismiss-all-btn').click();
+  await page.locator('.pile-toggle').click();
+  const first = await page.locator('.article-row').count();
+  expect(first).toBeGreaterThan(0);
+
+  // The sentinel feeds the unread list until it runs out, then this one --
+  // which is what "keeps loading as you scroll" has to mean once it is open.
+  await page.locator('.article-row').last().scrollIntoViewIfNeeded();
+  await expect.poll(() => page.locator('.article-row').count()).toBeGreaterThan(first);
 });
 
 test('the digest is behind a button, not above the list', async ({ page }) => {

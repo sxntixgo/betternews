@@ -502,9 +502,84 @@ def test_dismiss_all_takes_the_same_filters_as_the_list(client, app, token):
     n = client.post(f"{API}/articles/dismiss-all?topic=space",
                     headers=auth(token)).get_json()["dismissed"]
     assert n == 1
+    # The dismissed one leaves the main list rather than sitting in it greyed
+    # out, and turns up in the pile the reader has to ask for.
     got = {a["title"]: a["state"]["dismissed"]
            for a in client.get(f"{API}/articles", headers=auth(token)).get_json()["articles"]}
-    assert got == {"Spacey": True, "Other": False}
+    assert got == {"Other": False}
+    pile = client.get(f"{API}/articles?dismissed=1", headers=auth(token)).get_json()
+    assert {a["title"] for a in pile["articles"]} == {"Spacey"}
+
+
+def test_the_dismissed_pile_is_its_own_paged_list(client, app, token):
+    """Dismissed articles are reachable, just not in the way.
+
+    They used to stay inline, greyed out. That was itself a correction --
+    filtering them out entirely made a dismissal indistinguishable from an
+    article that never arrived -- but with `dismiss-all` one button away, those
+    rows become most of what a reader scrolls past. So: excluded by default,
+    and paged like any other list when asked for.
+    """
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        fid = add_feed(db)
+        for i in range(5):
+            add_article(db, fid, seq=i + 1, guid=f"p{i}", title=f"Story {i}")
+        db.close()
+
+    assert client.post(f"{API}/articles/dismiss-all",
+                       headers=auth(token)).get_json()["dismissed"] == 5
+
+    # Gone from the default list entirely -- not present-and-flagged.
+    assert client.get(f"{API}/articles", headers=auth(token)).get_json()["articles"] == []
+
+    # And paged, so the client can keep scrolling through them.
+    first = client.get(f"{API}/articles?dismissed=1&limit=2",
+                       headers=auth(token)).get_json()
+    assert len(first["articles"]) == 2
+    assert first["next_offset"] == 2
+    assert all(a["state"]["dismissed"] for a in first["articles"])
+
+    rest = client.get(f"{API}/articles?dismissed=1&limit=2&offset={first['next_offset']}",
+                      headers=auth(token)).get_json()
+    # No overlap between pages: the offset counts articles the reader sees.
+    assert {a["id"] for a in first["articles"]} & {a["id"] for a in rest["articles"]} == set()
+
+
+def test_dismissing_one_article_takes_it_out_of_the_list(client, app, token):
+    """The single-article path and the bulk path agree about where a row goes."""
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        fid = add_feed(db)
+        aid = add_article(db, fid, seq=1, guid="one", title="Only")
+        db.close()
+
+    client.post(f"{API}/articles/{aid}/dismiss", headers=auth(token))
+    assert client.get(f"{API}/articles", headers=auth(token)).get_json()["articles"] == []
+    pile = client.get(f"{API}/articles?dismissed=1", headers=auth(token)).get_json()
+    assert [a["id"] for a in pile["articles"]] == [aid]
+
+
+def test_search_still_finds_a_dismissed_article(client, app, token):
+    """The split is about the reading list, not about what exists.
+
+    Someone searching for an article they remember is not asking whether they
+    dismissed it afterwards, and hiding it here would read as deleted.
+    """
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        fid = add_feed(db)
+        aid = add_article(db, fid, seq=1, guid="s1", title="Perihelion flyby")
+        db.close()
+
+    client.post(f"{API}/articles/{aid}/dismiss", headers=auth(token))
+    assert client.get(f"{API}/articles", headers=auth(token)).get_json()["articles"] == []
+
+    found = client.get(f"{API}/search?q=perihelion", headers=auth(token)).get_json()
+    assert [a["id"] for a in found["articles"]] == [aid]
 
 
 def test_status_reports_the_pipeline_stamp(client, app, token):

@@ -38,20 +38,26 @@ def _card_select(user_id: int):
     )
 
 
-def _visible(stmt):
-    """Dismissed articles stay in the list, greyed out by the card template.
+def _visible(stmt, dismissed: bool):
+    """Split the list in two: what you have not dealt with, and what you have.
 
-    They used to be filtered out here. Hiding them meant a dismissal was
-    indistinguishable from an article that never arrived: nothing to review, no
-    way to tell what you had already dealt with, and no way back. They now stay
-    until retention deletes them (or forever, if starred -- see
-    retention._prunable), which is the only thing that ever removes an article.
+    Dismissed articles used to stay inline, greyed out. That was a correction of
+    an earlier mistake -- filtering them out entirely made a dismissal
+    indistinguishable from an article that never arrived, with nothing to review
+    and no way back -- but it overshot. On a corpus this size the greyed-out
+    rows are most of what you scroll past, and `dismiss-all` is one button, so a
+    single press could bury the unread list under thousands of them.
 
-    Kept as a function rather than deleted at the call sites: this is where the
-    decision lives, and the unread counts deliberately do NOT use it -- a
-    dismissed article is visible but not unread.
+    So they are still reachable, just not in the way: the reader asks for them
+    and they page in like anything else. Nothing is deleted here either way;
+    only retention removes an article.
+
+    Kept as a function rather than inlined: this is where the decision lives,
+    and the unread counts deliberately do NOT use it -- a dismissed article is
+    visible but not unread.
     """
-    return stmt
+    return stmt.where(S.c.dismissed_at.isnot(None) if dismissed
+                      else S.c.dismissed_at.is_(None))
 
 
 class Page(list):
@@ -70,8 +76,9 @@ class Page(list):
 
 def list_for_user(db, user_id: int, *, hidden: bool = False, saved: bool = False,
                   feed_id: int | None = None, sort: str = "date",
-                  topic: str | None = None, limit: int = 50, offset: int = 0):
-    stmt = _visible(_card_select(user_id))
+                  topic: str | None = None, limit: int = 50, offset: int = 0,
+                  dismissed: bool = False):
+    stmt = _visible(_card_select(user_id), dismissed)
     stmt = stmt.where(A.c.status.in_(HIDDEN_STATUSES if hidden else VISIBLE_STATUSES))
     if topic:
         # An explicit topic filter is a deliberate request, so it overrides the
@@ -148,8 +155,12 @@ def search(db, user_id: int, query: str, limit: int = 50):
     FTS5 ``MATCH``, does not raise on malformed input.
     """
     tsq = func.websearch_to_tsquery("english", query)
+    # Deliberately not split by `_visible`: search is someone looking for a
+    # specific article they remember, and whether they dismissed it afterwards
+    # is not part of the question. Hiding it here would look like the article
+    # was deleted.
     stmt = (
-        _visible(_card_select(user_id))
+        _card_select(user_id)
         .where(A.c.search_vector.op("@@")(tsq))
         .where(A.c.status.in_(VISIBLE_STATUSES + HIDDEN_STATUSES))
         .order_by(func.ts_rank(A.c.search_vector, tsq).desc())

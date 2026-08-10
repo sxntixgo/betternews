@@ -1625,7 +1625,8 @@ def test_insights_answers_every_panel_in_one_call(client, app, token):
         add_article(db, add_feed(db), seq=1, guid="i1", topics=["economy"])
         db.close()
     body = client.get(f"{API}/insights", headers=auth(token)).get_json()
-    assert set(body) == {"threshold", "histogram", "agreement", "suggestion",
+    assert set(body) == {"threshold", "threshold_default", "threshold_previous",
+                         "histogram", "agreement", "suggestion",
                          "per_feed", "per_topic", "pipeline", "runs", "llm_error"}
     # 20 buckets always, including the empty ones -- a histogram with gaps
     # silently rescales.

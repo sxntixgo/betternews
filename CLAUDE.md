@@ -252,6 +252,18 @@ a live suite that quietly passes with nothing running is worse than none.
 exactly those fields, so a rename in `app/api/serializers.py` cannot silently
 break both clients.
 
+**CI runs `npm run build`**, and that is not redundant with `typecheck`.
+Typecheck does not bundle, and the e2e suite runs against the *dev* server —
+neither touches the CSS minifier. Invalid CSS that Vite serves happily in
+development made `docker compose build` fail at deploy time, with three green
+checks on the merge that caused it. A dead-CSS prune had fused a comment to a
+rule body: the comment contained a comma, the selector list was split on
+commas, and the half holding the dead class was dropped, leaving an
+unterminated `/*`. **Never edit CSS selector lists programmatically without
+stripping comments first**, and prefer dropping whole rules to rewriting
+selectors — a cleanup whose diff is mostly reformatting hides the deletions it
+exists to show.
+
 `npm run typecheck` covers **both** `src/` and `e2e/`. It did not cover `e2e/`
 for a long time, and the fixtures say at the top that their shapes mirror
 `shared/api.ts` "so a contract change breaks these too" — which was true of

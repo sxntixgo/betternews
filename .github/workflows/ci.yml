@@ -79,6 +79,14 @@ jobs:
       # fails here rather than in someone's browser.
       - run: npm run typecheck
 
+      # The production build, which nothing here ran before -- and a broken one
+      # shipped green because of it. `typecheck` does not bundle and the e2e
+      # suite runs against the dev server, so neither touches the CSS minifier:
+      # invalid CSS that Vite serves happily in dev made `docker compose build`
+      # fail at the deploy, with three passing checks on the merge that caused
+      # it. This is the cheapest step in the job.
+      - run: npm run build
+
       - name: install browsers
         # WebKit as well as chromium, and it is not optional. The `phone`
         # project runs iPhone *metrics* on chromium, so for the whole life of

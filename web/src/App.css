@@ -67,7 +67,10 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
    so without it the list simply pushes the footer out again and nothing
    scrolls at all.
 
-   A wrapper element{
+   A wrapper element, because `Sidebar` returns a fragment and a fragment
+   cannot be scrolled. (`.sidebar-nav` further down is dead -- nothing renders
+   it -- so it is not the hook it looks like.) */
+.sidebar-scroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -187,19 +190,6 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 .sidebar-group-body { display: flex; flex-direction: column; gap: 2px; padding-left: 18px; }
 .sidebar-group.collapsed .sidebar-group-body { display: none; }
 .sidebar-feed-nested { font-size: 13px; }
-/* A column now, not a row: it holds two rows of tools plus the theme picker{
-  padding: 12px 16px;
-  border-top: 1px solid var(--color-hairline);
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 6px;
-  /* Pinned. The whole sidebar was one scrolling column, so a long feed list
-     pushed settings, sign-out and the theme picker below the fold -- on a
-     phone, where the sidebar *is* the navigation and there is no second way to
-     reach any of them. The feed list scrolls now and this does not move. */
-  flex: none;
-}
 .sidebar-manage {
   display: inline-flex;
   align-items: center;
@@ -287,7 +277,8 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 .site-content { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 /* The reading column is a surface in front of the page, which is what makes
    the warm background read as a background rather than as the card colour.
-   On `#article-list` and the digest, so the rule that used
+   On `#article-list` and the digest, not `.site-main` -- that class came from
+   the server templates and does not exist in this app, so the rule that used
    to be here styled nothing at all. */
 #article-list {
   padding: 0 16px;
@@ -579,16 +570,6 @@ button:disabled { opacity: 0.4; cursor: default; }
   .article-actions-inline .btn-icon { padding: 8px 10px; }
 }
 
-/* Narrow screens: stack save / like / dislike into a column. Three 40px tap
-   targets in a row take ~130px off the width of a phone, and the headline is
-   what the reader is actually there for; a column costs one button's width
-   instead. Must come after the coarse-pointer block above{
-  font-size: 12px;
-  color: var(--color-accent);
-  border-color: var(--color-accent);
-  padding: 2px 8px;
-}
-
 .btn-external {
   font-size: 12px;
   color: var(--color-ink-muted);
@@ -676,15 +657,6 @@ button:disabled { opacity: 0.4; cursor: default; }
   font-style: italic;
 }
 
-/* Padding sections in the reader. Collapsed by default in both modes — the
-   content is folded, never dropped{
-  margin: 16px 0;
-  border-left: 2px solid var(--color-hairline);
-  padding-left: 12px;
-}
-
-/* Settings page: grouped sections{ margin-bottom: 40px; }
-
 h2 { margin-bottom: 16px; font-size: 18px; }
 
 .loading, .empty { color: var(--color-ink-muted); font-size: 14px; padding: 24px 0; text-align: center; }
@@ -754,7 +726,8 @@ dialog[open] { display: flex; flex-direction: column; }
 .dup-note { margin: 2px 0 0; font-size: 11px; color: var(--color-ink-muted); }
 .histogram { width: 100%; max-width: 460px; height: auto; margin: 8px 0; }
 
-/* "What you missed" briefing. A dialog now, since the modal draws its
+/* "What you missed" briefing. A dialog now, not a card above the list --
+   `.digest-card` and its border went with the panel, since the modal draws its
    own surface. Capped so a long briefing scrolls inside the dialog rather than
    growing it past the viewport on a phone. */
 .digest-modal { max-width: 620px; }
@@ -786,6 +759,7 @@ dialog[open] { display: flex; flex-direction: column; }
 }
 .action-model:first-child { border-top: none; }
 .action-model > select { grid-column: 2; }
+.action-model-form select,
 .action-model > select {
   border: 1px solid var(--color-hairline);
   border-radius: var(--radius-md);
@@ -817,9 +791,6 @@ dialog[open] { display: flex; flex-direction: column; }
   color: var(--color-accent);
   font-weight: 600;
 }
-
-/* Signed-out pages (sign in, register, 403) render with no sidebar{ margin-left: 0; width: 100%; }
-/* Something is actually broken{ border-color: var(--color-danger); }
 
 /* Per-job model guidance */
 .action-guidance { font-style: italic; opacity: .85; }
@@ -1068,8 +1039,6 @@ kbd {
   margin: 2px 0 6px;
 }
 .embed-open { font-size: 12px; color: var(--color-accent); }
-
-/* Footer tools. Six controls at 240px wide{ display: flex; align-items: center; gap: 2px; flex-wrap: wrap; }
 .sidebar-manage { flex: none; padding: 4px; color: var(--color-ink-muted); }
 .sidebar-manage:hover { color: var(--color-ink); }
 
@@ -1338,26 +1307,8 @@ kbd {
 }
 
 @media (max-width: 720px) {
-  /* Three rows of 40px tap targets plus gaps was 136px of a 664px screen,
-     spent on controls you touch once a week. The targets stay 40px -- that is
-     a finger, not a style -- so the saving comes from the padding and the gaps
-     between them{
-    padding: 8px 10px;
-    gap: 2px;
-    /* One wrapping row instead of three fixed ones. `display: contents` lifts
-       each group's buttons into this flex container so they pack together;
-       three rows of five-ish icons becomes two.
-
-       The radiogroup keeps its role -- asserted by the theme tests, which run
-       on WebKit now, because `display: contents` used to drop elements out of
-       Safari's accessibility tree and that is exactly the kind of thing that
-       would pass here and be broken on the phone. */
-    flex-direction: row;
-    flex-wrap: wrap;
-    justify-content: center;
-  }
+  .sidebar-tools,
   .theme-picker { display: contents; }
-  /* The tap targets stay 40px -- that is a finger{ padding: 6px 4px; }
 }
 
 /* The threshold controls: a field and up to three buttons that must not wrap

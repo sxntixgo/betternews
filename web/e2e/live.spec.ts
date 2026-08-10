@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { chromium, expect, test } from '@playwright/test';
 
 /**
  * End to end, against the running stack.
@@ -11,10 +11,22 @@ import { expect, test } from '@playwright/test';
  *   export BN_E2E_TOKEN=$(../scripts/e2e-token.sh)
  *   npx playwright test --project=live
  *
+ * One test needs the *deployed* stack rather than the dev server, because it is
+ * about the production bundle and the Flask-rendered pages:
+ *
+ *   BN_E2E_TOKEN=unused BN_E2E_ORIGIN=https://news.lan \
+ *     npx playwright test --project=live --grep "service worker"
+ *
  * Skips loudly rather than silently when the token is absent: a live suite that
  * quietly passes with nothing running is worse than no live suite.
  */
 const TOKEN = process.env.BN_E2E_TOKEN;
+// The *deployed* origin, e.g. https://news.lan. Separate from `baseURL`, which
+// points at the Vite dev server: that proxies only `/api`, so it never serves
+// Flask's `/login`, and `registerServiceWorker()` is production-only so no
+// worker exists there either. A service-worker test against the dev server
+// would pass while proving nothing.
+const ORIGIN = process.env.BN_E2E_ORIGIN;
 const USER = process.env.BN_E2E_USER;
 const PASS = process.env.BN_E2E_PASS;
 
@@ -119,3 +131,51 @@ async function signIn(page: import('@playwright/test').Page) {
   await page.locator('.signin button').click();
   await page.waitForSelector('.article-row', { timeout: 30_000 });
 }
+
+test.describe('the deployed stack', () => {
+  test.skip(!ORIGIN, 'set BN_E2E_ORIGIN=https://news.lan — needs the real build');
+
+  test('signing out does not take the SPA service worker with it', async () => {
+    // `templates/base.html` clears the pre-cut-over worker, which lived under
+    // /static/. It used to do that by unregistering everything
+    // `getRegistrations()` returned -- which is every registration for the
+    // *origin*, and Caddy serves that page and the SPA from the same one. So
+    // visiting /login destroyed the SPA's own worker.
+    //
+    // It self-heals on the next SPA load, which is exactly why it survived for
+    // months: nothing looked broken, the offline shell just kept evaporating.
+    //
+    // Only reproducible here. The mocked projects never reach Flask, and the
+    // dev server serves neither the production bundle nor `/login`.
+    // Its own browser, with `--ignore-certificate-errors`. The stack serves a
+    // private CA, and `ignoreHTTPSErrors` is not enough: it covers page and
+    // subresource loads, but Chrome fetches a *service worker script* outside
+    // that override and refuses it with "An SSL certificate error occurred when
+    // fetching the script" -- so the worker never registers and the test would
+    // fail for a reason that has nothing to do with what it checks.
+    const browser2 = await chromium.launch({ args: ['--ignore-certificate-errors'] });
+    const context = await browser2.newContext({ ignoreHTTPSErrors: true });
+    const page = await context.newPage();
+    const workers = () => page.evaluate(() =>
+      navigator.serviceWorker.getRegistrations()
+        .then((rs) => rs.map((r) => (r.active ?? r.waiting ?? r.installing)?.scriptURL ?? '')));
+
+    try {
+      await page.goto(`${ORIGIN}/`);
+      await expect.poll(async () => (await workers()).some((u) => u.endsWith('/sw.js')),
+        { timeout: 20_000, message: 'the SPA never registered its service worker' })
+        .toBe(true);
+
+      await page.goto(`${ORIGIN}/login`);
+      // The unregister runs from an inline script on load, so give it a moment
+      // rather than racing it.
+      await page.waitForTimeout(1500);
+
+      expect((await workers()).some((u) => u.endsWith('/sw.js')),
+        'the login page unregistered the SPA service worker').toBe(true);
+    } finally {
+      await context.close();
+      await browser2.close();
+    }
+  });
+});

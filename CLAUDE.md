@@ -35,7 +35,19 @@ Flask app in Docker; Ollama on Windows host; **Postgres 16** in the `db` compose
   which returns every registration for the *origin*, and Caddy serves these pages
   and the SPA from the same one, so signing in destroyed the SPA's own worker.
   Self-healing, therefore invisible, therefore it survived for months.
-  `tests/test_auth.py` asserts the scoping.
+  `tests/test_auth.py` asserts the scoping, and `e2e/live.spec.ts` proves it
+  against the deployed stack:
+
+  ```
+  BN_E2E_TOKEN=unused BN_E2E_ORIGIN=https://news.lan \
+    npx playwright test --project=live --grep "service worker"
+  ```
+
+  That test needs its own browser launched with `--ignore-certificate-errors`.
+  The stack serves a private CA, and `ignoreHTTPSErrors` is **not** enough:
+  Chrome fetches a service-worker script outside that override and refuses it
+  with "An SSL certificate error occurred when fetching the script", so the
+  worker never registers and the test fails for the wrong reason.
 - `app/views/` — **what is left of the server-rendered UI: four routes.** `accounts.py` has `/login`, `/register`, `/logout`; `ops.py` has `/health`. Nothing else. A browser with no session needs somewhere to land that does not depend on the SPA bundle having loaded, and the container healthcheck curls a URL rather than holding a token. `tests/test_app_factory.py` asserts that set **exactly** — a fifth route creeping back is how two UIs start disagreeing again. Everything a reader does is `app/api/` plus the SPA in `web/`.
 - `app/presenters.py` — **what the reader sees**, decided once for every client: which headline after de-clickbait (`resolve_title`), which passages fold as older-news padding (`content_blocks`), reading time, the row → card mapping. Imports no Flask and touches no request context, enforced by `tests/test_presenters.py`, because a mobile client has neither. Put anything here that decides *what* is shown; leave *how* it is marked up to the templates. A view function that formats for display is in the wrong file.
 - `app/auth.py` — accounts, sessions, password rules and lockout. **No decorators and no request hooks**: every surviving HTML route is public, so they had nothing to guard, and `_force_password_change` pointed at a profile page that no longer exists. `@api_auth` / `@api_admin` do that job now.

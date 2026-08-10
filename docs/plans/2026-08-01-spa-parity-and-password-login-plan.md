@@ -1,5 +1,8 @@
 # SPA parity and password login
 
+> **✅ Completed — historical.** Delivered as PRs #50–#57. Kept as a record of
+> the reasoning behind the SPA cut-over and password login.
+
 ## Goal
 
 Two things, in this order because the first is small and the second is long:

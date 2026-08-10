@@ -15,9 +15,30 @@ export function Insights({ onClose }: { onClose: () => void }) {
   const [data, setData] = useState<InsightsData | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The field's own text, not the stored number: a controlled input that
+  // reformatted mid-typing would fight the reader over "0.4" vs "0.40".
+  const [draft, setDraft] = useState('');
 
-  const load = () => api.insights().then(setData).catch((e) => setError((e as Error).message));
+  const load = () => api.insights()
+    .then((d) => {
+      setData(d);
+      // Seed the field from whatever is in force, so "Set" without typing is a
+      // no-op rather than a way to store NaN.
+      setDraft(d.threshold.toFixed(2));
+    })
+    .catch((e) => setError((e as Error).message));
   useEffect(() => { void load(); }, []);
+
+  // One path for every way of changing it, so the note, the error and the
+  // reload cannot drift between the suggestion button and the manual one.
+  const apply = async (value: number) => {
+    setError(null);
+    try {
+      const { threshold } = await api.applyThreshold(value);
+      setNote(`Threshold set to ${threshold}.`);
+      await load();
+    } catch (e) { setError((e as Error).message); }
+  };
 
   return (
     <Modal onClose={onClose} ariaLabel="Insights" className="modal insights-screen">
@@ -69,17 +90,55 @@ export function Insights({ onClose }: { onClose: () => void }) {
                   A threshold of {data.suggestion.threshold.toFixed(2)} would
                   agree {data.suggestion.rate}% of the time.
                 </span>
-                <button onClick={async () => {
-                  setError(null);
-                  try {
-                    const { threshold } = await api.applyThreshold(data.suggestion!.threshold);
-                    setNote(`Threshold set to ${threshold}.`);
-                    await load();
-                  } catch (e) { setError((e as Error).message); }
-                }}>
+                <button onClick={() => void apply(data.suggestion!.threshold)}>
                   Use it
                 </button>
               </div>
+            )}
+
+            {/* Set it directly, reset it, or undo the last change. "Use it"
+                above was the only way to move this number, which made a
+                suggestion that hid everything a one-way door: the old value is
+                overwritten, and a reader looking at an empty list has no
+                control left to fix it with. */}
+            <div className="settings-actions threshold-controls">
+              <label htmlFor="threshold-input">Threshold</label>
+              <input
+                id="threshold-input"
+                type="number"
+                min="0"
+                max="1"
+                step="0.05"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+              />
+              <button
+                disabled={!Number.isFinite(parseFloat(draft))}
+                onClick={() => void apply(parseFloat(draft))}
+              >
+                Set
+              </button>
+              <button
+                disabled={data.threshold === data.threshold_default}
+                onClick={() => void apply(data.threshold_default)}
+              >
+                Reset to default ({data.threshold_default.toFixed(2)})
+              </button>
+              {data.threshold_previous !== null
+                && data.threshold_previous !== data.threshold && (
+                <button onClick={() => void apply(data.threshold_previous!)}>
+                  Undo — back to {data.threshold_previous.toFixed(2)}
+                </button>
+              )}
+            </div>
+            {/* The number alone does not tell you the list is about to empty.
+                This is the state a reader actually got stuck in. */}
+            {data.histogram.length > 0
+              && data.histogram.every((b) => b.hi <= data.threshold || b.n === 0) && (
+              <p className="feed-error">
+                Every scored article is below this threshold, so the reading list
+                will be empty. Lower it, then use “Rescore hidden”.
+              </p>
             )}
 
             <h3>By feed</h3>

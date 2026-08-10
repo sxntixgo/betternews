@@ -1,5 +1,9 @@
 # Better News — Presenter extraction and view split
 
+> **✅ Completed — historical.** Presenter extraction and the view split both
+> shipped: `app/presenters.py` exists and is guarded by `tests/test_presenters.py`,
+> which asserts it imports no Flask. Kept as a record of the reasoning.
+
 Preparation for a second client. Both steps are worth doing on their own merits;
 neither commits us to the mobile app, and neither changes a single URL.
 

@@ -1,5 +1,9 @@
 # Planned Improvements
 
+> **✅ Completed — historical.** Every item here shipped. Superseded by
+> [`improvements-next.md`](improvements-next.md). Kept as a record of what was
+> decided and why; do not plan from it.
+
 ## Bug Fixes
 - [x] Fix `poll_all_feeds` and `run_pipeline` running synchronously in request handler (blocks Flask worker)
 - [x] Ollama timeout (currently 60s) too short for 8b+ models on a remote machine — make it configurable via env var

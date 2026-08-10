@@ -20,10 +20,8 @@ COPY templates/ ./templates/
 COPY scripts/ ./scripts/
 COPY migrations/ ./migrations/
 COPY alembic.ini .
-COPY create_icons.py .
 
 # Generate placeholder PWA icons if not present
-RUN python create_icons.py
 
 RUN mkdir -p /app/data && chown appuser:appuser /app/data
 

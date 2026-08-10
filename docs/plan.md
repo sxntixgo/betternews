@@ -1,5 +1,11 @@
 # AI RSS Reader — Implementation Plan
 
+> **✅ Completed — historical.** The original build plan; the app it describes
+> exists. Kept as a record of the original design decisions.
+>
+> ⚠️ Its "REQUIRED SUB-SKILL" line names a `superpowers:` skill that is not in
+> use here. Ignore it.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build a self-hosted, single-user RSS reader that ranks articles by personal relevance using a local LLM (Ollama), runs in Docker on a Windows gaming PC, and is accessed as a PWA from an iPhone.

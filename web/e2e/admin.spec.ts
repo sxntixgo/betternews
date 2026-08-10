@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { mockApi, signedIn } from './fixtures';
+import { mockAdmin, mockApi, signedIn } from './fixtures';
 
 async function open(page: import('@playwright/test').Page, command: string, selector: string) {
   await page.keyboard.press('Control+k');
@@ -135,4 +135,68 @@ test('recording is off until it is switched on', async ({ page }) => {
   await expect(toggle).not.toBeChecked();
   await toggle.click();
   await expect(toggle).toBeChecked();
+});
+
+test.describe('the threshold is reversible', () => {
+  test.beforeEach(async ({ page }) => {
+    await signedIn(page);
+    await mockApi(page);
+    await mockAdmin(page);
+    await page.goto('/');
+    await page.waitForSelector('.article-row');
+    await open(page, 'your stats', '.insights-screen');
+  });
+
+  test('it can be set directly, not only adopted from a suggestion', async ({ page }) => {
+    // "Use it" was the only control that moved this number. Adopting a
+    // suggestion that hid every article was therefore a one-way door: the old
+    // value is overwritten, and a reader staring at an empty list had nothing
+    // left to fix it with.
+    const sent: number[] = [];
+    await page.route('**/api/v1/insights/threshold', async (r) => {
+      sent.push((r.request().postDataJSON() as { threshold: number }).threshold);
+      await r.fulfill({ json: { threshold: 0.2 } });
+    });
+
+    await page.locator('#threshold-input').fill('0.2');
+    // `exact`: "Set" also substring-matches "Server settings" in the drawer
+    // behind this dialog, and "Reset to default" beside it.
+    await page.getByRole('button', { name: 'Set', exact: true }).click();
+    await expect.poll(() => sent).toEqual([0.2]);
+  });
+
+  test('reset goes to the default, undo goes to the previous value', async ({ page }) => {
+    const sent: number[] = [];
+    await page.route('**/api/v1/insights/threshold', async (r) => {
+      sent.push((r.request().postDataJSON() as { threshold: number }).threshold);
+      await r.fulfill({ json: { threshold: 0.35 } });
+    });
+
+    await expect(page.getByRole('button', { name: /Undo — back to 0\.55/ })).toBeVisible();
+    await page.getByRole('button', { name: /Undo — back to 0\.55/ }).click();
+    await expect.poll(() => sent).toEqual([0.55]);
+
+    // The fixture's current value *is* the default, so reset has nothing to do
+    // and says so rather than sending a no-op request.
+    await expect(page.getByRole('button', { name: /Reset to default/ })).toBeDisabled();
+  });
+
+  test('a threshold that hides everything says so', async ({ page }) => {
+    // The number alone does not tell you the list is about to empty. This is
+    // the state a reader actually got stuck in.
+    await page.route('**/api/v1/insights', (r) => r.fulfill({ json: {
+      threshold: 0.99, threshold_default: 0.35, threshold_previous: 0.35,
+      histogram: [{ lo: 0.3, hi: 0.35, n: 120 }, { lo: 0.35, hi: 0.4, n: 80 }],
+      agreement: { votes: 0, agreed: 0, rate: null, likes: 0, dislikes: 0,
+                   likes_ok: 0, dislikes_ok: 0 },
+      suggestion: null, per_feed: [], per_topic: [],
+      pipeline: { unscored: 0, unsummarized: 0, hidden: 200, ready: 0, total: 200 },
+      runs: [], llm_error: null,
+    } }));
+    await page.reload();
+    await page.waitForSelector('.article-row');
+    await open(page, 'your stats', '.insights-screen');
+
+    await expect(page.locator('.insights-screen')).toContainText('will be empty');
+  });
 });

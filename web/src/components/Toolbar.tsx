@@ -135,7 +135,7 @@ export function Toolbar({
           open state only ever means anything at phone width -- which is why it
           is CSS that decides, not a viewport read in JavaScript. */}
       <button
-        className="btn-icon search-toggle"
+        className="search-toggle"
         aria-label="Search articles"
         aria-expanded={searchOpen}
         title="Search articles"

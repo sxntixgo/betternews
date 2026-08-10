@@ -332,6 +332,12 @@ export interface PipelineRun {
 
 export interface Insights {
   threshold: number;
+  /** What `threshold` falls back to when nothing is stored. */
+  threshold_default: number;
+  /** What it was before the last change, or null if it has never changed.
+   *  One step, not a history: this exists so "that hid everything" is
+   *  reversible. */
+  threshold_previous: number | null;
   histogram: HistogramBucket[];
   agreement: Agreement;
   /** null with no votes: a suggestion from no data is a number with no meaning. */

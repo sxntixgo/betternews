@@ -1,5 +1,11 @@
 # Better News — pagination, API, SPA
 
+> **⚠️ Outdated — parts of this are now wrong.** The pagination and API work
+> shipped, but **§B.4 was reversed**: it said settings, admin and insights would
+> never be ported to the API, and they since were — the API now covers
+> everything (see `CLAUDE.md`). Kept as a record, but do not treat any statement
+> here as current.
+
 Three phases, in the order they must happen. Each is useful on its own; each is
 a precondition for the next.
 

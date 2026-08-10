@@ -21,8 +21,10 @@ is listed anyway, marked by origin, because it is the same job and the same
 risk. Phase 1.4 is not debt at all: it is a live bug the scan turned up, and it
 is why Phase 1 goes first.
 
-**Nothing in this plan has been done yet.** Every file named below is still in
-the tree.
+**Status: executed.** Phases 1, 2, 3.1 and 3.2 and 4 are done. Phase 3.3 was
+decided: **keep both phone-sized projects.** Phase 2.1 took the second option
+from the open questions — the surviving rules moved to a new `static/auth.css`
+and `style.css` was deleted outright.
 
 ---
 

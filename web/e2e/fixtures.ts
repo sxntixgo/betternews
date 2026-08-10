@@ -221,6 +221,8 @@ export async function mockAdmin(page: Page) {
   await page.route('**/api/v1/insights', (r) => r.fulfill({
     json: {
       threshold: 0.35,
+      threshold_default: 0.35,
+      threshold_previous: 0.55,
       histogram: Array.from({ length: 20 }, (_, i) => ({
         lo: i / 20, hi: (i + 1) / 20, n: i === 7 ? 90 : i * 3,
       })),

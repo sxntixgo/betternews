@@ -133,6 +133,13 @@ def insights_all():
                       or SCORE_THRESHOLD)
     return jsonify({
         "threshold": threshold,
+        # What it falls back to, and what it was before the last change. A
+        # threshold is one click to raise and, until now, nothing to lower:
+        # adopting a suggestion that hid everything left no way back, because
+        # `set_setting` overwrites and the old number was simply gone.
+        "threshold_default": SCORE_THRESHOLD,
+        "threshold_previous": _float_or_none(
+            get_setting(db, "score_threshold_previous", "")),
         "histogram": [dict(r) for r in insights.score_histogram(db)],
         "agreement": insights.agreement(db, threshold),
         # None when nothing has been voted on: a suggestion from no data would
@@ -145,6 +152,13 @@ def insights_all():
         # A run reporting 0 scored in ~0s is a failing run, not an idle one.
         "llm_error": pipeline.last_llm_error(db),
     })
+
+
+def _float_or_none(raw: str) -> float | None:
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
 
 
 def _run_row(r) -> dict:
@@ -171,6 +185,12 @@ def apply_threshold():
         return error("threshold must be a number.", 400)
     if not 0.0 <= value <= 1.0:
         return error("threshold must be between 0 and 1.", 400)
+    # Remember what it was, so the change is reversible. Only one step back:
+    # this is an undo for "that hid everything", not a history, and a stack
+    # would be a feature nobody asked for.
+    previous = get_setting(db, "score_threshold", "")
+    if previous and previous != str(value):
+        set_setting(db, "score_threshold_previous", previous)
     set_setting(db, "score_threshold", str(value))
     db.commit()
     return jsonify({"threshold": value})

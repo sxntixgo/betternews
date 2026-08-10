@@ -1,5 +1,9 @@
 # Planned Improvements — Next
 
+> **✅ Completed — historical.** All items shipped except the high-score
+> notification, carried into [`feature-plan.md`](feature-plan.md). Kept as a
+> record; do not plan from it.
+
 Successor to `docs/improvements.md`. Items here are scoped, not yet started.
 
 ## Mobile / Touch UX

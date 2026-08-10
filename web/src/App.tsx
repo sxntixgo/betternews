@@ -399,35 +399,44 @@ export default function App() {
           <section className="sidebar-section">
             <h2 className="sidebar-section-title">Settings</h2>
 
-            <button
-              className="switch sidebar-switch"
-              role="switch"
-              aria-checked={density === 'compact'}
-              aria-label="Compact list"
-              title="Compact list — hides summaries and tags"
-              onClick={() => {
-                const next = density === 'compact' ? 'comfortable' : 'compact';
-                setDensity(next); setDensityState(next);
-              }}
-            >
+            <div className="sidebar-row">
               <span className="switch-label">Compact</span>
-              <span className="switch-track"><span className="switch-knob" /></span>
-            </button>
+              <button
+                className="switch"
+                role="switch"
+                aria-checked={density === 'compact'}
+                aria-label="Compact list"
+                title="Compact list — hides summaries and tags"
+                onClick={() => {
+                  const next = density === 'compact' ? 'comfortable' : 'compact';
+                  setDensity(next); setDensityState(next);
+                }}
+              >
+                <span className="switch-track"><span className="switch-knob" /></span>
+              </button>
+            </div>
 
             {/* One control with two states, not two buttons that happen to be
                 adjacent. Date is the default and the left-hand position, so the
                 knob resting at "off" means newest-first. */}
-            <button
-              className="switch sidebar-switch"
-              role="switch"
-              aria-checked={sort === 'score'}
-              aria-label="Sort by score instead of date"
-              onClick={() => setSort(sort === 'score' ? 'date' : 'score')}
-            >
-              <span className="switch-label">Date</span>
-              <span className="switch-track"><span className="switch-knob" /></span>
-              <span className="switch-label">Score</span>
-            </button>
+            {/* "Date" used to sit hard left with the knob and "Score" pushed to
+                the right edge, so the row read as three separate things. The
+                two state names belong beside the knob that moves between
+                them; "Sort" is the row's label, like every other row here. */}
+            <div className="sidebar-row">
+              <span className="switch-label">Sort</span>
+              <button
+                className="switch"
+                role="switch"
+                aria-checked={sort === 'score'}
+                aria-label="Sort by score instead of date"
+                onClick={() => setSort(sort === 'score' ? 'date' : 'score')}
+              >
+                <span className="switch-label">Date</span>
+                <span className="switch-track"><span className="switch-knob" /></span>
+                <span className="switch-label">Score</span>
+              </button>
+            </div>
 
             {/* Three icons, not a dropdown: it is a three-state preference used
                 often enough that opening a menu to change it is a step too many.

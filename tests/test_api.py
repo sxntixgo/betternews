@@ -1658,6 +1658,48 @@ def test_applying_a_threshold_sticks(client, token):
     assert client.get(f"{API}/insights", headers=auth(token)).get_json()["threshold"] == 0.55
 
 
+def test_changing_the_threshold_is_reversible(client, token):
+    """Raising it is one click; there was nothing that lowered it again.
+
+    A reader adopted a suggested threshold, every article fell below it, and the
+    reading list emptied -- at which point the only control that moved this
+    number was a suggestion button that would set the same value again. The old
+    number was gone, because `set_setting` overwrites.
+    """
+    from app.pipeline import SCORE_THRESHOLD
+
+    first = client.get(f"{API}/insights", headers=auth(token)).get_json()
+    assert first["threshold_default"] == SCORE_THRESHOLD
+    # Never changed, so there is nothing to go back to.
+    assert first["threshold_previous"] is None
+
+    client.post(f"{API}/insights/threshold", headers=auth(token), json={"threshold": 0.55})
+    client.post(f"{API}/insights/threshold", headers=auth(token), json={"threshold": 0.95})
+
+    body = client.get(f"{API}/insights", headers=auth(token)).get_json()
+    assert body["threshold"] == 0.95
+    assert body["threshold_previous"] == 0.55      # one step back, not a history
+    assert body["threshold_default"] == SCORE_THRESHOLD
+
+    # And the way back works.
+    client.post(f"{API}/insights/threshold", headers=auth(token),
+                json={"threshold": body["threshold_previous"]})
+    assert client.get(f"{API}/insights",
+                      headers=auth(token)).get_json()["threshold"] == 0.55
+
+
+def test_setting_the_same_threshold_twice_does_not_erase_the_way_back(client, token):
+    """Otherwise pressing "Use it" twice makes previous == current, and the undo
+    button becomes a button that does nothing."""
+    client.post(f"{API}/insights/threshold", headers=auth(token), json={"threshold": 0.55})
+    client.post(f"{API}/insights/threshold", headers=auth(token), json={"threshold": 0.95})
+    client.post(f"{API}/insights/threshold", headers=auth(token), json={"threshold": 0.95})
+
+    body = client.get(f"{API}/insights", headers=auth(token)).get_json()
+    assert body["threshold"] == 0.95
+    assert body["threshold_previous"] == 0.55
+
+
 def test_an_insights_threshold_outside_zero_to_one_is_refused(client, token):
     assert client.post(f"{API}/insights/threshold", headers=auth(token),
                        json={"threshold": 1.5}).status_code == 400

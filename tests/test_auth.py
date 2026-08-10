@@ -268,19 +268,31 @@ def test_signed_out_pages_render_without_the_sidebar(anon_client, path):
     assert "site-layout-bare" in body
 
 
+@pytest.mark.parametrize("path", ["/login", "/register"])
+def test_signed_out_pages_only_unregister_the_old_static_worker(anon_client, path):
+    """These pages must not take the SPA's service worker with them.
+
+    They cleared the pre-cut-over worker, which was scoped to /static/, by
+    calling `getRegistrations()` and unregistering everything it returned. That
+    returns every registration for the *origin*, and Caddy serves these pages
+    and the SPA from the same one -- so signing in destroyed the SPA's own
+    worker, the offline shell went with it, and service-worker behaviour on the
+    origin became nondeterministic. It self-healed on the next load, which is
+    why it went unnoticed for so long.
+    """
+    body = anon_client.get(path).get_data(as_text=True)
+    if "getRegistrations" not in body:
+        return                      # fine: nothing to scope
+    assert "/static/" in body, (
+        f"{path} unregisters service workers without scoping to /static/"
+    )
+
+
 def test_login_page_returns_200_not_a_redirect(anon_client):
     """The reported symptom: /login redirecting to /login."""
     r = anon_client.get("/login")
     assert r.status_code == 200
     assert "Location" not in r.headers
-
-
-def test_htmx_request_to_login_is_not_redirected(anon_client):
-    """If HTMX somehow asks for /login, answering with another HX-Redirect to
-    /login is what closes the loop."""
-    r = anon_client.get("/login", headers={"HX-Request": "true"})
-    assert r.status_code == 200
-    assert "HX-Redirect" not in r.headers
 
 
 # ── API tokens on the profile page ────────────────────────────────────────────

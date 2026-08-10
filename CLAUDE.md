@@ -23,6 +23,19 @@ Flask app in Docker; Ollama on Windows host; **Postgres 16** in the `db` compose
 - `app/api/settings.py` — the seven settings panels, admin-only. **Fourteen bespoke endpoints on purpose, not a generic `PUT /settings/{key}`**: half of them are not stores at all (`ollama/test` probes without saving, `retention/prune` deletes rows, `models/recommended` computes, `topics` writes a different table), so a generic endpoint would need a special case for most of them and would accept a typo'd key nothing ever reads. `settings/reader` covers four HTML panels in one call — one screen's worth of toggles, and a client making four requests to draw one section would be paying for the server's template layout. Both front ends read the same `settings` table, so they cannot disagree while both exist.
 - `app/api/admin.py` — user admin, insights, and the Ollama call log. The guard rails are re-implemented rather than shared with the old HTML routes (which returned fragments and took form fields), but the *rules* must not diverge and are asserted separately: the last admin cannot be demoted or deleted, and you cannot delete yourself. `GET /insights` answers all seven panels in one call — they are only ever read together.
 - **The API now covers everything.** `docs/api-and-spa-plan.md` B.4 said settings, admin and insights would never be ported; that was reversed by `docs/plans/2026-08-01-spa-parity-and-password-login-plan.md`, which is done.
+- `static/auth.css` — the **only** stylesheet the server-rendered pages use, and
+  it exists because `/login` has to render before the SPA bundle does. It was
+  split out of a 990-line `style.css` that was the *old reading UI's* stylesheet:
+  137 of its 150 class names were rendered by nothing, and 135 of those were also
+  defined in `web/src/App.css`. The old reader existed in two stylesheets, one
+  live and one dead and still served. Keep this file to what `templates/` uses.
+- `templates/base.html` unregisters service workers, and **the scope is
+  load-bearing**. It clears the pre-cut-over worker, which lived under
+  `/static/`. It used to call `getRegistrations()` and unregister everything —
+  which returns every registration for the *origin*, and Caddy serves these pages
+  and the SPA from the same one, so signing in destroyed the SPA's own worker.
+  Self-healing, therefore invisible, therefore it survived for months.
+  `tests/test_auth.py` asserts the scoping.
 - `app/views/` — **what is left of the server-rendered UI: four routes.** `accounts.py` has `/login`, `/register`, `/logout`; `ops.py` has `/health`. Nothing else. A browser with no session needs somewhere to land that does not depend on the SPA bundle having loaded, and the container healthcheck curls a URL rather than holding a token. `tests/test_app_factory.py` asserts that set **exactly** — a fifth route creeping back is how two UIs start disagreeing again. Everything a reader does is `app/api/` plus the SPA in `web/`.
 - `app/presenters.py` — **what the reader sees**, decided once for every client: which headline after de-clickbait (`resolve_title`), which passages fold as older-news padding (`content_blocks`), reading time, the row → card mapping. Imports no Flask and touches no request context, enforced by `tests/test_presenters.py`, because a mobile client has neither. Put anything here that decides *what* is shown; leave *how* it is marked up to the templates. A view function that formats for display is in the wrong file.
 - `app/auth.py` — accounts, sessions, password rules and lockout. **No decorators and no request hooks**: every surviving HTML route is public, so they had nothing to guard, and `_force_password_change` pointed at a profile page that no longer exists. `@api_auth` / `@api_admin` do that job now.

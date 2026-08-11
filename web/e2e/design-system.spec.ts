@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
-import { mockAdmin, mockApi, openDrawer, signedIn } from './fixtures';
+import { article, mockAdmin, mockApi, openDrawer, signedIn } from './fixtures';
 
 // ── the token discipline ──────────────────────────────────────────────────────
 
@@ -234,38 +234,50 @@ test('on a phone the list is not flush against the screen edge', async ({ page, 
   expect(x).toBeGreaterThanOrEqual(8);
 });
 
-test('on a desktop the card metadata is a line, not a column', async ({ page, isMobile }) => {
+test('on a desktop the card is three rows, not columns', async ({ page, isMobile }) => {
   test.skip(isMobile, 'desktop only');
   await signedIn(page);
   await mockApi(page);
   await page.goto('/');
   await page.waitForSelector('.article-row');
 
-  // The reading time, the source, the age and the Open link used to share a
-  // 72px-wide column with the thumbnail, which stacked them into a 96px tower
-  // that set the card's height while the reading column beside it ran short.
-  // They belong on one line under the summary. Measured by height rather than
-  // by rule, because the stacking came from the column's width, not from a
-  // property any assertion could name.
-  const meta = await page.locator('.article-row .article-left').first().boundingBox();
-  expect(meta!.height).toBeLessThan(32);
-  expect(meta!.width).toBeGreaterThan(100);
+  // This asserted the old shape: a 72px column holding the reading time, the
+  // source, the age and the Open link beside the thumbnail. The card is block
+  // flow now -- a floated photo the headline wraps, then a meta row, then the
+  // tags -- so the thing to hold is that the middle row stays one line. It
+  // carries six items, and it wrapped to three lines the first time it did.
+  const meta = (await page.locator('.article-row .article-meta-row').first().boundingBox())!;
+  expect(meta.height, 'the meta row wrapped').toBeLessThan(48);
+
+  // And the rows are in order, none of them overlapping.
+  const title = (await page.locator('.article-row .article-title').first().boundingBox())!;
+  const chips = (await page.locator('.article-row .topic-chips').first().boundingBox())!;
+  expect(title.y).toBeLessThan(meta.y);
+  expect(meta.y + meta.height).toBeLessThanOrEqual(chips.y + 1);
 });
 
-test('compact keeps the tags on a desktop, where they fit whole', async ({ page, isMobile }) => {
+test('compact drops the tags at every width', async ({ page, isMobile }) => {
   test.skip(isMobile, 'desktop only');
   await signedIn(page);
   await mockApi(page);
+  // The default fixture has no `kind`, and `news` is deliberately not rendered.
+  await page.route('**/api/v1/articles?*', (r) => r.fulfill({ json: {
+    articles: [article(1, { kind: 'fixture', topics: ['boca-juniors', 'football'] })],
+    next_offset: null, diagnosis: null,
+  } }));
   await page.goto('/');
   await page.waitForSelector('.article-row');
   await page.evaluate(() => document.documentElement.setAttribute('data-density', 'compact'));
 
-  // Compact means "drop the summary". Hiding the tags too was a phone-sized
-  // judgement -- there they truncate to `copa-libert…` and read as clutter --
-  // and the rule was written unscoped, so it also stripped them from a desktop
-  // with 900px of room. The tag is what explains the score.
+  // The reverse of what this asserted. Keeping desktop tags in compact was
+  // right when the tags shared a line with the vote buttons and only a phone
+  // ran out of room; now they have a row of their own at every width, so
+  // hiding them is a whole line back -- two on a six-topic article -- and that
+  // is what compact is for.
   await expect(page.locator('.article-row .article-summary').first()).toBeHidden();
-  await expect(page.locator('.article-row .topic-chip').first()).toBeVisible();
+  await expect(page.locator('.article-row .topic-chip').first()).toBeHidden();
+  // The kind survives: one short word, and the one that explains the score.
+  await expect(page.locator('.article-row .kind-chip').first()).toBeVisible();
 });
 
 test.describe('the drawer is five labelled sections', () => {

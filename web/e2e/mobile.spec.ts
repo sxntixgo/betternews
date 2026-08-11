@@ -404,10 +404,25 @@ test.describe('photos', () => {
     const box = (await thumb.boundingBox())!;
     expect(box.width).toBe(56);
 
-    // As a column it must not make the card taller. 139px is what the card
-    // measured before the photo went back.
-    const card = (await page.locator('.article-row').first().boundingBox())!;
-    expect(card.height).toBeLessThan(145);
+    // As a column it must not make the card taller -- measured against the same
+    // card without a photo, in this run. An absolute pixel figure is the wrong
+    // assertion here: CI has different fonts, the headline wraps differently,
+    // and 139px locally was 158px there. The claim is "costs no height", and
+    // that is a comparison.
+    const withPhoto = (await page.locator('.article-row').first().boundingBox())!.height;
+
+    await page.route('**/api/v1/articles?*', (r) => r.fulfill({ json: {
+      articles: [1, 2, 3].map((i) => article(i, {
+        thumbnail_url: null, kind: 'fixture',
+        topics: ['boca-juniors', 'copa-libertadores', 'football'],
+      })),
+      next_offset: null, diagnosis: null,
+    } }));
+    await page.reload();
+    await page.waitForSelector('.article-row');
+    const without = (await page.locator('.article-row').first().boundingBox())!.height;
+
+    expect(withPhoto, 'the photo made the card taller').toBeLessThanOrEqual(without);
   });
 
   test('the photo displaces the tags, not the kind', async ({ page, isMobile }) => {

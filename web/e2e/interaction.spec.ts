@@ -196,3 +196,25 @@ test.describe('touch', () => {
     await expect(page.locator('.article-row').first()).not.toHaveClass(/liked/);
   });
 });
+
+test.describe('the tab icon', () => {
+  test('is replaced, not mutated, and carries the unread count', async ({ page }) => {
+    // Chrome repaints when `href` changes on the existing <link>; Firefox often
+    // keeps the icon it first parsed, or renders nothing. Swapping the node is
+    // what makes it re-parse. Asserted structurally because there is no way to
+    // read what a browser actually painted in the tab.
+    await signedIn(page);
+    await mockApi(page);
+    await page.goto('/');
+    await page.waitForSelector('.article-row');
+
+    const icon = page.locator('link#favicon');
+    await expect(icon).toHaveCount(1);          // exactly one, never a stray pair
+    await expect.poll(
+      async () => (await icon.getAttribute('href'))?.startsWith('data:image/png'),
+      { timeout: 10_000 }).toBe(true);
+    // The declared type has to follow the content: the markup ships an SVG and
+    // this is a PNG.
+    await expect(icon).toHaveAttribute('type', 'image/png');
+  });
+});

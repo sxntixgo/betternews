@@ -45,8 +45,18 @@ export function drawFavicon(unread: number): void {
     ctx.fillText(unread > 99 ? '99+' : String(unread), 24, 9);
   }
 
-  link.type = 'image/png';
-  link.href = canvas.toDataURL('image/png');
+  // Replace the element; do not mutate it. Chrome repaints the tab when `href`
+  // changes on the existing <link>, and Firefox often does not -- it keeps the
+  // icon it first parsed, or renders nothing, which is what "the favicon looks
+  // broken in Firefox" turned out to be. Swapping the node makes the browser
+  // parse a fresh declaration, and the `type` has to change with it: this one
+  // is a PNG where the markup declared an SVG.
+  const fresh = document.createElement('link');
+  fresh.id = 'favicon';
+  fresh.rel = 'icon';
+  fresh.type = 'image/png';
+  fresh.href = canvas.toDataURL('image/png');
+  link.replaceWith(fresh);
 
   // Installed as a PWA, the OS badge is the one people actually see.
   const nav = navigator as Navigator & {

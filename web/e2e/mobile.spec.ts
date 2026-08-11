@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { article, mockAdmin, mockApi, openDrawer, signedIn } from './fixtures';
+import { DETAIL, article, mockAdmin, mockApi, openDrawer, signedIn } from './fixtures';
 
 /**
  * The SPA on a phone.
@@ -373,5 +373,85 @@ test.describe('the top bar and the drawer fit the screen', () => {
       expect(box.y, `${name} was above the viewport`).toBeGreaterThanOrEqual(0);
     }
     await expect(page.getByRole('radiogroup', { name: 'Theme' })).toBeAttached();
+  });
+});
+
+test.describe('photos', () => {
+  const PIXEL = 'data:image/gif;base64,R0lGODlhAQABAIABAP8AAP///yH5BAEAAAEALAAAAAABAAEAAAICTAEAOw==';
+
+  test.beforeEach(async ({ page }) => {
+    await signedIn(page);
+    await mockApi(page);
+    await page.route('**/api/v1/articles?*', (r) => r.fulfill({ json: {
+      articles: [1, 2, 3].map((i) => article(i, {
+        thumbnail_url: PIXEL,
+        kind: 'fixture',
+        topics: ['boca-juniors', 'copa-libertadores', 'football'],
+      })),
+      next_offset: null, diagnosis: null,
+    } }));
+    await page.goto('/');
+    await page.waitForSelector('.article-row');
+  });
+
+  test('a phone shows the photo, and it costs no height', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'phone only');
+    // Hidden here during the compaction work -- "the tallest thing on the card,
+    // for the least information" -- which was true of a 72px thumbnail stacked
+    // above the text and not of a 56px one beside it.
+    const thumb = page.locator('.article-row .article-thumb').first();
+    await expect(thumb).toBeVisible();
+    const box = (await thumb.boundingBox())!;
+    expect(box.width).toBe(56);
+
+    // As a column it must not make the card taller. 139px is what the card
+    // measured before the photo went back.
+    const card = (await page.locator('.article-row').first().boundingBox())!;
+    expect(card.height).toBeLessThan(145);
+  });
+
+  test('the photo displaces the tags, not the kind', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'phone only');
+    // A 356px row cannot carry a photo, the meta, the tags and three 40px vote
+    // buttons: the tags were left ~42px and rendered as "f…", which is noise.
+    // The kind survives because it is the one that explains the score.
+    const row = page.locator('.article-row').first();
+    await expect(row.locator('.kind-chip')).toHaveText('fixture');
+    await expect(row.locator('.topic-chip').first()).toBeHidden();
+
+    // And nothing overlaps: the chips used to paint under the vote buttons,
+    // because `justify-self: start` sized them to content, not to their track.
+    const chips = (await row.locator('.topic-chips').boundingBox())!;
+    const actions = (await row.locator('.article-actions-inline').boundingBox())!;
+    expect(chips.x + chips.width, 'the chips ran under the vote buttons')
+      .toBeLessThanOrEqual(actions.x + 1);
+  });
+
+  test('a card with no photo keeps its tags', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'phone only');
+    // The trade above is bought by `:has()`, so it applies only where a photo
+    // actually takes the width.
+    await page.route('**/api/v1/articles?*', (r) => r.fulfill({ json: {
+      articles: [article(1, { thumbnail_url: null, topics: ['economy'] })],
+      next_offset: null, diagnosis: null,
+    } }));
+    await page.reload();
+    await page.waitForSelector('.article-row');
+    await expect(page.locator('.article-row .topic-chip').first()).toBeVisible();
+  });
+
+  test('the reader leads with the photo', async ({ page }) => {
+    // The detail endpoint is its own fixture; the list mock above does not
+    // reach it.
+    await page.route('**/api/v1/articles/*', (r) => {
+      if (r.request().method() !== 'GET') return r.fallback();
+      return r.fulfill({ json: { ...DETAIL, thumbnail_url: PIXEL } });
+    });
+    await page.locator('.article-title').first().click();
+    const lead = page.getByRole('dialog').locator('.modal-lead');
+    await expect(lead).toBeVisible();
+    // Its own image, not a body image: extraction is text-only, and the embed
+    // cards deliberately load nothing from a third party.
+    await expect(lead).toHaveAttribute('src', PIXEL);
   });
 });

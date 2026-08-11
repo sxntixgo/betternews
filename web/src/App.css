@@ -360,23 +360,11 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 .article-row {
   border-bottom: 1px solid var(--color-hairline);
   padding: 10px 0;
-  /* One layout at every width. The phone and the desktop had diverged into
-     genuinely different structures, and the desktop one stacked the reading
-     time, the source and the age into a 72px-wide, 96px-tall tower that set
-     the card's height and left the tags stranded to its right. */
-  display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr) auto;
-  grid-template-areas:
-    "thumb text text  actions"
-    "thumb meta chips chips";
-  column-gap: 12px;
-  row-gap: 3px;
-  align-items: start;
-  transition: background-color 0.25s ease, opacity 0.2s ease;
-  /* Horizontal swipe belongs to our like/dismiss handler; only let the browser
-     handle vertical pan on the row. Without this the page rubber-bands
-     horizontally on iOS while the row translates. */
-  touch-action: pan-y;
+  /* Block flow, not a grid. The photo floats and the headline and summary wrap
+     around it; the meta and the tags are rows below. The grid reserved a photo
+     column down the whole card whether or not there was a photo in it, and that
+     reservation is where the white space came from. */
+  position: relative;
 }
 .article-row.leaving {
   opacity: 0;
@@ -435,6 +423,10 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
    giant control. Everything here is undoing the user-agent button: it has to
    read as the headline it is, not as a control. */
 .article-title {
+  /* Inline, so its line boxes wrap around the floated photo. As the default
+     inline-block it is an atomic box: floats push it down whole, and the photo
+     ended up with a column of empty space beside it. */
+  display: inline;
   appearance: none;
   background: none;
   border: 0;
@@ -493,17 +485,18 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
   gap: 8px;
   min-width: 0;
 }
-.article-content { grid-area: text; min-width: 0; }
-.article-actions-inline { grid-area: actions; }
-.topic-chips { grid-area: chips; justify-self: start; align-self: center; }
-.article-thumb { grid-area: thumb; align-self: start; }
 
 .article-thumb {
-  width: 72px;
-  height: 72px;
+  /* Floated: the headline and summary wrap around it, and it only takes width
+     while there is an image to take it for. The grid column it replaced was
+     reserved on every card, photo or not. */
+  float: left;
+  width: 88px;
+  height: 88px;
   object-fit: cover;
   object-position: center;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
+  margin: 2px 12px 4px 0;
 }
 
 .article-content {
@@ -1099,96 +1092,27 @@ kbd {
 }
 
 @media (max-width: 720px) {
-  /* Compact reading list. Measured before: a card was 175px on a 664px screen,
-     so fewer than four fitted and the list was mostly scrolling. The height was
-     not where it looked -- the three vote buttons stacked into a 128px column,
-     and the content stacked four separate rows (title, chips, summary, and a
-     40px "Open" block in its own left column).
-     Two rows now: everything small on one line with the actions, then the text. */
-  .article-row {
-    display: grid;
-    /* Four columns: the thumbnail sits beside both rows rather than above
-       them, so it costs width and not height -- the compaction it was removed
-       for is untouched. */
-    grid-template-columns: auto auto minmax(0, 1fr) auto;
-    grid-template-areas:
-      "thumb text text  text"
-      "thumb meta chips actions";
-    align-items: center;
-    column-gap: 8px;
-    row-gap: 3px;
-    padding: 8px 0;
+  /* The card is one block-flow layout at every width now: a floated photo with
+     the headline and summary wrapping it, then a meta row, then the tags. The
+     four-column grid that used to live here is gone with the column it
+     positioned -- what remains are the phone-sized adjustments. */
+  .article-row { padding: 8px 0; }
+  /* Smaller here, and it earns its place: it is the thing that makes a story
+     recognisable at a glance while scrolling. */
+  .article-thumb {
+    width: 72px;
+    height: 72px;
+    margin: 2px 10px 4px 0;
   }
-  /* One line only. Two chips is what fits beside the time and the actions;
-     a third wrapped onto its own row and gave back the height this whole
-     layout exists to save. */
-  .topic-chips .pill:nth-child(n + 3) { display: none; }
-  .topic-chips {
-    grid-area: chips;
-    flex-wrap: nowrap;
-    overflow: hidden;
-    min-width: 0;
-    /* `justify-self: start` on the base rule sizes this to its content rather
-       than to its grid track, so it ignored the track entirely and painted
-       under the vote buttons. It has to fill the track for `overflow: hidden`
-       to have anything to clip against. */
-    justify-self: stretch;
-  }
-  /* Truncate each tag rather than letting the row clip one. Real topics are
-     nothing like the "economy" in the fixtures -- "copa-libertadores" and
-     "buenos-aires" are ordinary here, and container-level clipping cut them
-     mid-word at whatever column the edge happened to fall on. An ellipsis is
-     legible and looks deliberate; a slice does not. */
-  .topic-chips .pill {
-    /* 13ch fits every kind in the vocabulary whole -- "match-report" is the
-       longest at 12 -- and most topics too. Only the genuinely long ones like
-       "copa-libertadores" ellipsise, and they stay recognisable. */
-    max-width: 13ch;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    display: inline-block;
-    line-height: var(--pill-line-height);
-  }
+
+  /* Tags are no longer truncated. The 13ch cap and the two-chip limit were both
+     bought by the old single-line layout, where they competed with the vote
+     buttons for the same 356px; with a row of their own they wrap and fit
+     whole. "copa-libertadores" was rendering as "copa-libert…". */
   /* The kind earns more room: it is one of nine known words, and it is the one
      that says why the article scored what it did. */
-  .topic-chips .kind-chip { max-width: 13ch; }
 
-  .article-left {
-    grid-area: meta;
-    flex-direction: row;
-    align-items: center;
-    gap: 6px;
-    /* Not the desktop column's fixed 72px -- as a row it has to size to its
-       contents, or the Open link overflows and lands on top of the chips. */
-    width: auto;
-    min-width: 0;
-  }
-  /* Small, square and fixed. It was hidden here during the compaction work --
-     "the tallest thing on the card, for the least information" -- which was
-     true of a 72px thumbnail stacked above the text, and is not true of a 56px
-     one beside it: as a column it costs width, not height. A photo is how you
-     recognise a story you have already seen. */
-  .article-thumb {
-    display: block;
-    width: 56px;
-    height: 56px;
-    align-self: center;
-    object-fit: cover;
-  }
 
-  /* A 356px row cannot carry all of it. With a photo the budget is 56px of
-     thumbnail, ~114px of meta and 120px of vote buttons, which leaves the tags
-     about 42px -- and a tag rendered as "f…" is noise, not information. That
-     was the finding that shaped this whole meta line, so spending the photo's
-     width on it would be undoing it.
-     So on a card that has a photo: the topic tags and the reading time go, and
-     the `kind` stays. Kind is one word from a closed vocabulary and it is the
-     one that explains the score -- a fixture listing and a transfer story are
-     the same subject and opposite value. Cards with no photo keep everything,
-     which is what `:has()` is buying here. */
-  .article-row:has(.article-thumb) .topic-chip { display: none; }
-  .article-row:has(.article-thumb) .reading-time { display: none; }
   /* One line. The clock glyph and the number were wrapping onto separate
      lines, which made this the tallest thing in the meta row. */
   .reading-time {
@@ -1197,21 +1121,6 @@ kbd {
     margin-top: 0;
     white-space: nowrap;
     flex: none;
-  }
-  .article-left { flex-wrap: nowrap; }
-  /* Gone on a phone, and this is the trade that makes the tags legible. It was
-     ~75px of a ~366px row, and it duplicates the card itself: tapping anywhere
-     opens the reader, which carries its own "↗ Open in browser". Spending that
-     width on "copa-libert…" instead of "copa-…" is the better use -- a tag
-     truncated past recognition is noise, not information. */
-  .article-left .btn-external { display: none; }
-
-  /* Back to a row. As a column these were the tallest thing on the card. */
-  .article-actions-inline {
-    grid-area: actions;
-    flex-direction: row;
-    align-items: center;
-    gap: 0;
   }
   /* Still 40px. Shrinking these would buy 8px a card and cost the tap target
      someone deliberately set; the height came from stacking them, not their
@@ -1222,16 +1131,15 @@ kbd {
     padding: 4px 6px;
   }
 
-  .article-content { grid-area: text; min-width: 0; }
-
+  
   /* Two lines each. A third line of either is rarely what decides whether to
      open something, and it costs ~20px per card every time. */
-  .article-title,
-  .article-summary {
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
+  /* No `-webkit-box` clamp here any more. It is the only way to line-clamp,
+     and it makes the element atomic -- an atomic box does not wrap around a
+     float, it is pushed below it, which left the photo with a column of empty
+     space beside it. The summary is two or three sentences from the model, so
+     the clamp was rarely doing anything anyway. */
+  .article-summary { overflow: hidden; }
   /* Tighter leading on a phone. At 1.45 two lines of title and two of summary
      spend 12px purely on the gaps between them. */
   .article-title { -webkit-line-clamp: 2; line-height: 1.28; }
@@ -1241,8 +1149,7 @@ kbd {
   /* Chips join the meta line rather than claiming a row of their own. */
   .topic-chips { margin: 0; gap: 4px; }
   .topic-chips .pill { --pill-padding: 1px 6px; --pill-font-size: 10px; }
-  .original-title, .dup-note { display: none; }
-}
+  .original-title, .dup-note { display: none; }}
 
 /* Compact list. Measured on a 664px phone viewport: 139px per card to 101px,
    4.79 stories on screen to 6.55.
@@ -1256,9 +1163,11 @@ kbd {
    and it is what explains the score: a fixture listing and a transfer story are
    the same subject and opposite value to the reader. */
 [data-density='compact'] .article-summary { display: none; }
-@media (max-width: 720px) {
-  [data-density='compact'] .topic-chips .topic-chip { display: none; }
-}
+/* Compact drops the tags at every width. They have a row of their own now, so
+   hiding them saves a real line -- two, on an article with six topics. The kind
+   survives: it is one short word and it is what explains the score, which is
+   the thing you are still deciding by when the summary is gone. */
+[data-density='compact'] .topic-chips .topic-chip { display: none; }
 [data-density='compact'] .article-row { padding: 6px 0; }
 
 /* Source and age, on the meta line. Both are muted and small: they qualify the
@@ -1357,3 +1266,38 @@ kbd {
   border-radius: var(--radius-md);
   margin: 8px 0 12px;
 }
+
+/* Row two: everything you might act on, on one line, with the vote buttons
+   pushed to the far edge. `clear: both` so it starts below the photo rather
+   than wrapping around it -- this is a row, not part of the story. */
+.article-meta-row {
+  clear: both;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-top: 4px;
+}
+.article-meta-row .article-actions-inline {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+/* Row three: the tags get the full width, so they are never truncated by a
+   contest with the buttons. */
+.article-row .topic-chips {
+  clear: both;
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 6px 0 0;
+}
+
+/* Photos off. The card falls back to plain block flow with nothing floated, so
+   the headline simply starts at the left edge -- no reserved column, nothing to
+   collapse. The reader's lead image goes too: a reader who turned photos off
+   did not mean "except the big one". */
+[data-photos='off'] .article-thumb,
+[data-photos='off'] .modal-lead { display: none; }

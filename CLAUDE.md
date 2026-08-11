@@ -194,6 +194,20 @@ both clients.
   *Your stats* under You because it describes this reader's taste, but the
   endpoint is still `@api_admin`, so it stays hidden from a plain reader rather
   than answering 403.
+- **The article card is three rows, in block flow.** A floated photo the
+  headline and summary wrap around; then score / reading time / Open / save /
+  like / dislike; then source, age and every tag. It was a four-column grid,
+  which reserved a photo column on every card whether or not there was a photo
+  in it — that reservation was the white space. Two consequences worth knowing:
+  the headline is a `<span role="button">` and **not a `<button>`**, because a
+  button is an atomic inline-level box in every engine (`display: inline` does
+  not change that) and so can never wrap around a float; and the tag cap and
+  13ch truncation are gone, because those were bought by the old single-line
+  layout where tags fought the vote buttons for 356px.
+- **Three display preferences, all per-device localStorage**: `theme`,
+  `density`, `photos`. `density` (compact) drops the summary and the tags —
+  text the model produced. `photos` drops the images — the only thing on a card
+  fetched from a third party. They are different levers for different reasons.
 - **Every action needs a visible control**, not only a command-palette entry. Sign-out, Settings, Users, Insights, the Ollama log and Manage feeds were all palette-only at one point, which put the whole admin surface behind a shortcut. `design-system.spec.ts` asserts each is clickable without the palette, that a plain reader sees none of the admin ones, and that no icon-only button is nameless.
 - **The PWA is real again**: `public/manifest.webmanifest`, `public/sw.js` (app shell only — offline *reading* is still deferred, D2), and a production-only registration in `src/pwa.ts`. Registering on the dev server caches module URLs Vite is rewriting, and Playwright reuses a developer's own server.
 - Caddy sends `/api`, `/login`, `/register`, `/logout`, `/health` and `/static` to Flask; **everything else is the SPA**, so a deep link the SPA owns gets the SPA's routing rather than Flask's 404. `~/Dev/homestack/caddy/Caddyfile`.

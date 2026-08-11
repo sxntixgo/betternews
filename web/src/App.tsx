@@ -13,6 +13,7 @@ import { watchConnectivity } from './pwa';
 import { useSwipe } from './useSwipe';
 import { applyTheme, loadTheme, setTheme, watchSystemTheme, type ThemePreference } from './theme';
 import { applyDensity, loadDensity, setDensity, type Density } from './density';
+import { applyPhotos, loadPhotos, setPhotos, type Photos } from './photos';
 import { Toolbar } from './components/Toolbar';
 import { Sidebar } from './components/Sidebar';
 import { ManageFeeds } from './screens/ManageFeeds';
@@ -59,6 +60,8 @@ export default function App() {
   const [theme, setThemeState] = useState<ThemePreference>(() => loadTheme());
   const [density, setDensityState] = useState<Density>(() => loadDensity());
   useEffect(() => applyDensity(density), [density]);
+  const [photos, setPhotosState] = useState<Photos>(() => loadPhotos());
+  useEffect(() => applyPhotos(photos), [photos]);
   const [reading, setReading] = useState<number | null>(null);
   // At <=720px the carried-over stylesheet parks the sidebar off-screen and
   // waits for `.open`. Carrying CSS across does not carry the JavaScript its
@@ -272,6 +275,8 @@ export default function App() {
         setDensity(next);
         setDensityState(next);
       } },
+    { id: 'photos', label: 'Toggle article photos',
+      run: () => setPhotosState((p) => { const n = p === 'on' ? 'off' : 'on'; setPhotos(n); return n; }) },
     { id: 'theme-light', label: 'Theme: light', run: () => { setTheme('light'); setThemeState('light'); } },
     { id: 'theme-dark', label: 'Theme: dark', run: () => { setTheme('dark'); setThemeState('dark'); } },
     { id: 'theme-system', label: 'Theme: follow the system', run: () => { setTheme('system'); setThemeState('system'); } },
@@ -419,6 +424,23 @@ export default function App() {
             {/* One control with two states, not two buttons that happen to be
                 adjacent. Date is the default and the left-hand position, so the
                 knob resting at "off" means newest-first. */}
+            <div className="sidebar-row">
+              <span className="switch-label">Photos</span>
+              <button
+                className="switch"
+                role="switch"
+                aria-checked={photos === 'on'}
+                aria-label="Show photos"
+                title="Show article photos"
+                onClick={() => {
+                  const next = photos === 'on' ? 'off' : 'on';
+                  setPhotos(next); setPhotosState(next);
+                }}
+              >
+                <span className="switch-track"><span className="switch-knob" /></span>
+              </button>
+            </div>
+
             {/* "Date" used to sit hard left with the knob and "Score" pushed to
                 the right edge, so the row read as three separate things. The
                 two state names belong beside the knob that moves between

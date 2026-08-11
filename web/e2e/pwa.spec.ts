@@ -8,7 +8,10 @@ test('the page declares a manifest and a real title', () => {
   const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   expect(html).toContain('<title>Better News</title>');
   expect(html).toContain('rel="manifest"');
-  expect(html).toContain('/icon-192.png');
+  // A tab icon and a home-screen icon, which are different files for different
+  // jobs -- the sizes and formats are asserted below, not here.
+  expect(html).toContain('rel="icon"');
+  expect(html).toContain('rel="apple-touch-icon"');
 });
 
 test('the manifest is installable and its icons exist', async ({ page }) => {
@@ -98,4 +101,27 @@ test('going offline says so, and reconnecting clears it', async ({ page, context
   await context.setOffline(false);
   await page.evaluate(() => window.dispatchEvent(new Event('online')));
   await expect(page.locator('.offline-bar')).toHaveCount(0);
+});
+
+test('the iOS home-screen icon is its own 180px file', async ({ page }) => {
+  // It pointed at /icon-192.png, the manifest icon, which iOS had to rescale.
+  // 180 is the size it wants for a modern iPhone, and /apple-touch-icon.png is
+  // the path it probes when it cannot use a declared one.
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  expect(html).toContain('rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png"');
+  // Without this the Home Screen label follows <title>, silently.
+  expect(html).toContain('name="apple-mobile-web-app-title"');
+
+  const res = await page.request.get('/apple-touch-icon.png');
+  expect(res.ok(), 'the icon is declared but not served').toBe(true);
+
+  const png = Buffer.from(await res.body());
+  expect(png.subarray(0, 8).toString('binary')).toBe('\x89PNG\r\n\x1a\n');
+  expect(png.readUInt32BE(16), 'width').toBe(180);
+  expect(png.readUInt32BE(20), 'height').toBe(180);
+  // Colour type 4 and 6 carry alpha. iOS composites a transparent
+  // apple-touch-icon onto black before applying its own mask, so an icon with
+  // alpha arrives on the Home Screen as a dark blob.
+  expect([4, 6], 'alpha channel: iOS will paint this black')
+    .not.toContain(png.readUInt8(25));
 });

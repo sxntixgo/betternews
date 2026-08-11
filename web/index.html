@@ -9,7 +9,16 @@
     <meta name="theme-color" content="#1f1d1a" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link id="favicon" rel="icon" type="image/svg+xml" href="/icon.svg" />
-    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <!-- 180x180 and at the conventional path. iOS probes /apple-touch-icon.png
+         at the document root when it cannot use a declared one, and 180 is the
+         size it wants for a modern iPhone -- it was pointed at the 192px
+         manifest icon, which iOS had to rescale. No alpha channel, deliberately:
+         iOS composites a transparent apple-touch-icon onto black and applies its
+         own mask, so a PNG with alpha comes out as a dark blob. -->
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <!-- What sits under the icon on the Home Screen. Without it iOS uses
+         <title>, which is fine today and silently follows any change to it. -->
+    <meta name="apple-mobile-web-app-title" content="Better News" />
   </head>
   <body>
     <div id="root"></div>

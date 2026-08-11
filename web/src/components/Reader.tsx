@@ -51,6 +51,17 @@ export function Reader({ id, onClose }: { id: number; onClose: () => void }) {
         {detail && (
           <>
             <h1>{detail.title}</h1>
+            {/* The article's own lead photo. Already fetched for the card, so
+                showing it here costs no request the list has not already made --
+                which is why it is this image and not the ones inside the body.
+                Extraction is text-only, so body images would mean re-parsing the
+                page and loading arbitrary third-party URLs, and the embed cards
+                below deliberately avoid exactly that. `alt=""`: the headline
+                above already says what it is, so a screen reader should skip it
+                rather than read out a filename. */}
+            {detail.thumbnail_url && (
+              <img className="modal-lead" src={detail.thumbnail_url} alt="" loading="lazy" />
+            )}
             {detail.original_title && (
               <p className="original-title">Originally: {detail.original_title}</p>
             )}

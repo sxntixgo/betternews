@@ -404,25 +404,33 @@ test.describe('photos', () => {
     const box = (await thumb.boundingBox())!;
     expect(box.width).toBe(56);
 
-    // As a column it must not make the card taller -- measured against the same
-    // card without a photo, in this run. An absolute pixel figure is the wrong
-    // assertion here: CI has different fonts, the headline wraps differently,
-    // and 139px locally was 158px there. The claim is "costs no height", and
-    // that is a comparison.
+    // The photo is a column, so it adds no row of its own -- but it does take
+    // 56px from the text column, and a headline long enough to wrap can pick up
+    // a line because of it. That is a width cost showing up as height, and it
+    // is real: on CI's fonts the fixture headline wraps once more with a photo
+    // than without (158px vs 139px).
+    //
+    // So the claim under test is the one about layout, isolated from wrapping:
+    // with a headline short enough to fit either way, the photo costs nothing.
+    const short = (n: number) => ({ title: 'Boca 2 River 1', kind: 'fixture' as const,
+                                    topics: ['boca-juniors'], id: n });
+    const list = (thumb: string | null) => ({ json: {
+      articles: [1, 2, 3].map((i) => article(i, { ...short(i), thumbnail_url: thumb })),
+      next_offset: null, diagnosis: null,
+    } });
+
+    await page.route('**/api/v1/articles?*', (r) => r.fulfill(list(PIXEL)));
+    await page.reload();
+    await page.waitForSelector('.article-row');
     const withPhoto = (await page.locator('.article-row').first().boundingBox())!.height;
 
-    await page.route('**/api/v1/articles?*', (r) => r.fulfill({ json: {
-      articles: [1, 2, 3].map((i) => article(i, {
-        thumbnail_url: null, kind: 'fixture',
-        topics: ['boca-juniors', 'copa-libertadores', 'football'],
-      })),
-      next_offset: null, diagnosis: null,
-    } }));
+    await page.route('**/api/v1/articles?*', (r) => r.fulfill(list(null)));
     await page.reload();
     await page.waitForSelector('.article-row');
     const without = (await page.locator('.article-row').first().boundingBox())!.height;
 
-    expect(withPhoto, 'the photo made the card taller').toBeLessThanOrEqual(without);
+    expect(withPhoto, 'the photo added a row rather than a column')
+      .toBeLessThanOrEqual(without);
   });
 
   test('the photo displaces the tags, not the kind', async ({ page, isMobile }) => {

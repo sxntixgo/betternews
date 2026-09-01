@@ -389,6 +389,7 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 .segment[aria-checked='true'] { background: var(--color-segment-selected); color: var(--color-ink); font-weight: 600; }
 
 @media (min-width: 900px) {
+
   .drawer-settings { gap: 19px; }
   .toggle { width: 38px; height: 23px; }
   .toggle-knob { width: 17px; height: 17px; }
@@ -1596,4 +1597,23 @@ kbd {
   .single-card.leaving-left {
     transform: none;
   }
+}
+
+/* Single-story at desktop width. This lives at the end of the file on purpose:
+   `.single-card`'s base rule sets `margin` as a shorthand, and a media query
+   adds no specificity -- so an override placed earlier in the source is simply
+   overwritten by that shorthand, and the card silently stays left-aligned.
+   The design has no desktop artboard for this screen (both its options are
+   iPhone frames), so without a cap the card stretched to 955px and put a 27px
+   serif headline over a measure nobody can read. */
+@media (min-width: 900px) {
+  .single-card,
+  .single-top,
+  .single-actions {
+    max-width: 420px;
+    margin-left: auto;
+    margin-right: auto;
+    width: 100%;
+  }
+  .single-card { margin-top: 34px; }
 }

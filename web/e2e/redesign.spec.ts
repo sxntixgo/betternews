@@ -518,3 +518,26 @@ test.describe('single-story mode', () => {
     await expect(page.locator('.single-card img')).toHaveCount(0);
   });
 });
+
+test.describe('single story at desktop width', () => {
+  test.use({ viewport: { width: 1280, height: 860 } });
+
+  test('the card is capped, not stretched across the window', async ({ page }) => {
+    // The design has no desktop artboard for this screen, so nothing stopped it
+    // stretching: measured at 955px before the cap, which puts a 27px serif
+    // headline over a measure nobody can read comfortably.
+    await signedIn(page);
+    await mockApi(page);
+    await page.goto('/');
+    await openDrawer(page);
+    await page.getByRole('button', { name: 'One at a time' }).click();
+    const card = (await page.locator('.single-card').boundingBox())!;
+    expect(card.width).toBeLessThanOrEqual(420);
+    // Centred within the content area, not the window: the 262px sidebar sits
+    // to the left, so the two centres are ~131px apart and comparing against
+    // the viewport would fail on a layout that is in fact correct.
+    const shell = (await page.locator('.single-story').boundingBox())!;
+    expect(Math.abs((card.x + card.width / 2) - (shell.x + shell.width / 2)))
+      .toBeLessThan(2);
+  });
+});

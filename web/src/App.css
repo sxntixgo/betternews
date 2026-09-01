@@ -357,8 +357,17 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 .switch[aria-checked='true'] .switch-label:last-of-type { color: var(--color-ink); }
 
 /* Article list — flat rows */
+#article-list {
+  display: flex;
+  flex-direction: column;
+  gap: 34px;
+  padding: 6px 24px 24px;
+  list-style: none;
+  margin: 0;
+}
+/* Read is expressed by weight, not by a background. */
+.article-row.read { opacity: 0.55; }
 .article-row {
-  border-bottom: 1px solid var(--color-hairline);
   padding: 10px 0;
   /* Two rows, and only two: the story, then one line carrying every fact a
      reader reads and every control they press. The float this replaced was
@@ -380,11 +389,6 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
   will-change: transform;
   user-select: none;
 }
-.article-row.swipe-like-active    { background: rgba(34, 197, 94, 0.18); }
-.article-row.swipe-dismiss-active { background: rgba(239, 68, 68, 0.18); }
-.article-row:first-child { border-top: 1px solid var(--color-hairline); }
-.article-row.liked    { background: var(--color-like-surface); }
-.article-row.disliked { background: var(--color-dislike-surface); }
 /* Dismissed: dealt with, but still there. Greyed rather than removed so you can
    see what you have already been through, and so nothing vanishes silently --
    retention is the only thing that deletes an article, and never a starred one.
@@ -889,11 +893,6 @@ kbd {
   padding: 1px 6px;
   background: var(--color-surface-2);
 }
-
-/* Swipe affordances: the row follows the finger, and the intent is coloured in
-   once it passes the threshold that would act on release. */
-.article-row.swipe-like-active { background: var(--color-like-surface); }
-.article-row.swipe-dismiss-active { background: var(--color-dislike-surface); }
 
 /* ── Feed management ───────────────────────────────────────────────────────── */
 

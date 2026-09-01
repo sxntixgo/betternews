@@ -49,3 +49,32 @@ test.describe('story row', () => {
     await expect(page.locator('#card-1 .meta-dupes')).toHaveText('3');
   });
 });
+
+test.describe('list rhythm', () => {
+  test('stories are separated by space, not rules or tints', async ({ page }) => {
+    await signedIn(page);
+    await mockApi(page);
+    await page.goto('/');
+    const row = page.locator('#card-1');
+    const styles = await row.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return {
+        bg: cs.backgroundColor,
+        borderBottom: cs.borderBottomWidth,
+        gap: getComputedStyle(el.parentElement as HTMLElement).rowGap,
+      };
+    });
+    expect(styles.bg).toBe('rgba(0, 0, 0, 0)');
+    expect(styles.borderBottom).toBe('0px');
+    expect(styles.gap).toBe('34px');
+  });
+
+  test('a read story is dimmed rather than tinted', async ({ page }) => {
+    await signedIn(page);
+    await mockApi(page, [article(1, { state: { read: true, saved: false, dismissed: false, opinion: null } })]);
+    await page.goto('/');
+    const row = page.locator('#card-1');
+    await expect(row).toHaveClass(/read/);
+    expect(await row.evaluate((el) => getComputedStyle(el).opacity)).toBe('0.55');
+  });
+});

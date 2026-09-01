@@ -515,8 +515,35 @@ export async function openSearch(page: Page) {
  */
 export async function openDrawer(page: Page) {
   const toggle = page.locator('.drawer-toggle');
+  // Wait for the shell before asking whether the toggle is showing.
+  // `isVisible()` samples once and does not wait, so on a page still rendering
+  // it answers false, this function quietly does nothing, and every later click
+  // aims at a drawer parked off-screen -- the control's box sits at a negative
+  // x and Playwright reports "element is outside of the viewport", which reads
+  // as a mysterious flake rather than as a drawer that never opened. It bit
+  // hardest under parallel load and on WebKit, where first paint is slowest.
+  await page.locator('.app-header').waitFor();
   if (await toggle.isVisible() && !(await page.locator('.sidebar.open').count())) {
     await toggle.click();
-    await page.locator('.sidebar.open').waitFor();
+    const sidebar = page.locator('.sidebar.open');
+    await sidebar.waitFor();
+    // `.open` is set when the transition *starts*, not when it ends: the drawer
+    // slides in over 0.18s, so for that whole window the class is present and
+    // the drawer is still arriving. A control clicked in that window fails with
+    // "element is outside of the viewport" -- Playwright scrolls the inner
+    // scroller, then measures against a box that has since moved. It only bites
+    // under the parallel load of a full run, which is why it read as a flake
+    // rather than as the race it is.
+    //
+    // Waiting on `transitionend` rather than on a position: the drawer arrives
+    // at x=0 before the transition is finished settling, so polling the box
+    // reports success early and the race survives.
+    await sidebar.evaluate((el) => new Promise<void>((resolve) => {
+      if (getComputedStyle(el).transitionDuration === '0s') return resolve();
+      const done = () => { el.removeEventListener('transitionend', done); resolve(); };
+      el.addEventListener('transitionend', done, { once: true });
+      // Safety net: a dropped transitionend must not hang the suite.
+      setTimeout(done, 500);
+    }));
   }
 }

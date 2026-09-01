@@ -807,6 +807,22 @@ dialog[open] { display: flex; flex-direction: column; }
   padding: 0 16px;
 }
 .signin h1 { margin: 0; font-size: 22px; }
+
+/* Shown instead of the sign-in form when /me fails at the transport layer.
+   A cached shell renders normally and `navigator.onLine` stays true, so
+   without this the app looks live while reaching no one. */
+.unreachable {
+  max-width: 380px;
+  margin: 15vh auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 16px;
+  text-align: center;
+}
+.unreachable h1 { margin: 0; font-size: 22px; }
+.unreachable p { margin: 0; color: var(--color-ink-muted); font-size: 14px; }
+
 .signin input { padding: 10px; font-size: 15px; }
 
 .modal-backdrop {

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { isNetworkError } from '@shared/api';
 import { api } from '../api/client';
 
 /**
@@ -25,7 +26,14 @@ export function SignIn({ onDone }: { onDone: () => void }) {
       // message -- this used to point at a server UI that no longer exists.
       onDone();
     } catch (err) {
-      setError((err as Error).message);
+      // Never the engine's own words. WebKit rejects an unreachable server with
+      // "Load failed", which this screen printed verbatim under a password
+      // field -- so a certificate the phone did not trust read as a typo.
+      setError(
+        isNetworkError(err)
+          ? 'Could not reach the server. Check your connection, then try again.'
+          : (err as Error).message,
+      );
     } finally {
       setBusy(false);
     }

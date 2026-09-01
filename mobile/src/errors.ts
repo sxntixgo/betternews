@@ -1,4 +1,4 @@
-import { ApiError } from '@shared/api';
+import { ApiError, isNetworkError } from '@shared/api';
 
 /**
  * `instanceof` across a bundler boundary is not something to bet the sign-out
@@ -23,13 +23,12 @@ export function isAuthFailure(e: unknown): boolean {
 export function describeError(e: unknown): string {
   const api = asApiError(e);
   if (api) return api.message;
-  if (e instanceof Error) {
-    // `fetch` reports every transport problem as this one opaque string, which
-    // tells the reader nothing about which of the two fields they got wrong.
-    if (/network request failed/i.test(e.message)) {
-      return 'Could not reach the server. Check the URL, and that this device can see it.';
-    }
-    return e.message;
+  // The client types transport failures, so this no longer has to recognise
+  // each engine's wording. It used to match only React Native's Android string,
+  // which left an iPhone showing the reader WebKit's raw "Load failed".
+  if (isNetworkError(e)) {
+    return 'Could not reach the server. Check the URL, and that this device can see it.';
   }
+  if (e instanceof Error) return e.message;
   return 'Something went wrong.';
 }

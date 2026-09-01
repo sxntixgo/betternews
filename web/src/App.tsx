@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { isNetworkError } from '@shared/api';
 import type { Article, FeedList, ListQuery, Me } from '@shared/api';
 import { api, setAuthFailureHandler } from './api/client';
 import { useArticles } from './api/useArticles';
@@ -30,13 +31,25 @@ export default function App() {
   // The cookie is HttpOnly, so the page cannot tell whether it is signed in by
   // looking. Ask the server once instead.
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
+  // Distinct from `signedIn === false`. A server this browser cannot reach is
+  // not a signed-out reader, and conflating the two is how an untrusted
+  // certificate on a phone presented itself as a rejected password: /me failed
+  // at the transport layer, the shell concluded "signed out", and the sign-in
+  // form it offered could not reach the server either.
+  const [unreachable, setUnreachable] = useState(false);
+  const [retries, setRetries] = useState(0);
   useEffect(() => {
     // Re-runs when signedIn flips, not just on mount: the first call 401s while
     // signed out, and without asking again after login the app never learns who
     // the reader is -- so admin-only controls stay hidden for an admin.
     if (signedIn === false) return;
-    api.me().then((u) => { setMe(u); setSignedIn(true); }).catch(() => setSignedIn(false));
-  }, [signedIn]);
+    api.me()
+      .then((u) => { setMe(u); setSignedIn(true); setUnreachable(false); })
+      .catch((e: unknown) => {
+        if (isNetworkError(e)) setUnreachable(true);
+        else { setUnreachable(false); setSignedIn(false); }
+      });
+  }, [signedIn, retries]);
   const [feeds, setFeeds] = useState<FeedList | null>(null);
   const [feed, setFeed] = useState<number | undefined>();
   const [saved, setSaved] = useState(false);
@@ -300,6 +313,24 @@ export default function App() {
     })),
   ], [feeds, me, density]);
 
+  // Checked before "signed out", because a page served from the service
+  // worker's cache looks identical to a live one: `navigator.onLine` is true on
+  // a phone that has wifi but cannot reach *this* server, so nothing else here
+  // would say the app is talking to no one.
+  if (unreachable) {
+    return (
+      <div className="unreachable" role="alert">
+        <h1>Can't reach Better News</h1>
+        <p>
+          This page loaded from an offline copy. Signing in, and everything
+          else, needs a working connection to the server.
+        </p>
+        <button type="button" onClick={() => setRetries((n) => n + 1)}>
+          Try again
+        </button>
+      </div>
+    );
+  }
   if (signedIn === null) return <p className="loading">Loading…</p>;
   if (!signedIn) return <SignIn onDone={() => setSignedIn(true)} />;
   // Before anything else a reset account can reach. The server used to enforce

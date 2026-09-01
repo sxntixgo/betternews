@@ -433,6 +433,46 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * The request never reached the server.
+ *
+ * `fetch` rejects with a bare `TypeError` whose message is whatever the engine
+ * happens to call it -- "Load failed" in WebKit and on iOS, "Network request
+ * failed" in React Native on Android, "Failed to fetch" in Chrome. None of
+ * those mean anything to a reader, and matching on them is a vocabulary list
+ * that grows every time an engine rewords itself: the native client matched
+ * only Android's spelling, so an iPhone showed the reader the raw string
+ * "Load failed" on the sign-in screen and it read as a rejected password.
+ *
+ * Raising a type instead lets a caller tell "the server said no" from "there
+ * was no server" without knowing any of that vocabulary. That distinction is
+ * load-bearing: a transport failure must never be mistaken for a 401, or an
+ * unreachable server signs the reader out.
+ */
+export class NetworkError extends Error {
+  /** What the engine called it. For a log or a bug report, never for a reader. */
+  readonly engineMessage: string;
+
+  constructor(engineMessage: string) {
+    super('Could not reach the server.');
+    this.name = 'NetworkError';
+    this.engineMessage = engineMessage;
+  }
+}
+
+/**
+ * True when a request never got an answer.
+ *
+ * Shape-checked as well as `instanceof`, for the reason `ApiError` is: if this
+ * module were ever transpiled twice, `instanceof` would quietly start returning
+ * false and every unreachable server would look like a signed-out session.
+ */
+export function isNetworkError(e: unknown): boolean {
+  if (e instanceof NetworkError) return true;
+  const candidate = e as { name?: unknown } | null;
+  return !!candidate && candidate.name === 'NetworkError';
+}
+
 // ── client ────────────────────────────────────────────────────────────────────
 
 export interface ClientOptions {
@@ -487,6 +527,13 @@ export class BetterNewsClient {
         ...(init.headers ?? {}),
       },
       });
+    } catch (e) {
+      // An abort is the caller getting what it asked for -- screens cancel
+      // in-flight requests on unmount -- so it passes through untouched.
+      // Dressing it up as an unreachable server would put an error banner on a
+      // screen that has already gone.
+      if ((e as { name?: unknown } | null)?.name === 'AbortError') throw e;
+      throw new NetworkError(e instanceof Error ? e.message : String(e));
     } finally {
       if (handle !== null) clearTimeout(handle);
     }
@@ -519,10 +566,18 @@ export class BetterNewsClient {
   private async download(path: string, fallbackName: string) {
     const token = this.opts.getToken ? await this.opts.getToken() : null;
     const doFetch = this.opts.fetchImpl ?? fetch;
-    const res = await doFetch(`${this.opts.baseUrl}/api/v1${path}`, {
-      credentials: 'include',
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
+    // Typed the same way as `request`: this is a second fetch site, and a
+    // transport failure here is the same thing to a reader as one there.
+    let res: Response;
+    try {
+      res = await doFetch(`${this.opts.baseUrl}/api/v1${path}`, {
+        credentials: 'include',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+    } catch (e) {
+      if ((e as { name?: unknown } | null)?.name === 'AbortError') throw e;
+      throw new NetworkError(e instanceof Error ? e.message : String(e));
+    }
     if (res.status === 401) this.opts.onAuthFailure?.();
     if (!res.ok) throw new ApiError(res.status, `HTTP ${res.status}`);
     const disposition = res.headers.get('Content-Disposition') ?? '';

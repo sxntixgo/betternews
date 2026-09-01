@@ -218,6 +218,11 @@ both clients.
   a quarter of the viewport. `Insights` is offered as *Your stats* because it describes
   this reader's taste, but the endpoint is still `@api_admin`, so it stays hidden from a
   plain reader rather than answering 403.
+- **The drawer is its own component**, `components/Drawer.tsx` — 229 lines pulled
+  verbatim out of a 751-line `App.tsx` (608 after). It holds no state of its own: every
+  one of its 28 props is required, none optional, because a prop made optional just to
+  quiet the compiler is how a control comes out of a refactor still rendering and doing
+  nothing.
 - **One header, not two.** `components/Toolbar.tsx` renders a single `.app-header` with
   Refresh, Mark all read, What you missed and Search as text; an icon toolbar stacked
   under a text header would spend the vertical space the redesign exists to reclaim,
@@ -226,6 +231,16 @@ both clients.
   `.drawer-toggle` are what several specs drive, and they are the same controls doing
   the same jobs. A "what you missed" strip sits above the list, offering the digest
   where the unread count is rather than behind a header button alone.
+- **`GET /api/v1/digest/meta`** backs that strip: `{ story_count, since_label,
+  read_minutes }`. It does not generate the briefing — `GET /digest` does, through the
+  LLM, so a strip backed by it would mean a model call on every page load;
+  `read_minutes` is an estimate for the same reason. It mutates on a GET, deliberately:
+  arriving is the event being recorded (`repo.users.touch_last_seen`), and the
+  alternative is a second request whose only job is to say "I am here." The stored
+  `last_seen_at` only advances once it is more than 30 minutes stale, or a page refresh
+  would collapse "since Friday" into "since a minute ago" — a label that resets whenever
+  you look at it says nothing. It is not `last_login_at`: with a 90-day session cookie
+  that can be months.
 - **The article card is two rows.** `.article-head` — headline, summary and the
   thumbnail beside them — over a single `.article-meta` line carrying score · source ·
   age · duplicate count on the left and Save / Up / Down on the right. That one line
@@ -235,14 +250,39 @@ both clients.
   and **not a `<button>`** — a button is an atomic inline-level box in every engine
   (`display: inline` does not change that), and everything on this card is type.
   Actions are words, not emoji. The score is a bare gold number: **no pill survives on
-  the card at all.** The redesign kept a pill only for a single-story mode, and that
-  mode was never built, so there is no styling here waiting for it. Tags are down to one
-  topic as plain text (`.meta-tag`), desktop only — it is the item that would wrap the
-  phone's single meta line — so the old tag cap and 13ch truncation are gone with the
-  row that needed them. `.action-open`, the link out to the publisher, is desktop-only
-  too, and is listed beside `.action` rather than carrying that class: the phone's
-  tap-target sweep measures every `.article-actions .action`, and an element with
-  `display: none` has no box to measure.
+  the card at all.** The redesign kept a pill only for single-story mode — it was built
+  and is on `main` (`components/SingleStory.tsx`'s `.score-pill`); the card itself just
+  has no styling waiting for it. Tags are down to one topic as plain text (`.meta-tag`),
+  desktop only — it is the item that would wrap the phone's single meta line — so the
+  old tag cap and 13ch truncation are gone with the row that needed them. It is a
+  control, not decoration: clicking it filters the list to that topic, and it is a
+  `<button>` so the card's own click guard (`closest('button, a, …')`) keeps it from
+  also opening the reader. `.pill` would have been the wrong shape here — the design
+  calls for plain text, not a chip. `.action-open`, the link out to the publisher, is
+  desktop-only too, and is listed beside `.action` rather than carrying that class: the
+  phone's tap-target sweep measures every `.article-actions .action`, and an element
+  with `display: none` has no box to measure.
+- **Single-story mode is real** (`components/SingleStory.tsx`), reached from the
+  drawer's second group as "One at a time." An alternative to the list, not a
+  replacement — `Feeds` or running out of stories is the way back. It renders
+  `article.summary`, never the full body: `ArticleDetail.blocks` needs a per-article
+  fetch, and a triage flow swiping through fifty stories would issue fifty requests for
+  text nobody stopped to read; `Open` goes to the publisher for the real article
+  instead. It does not use `useSwipe` — that hook is list-specific, finding its target
+  with `closest('.article-row')` and reading `dataset.articleId`; single-story has its
+  own touch handling, and the gesture differs anyway since the whole card moves and the
+  view advances. The score pill lives here and nowhere else. It is capped at 420px and
+  centred above 900px: the design has no desktop artboard for this screen, both its
+  options are iPhone frames, so without the cap it stretched to 955px and put a 27px
+  serif headline over an unreadable measure. That override sits at the **end** of
+  `App.css` on purpose — `.single-card` sets `margin` as a shorthand in its base rule,
+  and a media query adds no specificity, so the same override written earlier is
+  silently overwritten.
+- **The unread count is not a pill.** It wore `.pill` while the card had pills to
+  match; `Sidebar.tsx`'s `Count` component dropped the class once the card's pills were
+  gone, keeping only what it needed (font-size, line-height, padding) on
+  `.sidebar-feed-count`. `.pill` remains real chrome in `screens/Settings.tsx` (its
+  action tags and the "edited" kind-chip).
 - **Whitespace separates the stories — nothing else does.** 34px between cards, 40px on
   desktop; no dividers, no row background tints, and no vote tints. Read state is
   `opacity: .55` on the row rather than a colour, so a read story recedes without

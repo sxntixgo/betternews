@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { DETAIL, article, mockApi, openDrawer, openSearch, signedIn } from './fixtures';
+import { DETAIL, article, mockApi, openDrawer, openSearch, signedIn , openDigest } from './fixtures';
 
 /**
  * The reading features the server-rendered UI has and the SPA did not:
@@ -99,7 +99,7 @@ test('the digest is behind a button, not above the list', async ({ page }) => {
   // article below the fold on every screen for prose you read once.
   await expect(page.locator('.digest-body')).toHaveCount(0);
 
-  await page.locator('#digest-btn').click();
+  await openDigest(page);
   const dialog = page.getByRole('dialog', { name: 'What you missed' });
   await expect(dialog).toContainText('Argentina');
 
@@ -115,12 +115,12 @@ test('the digest is behind a button, not above the list', async ({ page }) => {
 });
 
 test('closing the digest does not drop the briefing', async ({ page }) => {
-  await page.locator('#digest-btn').click();
+  await openDigest(page);
   await expect(page.getByRole('dialog', { name: 'What you missed' })).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog', { name: 'What you missed' })).toBeHidden();
   // Still there to reopen -- Close and Dismiss are different verbs.
-  await page.locator('#digest-btn').click();
+  await openDigest(page);
   await expect(page.getByRole('dialog', { name: 'What you missed' }))
     .toContainText('Argentina');
 });

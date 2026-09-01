@@ -87,10 +87,19 @@ test.describe('mobile header', () => {
     await mockApi(page);
     await page.goto('/');
     const actions = page.locator('.header-actions');
-    // Three at every width. The briefing opener moved up here when the legacy
-    // icon row was removed, rather than being lost with it.
-    for (const name of ['Refresh', 'Mark all read', 'What you missed']) {
+    // Two at every width. The briefing is a header action on a desktop and the
+    // strip's "Read" button on a phone -- the design's own split, and not
+    // decoration: as a fourth action at 390px it left no gap between the unread
+    // count and Refresh, wrapped every label, and pushed the header to 127px.
+    for (const name of ['Refresh', 'Mark all read']) {
       await expect(actions.getByRole('button', { name })).toBeVisible();
+    }
+    const briefing = actions.getByRole('button', { name: 'What you missed' });
+    if (isMobile) {
+      await expect(briefing).toBeHidden();
+      await expect(page.locator('.missed-cta')).toBeVisible();
+    } else {
+      await expect(briefing).toBeVisible();
     }
     // Search is the fourth on a phone, where it reveals the field. Above 900px
     // the field is already open beside it, so the button is hidden -- see

@@ -1619,3 +1619,15 @@ kbd {
   }
   .single-card { margin-top: 34px; }
 }
+
+/* The briefing is a header action on a desktop and the strip on a phone. That
+   is the design's own split -- "on mobile the 'what you missed' affordance is
+   the strip below instead of a toolbar item" -- and it is load-bearing, not
+   cosmetic: four actions do not fit 390px. With this one in, the unread count
+   ran flush into Refresh with no gap at all ("139Refresh"), every action
+   wrapped, and the header stood 127px tall against the 61px the redesign was
+   built to reclaim. Screenshot coverage caught it; nothing else could. */
+#digest-btn { display: none; }
+@media (min-width: 900px) {
+  #digest-btn { display: inline; }
+}

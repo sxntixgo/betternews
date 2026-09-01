@@ -552,3 +552,17 @@ export async function openDrawer(page: Page) {
     }));
   }
 }
+
+/**
+ * Open the briefing, from wherever this width offers it.
+ *
+ * A desktop has it as a header action; a phone has it as the "Read" button on
+ * the what-you-missed strip, because four actions do not fit a 390px header.
+ * A test that hard-codes `#digest-btn` therefore passes on one project and
+ * fails on two.
+ */
+export async function openDigest(page: Page) {
+  const header = page.locator('#digest-btn');
+  if (await header.isVisible()) return header.click();
+  return page.locator('.missed-cta').click();
+}

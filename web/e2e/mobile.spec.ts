@@ -275,8 +275,19 @@ test.describe('the top bar and the drawer fit the screen', () => {
     // test that covered it is this: every action in the one remaining header
     // is reachable by the name a reader actually sees on it.
     const header = page.locator('.app-header');
-    for (const name of ['Refresh', 'Mark all read', 'What you missed']) {
+    for (const name of ['Refresh', 'Mark all read']) {
       await expect(header.getByRole('button', { name })).toBeVisible();
+    }
+    // The briefing is a header action on a desktop and the strip's "Read"
+    // button on a phone. That is the design's split, and it is load-bearing:
+    // as a fourth action at 390px it left no gap between the unread count and
+    // Refresh, wrapped every label, and stood the header up at 127px.
+    const briefing = header.getByRole('button', { name: 'What you missed' });
+    if (isMobile) {
+      await expect(briefing).toBeHidden();
+      await expect(page.locator('.missed-cta')).toBeVisible();
+    } else {
+      await expect(briefing).toBeVisible();
     }
     // Search is an action of the phone's header only: above 900px the field it
     // reveals is already open, so the button is hidden (and still rendered --

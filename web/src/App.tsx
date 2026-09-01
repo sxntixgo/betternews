@@ -4,6 +4,7 @@ import type { Article, DigestMeta, FeedList, ListQuery, Me } from '@shared/api';
 import { api, setAuthFailureHandler } from './api/client';
 import { useArticles } from './api/useArticles';
 import { ArticleCard } from './components/ArticleCard';
+import { SingleStory } from './components/SingleStory';
 import { Reader } from './components/Reader';
 import { CommandPalette, type Command } from './components/CommandPalette';
 import { Digest } from './components/Digest';
@@ -79,6 +80,11 @@ export default function App() {
   const [photos, setPhotosState] = useState<Photos>(() => loadPhotos());
   useEffect(() => applyPhotos(photos), [photos]);
   const [reading, setReading] = useState<number | null>(null);
+  // Single-story mode: App.tsx owns both the switch and the index, per the
+  // task 11 brief -- SingleStory itself holds no state about which story it
+  // is showing.
+  const [singleStoryMode, setSingleStoryMode] = useState(false);
+  const [singleIndex, setSingleIndex] = useState(0);
   // At <=720px the carried-over stylesheet parks the sidebar off-screen and
   // waits for `.open`. Carrying CSS across does not carry the JavaScript its
   // rules assume, so without this the sidebar was not merely hidden on a phone
@@ -457,6 +463,17 @@ export default function App() {
                 onHiddenFeed={(id) => choose(() => { setHidden(true); setSaved(false); setFeed(id); })}
               />
 
+              {/* The single-story entry point (task 11). A visible control,
+                  not a command-palette entry -- design-system.spec asserts
+                  nothing in this app is reachable only through the palette.
+                  Resets the index so entry always starts at story one. */}
+              <button
+                className="sidebar-feed"
+                onClick={() => choose(() => { setSingleStoryMode(true); setSingleIndex(0); })}
+              >
+                <span className="sidebar-feed-title">One at a time</span>
+              </button>
+
               {/* Ranking accuracy: how often the score agreed with the reader.
                   Filed with the reader's own lists rather than with the admin
                   links because it is a statement about this reader's taste --
@@ -569,118 +586,137 @@ export default function App() {
             until you reconnect.
           </div>
         )}
-        <header className="site-header">
-          <Toolbar
-            drawerOpen={drawerOpen}
-            search={search}
-            onSearch={setSearch}
-            canPoll={me?.role === 'admin'}
-            onRefreshed={() => setReloads((n) => n + 1)}
-            onDigest={() => setShowDigest(true)}
-            onDismissAll={async () => {
-              await api.dismissAll({ feed, saved: saved || undefined,
-                                     hidden: hidden || undefined, topic });
-              setReloads((n) => n + 1);
-            }}
-            title={headerTitle}
-            unread={feeds?.unread ?? 0}
-            onOpenDrawer={() => setDrawerOpen((v) => !v)}
+        {/* Single-story mode replaces the header, the missed strip and the
+            list with one full-height dark shell -- an alternative to the
+            list, not layered on top of it. The drawer and its "One at a
+            time" entry point are untouched, so `Feeds` here (or running out
+            of stories) is the only way back. */}
+        {singleStoryMode ? (
+          <SingleStory
+            articles={rows}
+            index={singleIndex}
+            feedName={(a) => feeds?.feeds.find((f) => f.id === a.feed_id)?.title}
+            onAdvance={setSingleIndex}
+            onVote={vote}
+            onOpen={(a) => setReading(a.id)}
+            onExit={() => setSingleStoryMode(false)}
           />
-        </header>
+        ) : (
+          <>
+            <header className="site-header">
+              <Toolbar
+                drawerOpen={drawerOpen}
+                search={search}
+                onSearch={setSearch}
+                canPoll={me?.role === 'admin'}
+                onRefreshed={() => setReloads((n) => n + 1)}
+                onDigest={() => setShowDigest(true)}
+                onDismissAll={async () => {
+                  await api.dismissAll({ feed, saved: saved || undefined,
+                                         hidden: hidden || undefined, topic });
+                  setReloads((n) => n + 1);
+                }}
+                title={headerTitle}
+                unread={feeds?.unread ?? 0}
+                onOpenDrawer={() => setDrawerOpen((v) => !v)}
+              />
+            </header>
 
-        {/* The briefing's trigger, not the briefing itself -- Digest still
-            fetches the briefing body only when opened. The subtitle comes from
-            `digestMeta` (`GET /digest/meta`), which answers counts and the
-            previous-visit weekday without generating anything; that's a
-            separate endpoint from `GET /digest` specifically so this strip
-            never costs an LLM call. Hidden with nothing missed: `since_label`
-            is null before the first visit ever recorded one, in which case the
-            subtitle falls back to a plain unread count. */}
-        {digestMeta && digestMeta.story_count > 0 && (
-          <div className="missed-strip">
-            <div className="missed-text">
-              <div className="missed-title">What you missed</div>
-              <div className="missed-sub">
-                {digestMeta.since_label
-                  ? `${digestMeta.story_count} stories since ${digestMeta.since_label} · ${digestMeta.read_minutes} min summary`
-                  : `${digestMeta.story_count} unread`}
+            {/* The briefing's trigger, not the briefing itself -- Digest still
+                fetches the briefing body only when opened. The subtitle comes from
+                `digestMeta` (`GET /digest/meta`), which answers counts and the
+                previous-visit weekday without generating anything; that's a
+                separate endpoint from `GET /digest` specifically so this strip
+                never costs an LLM call. Hidden with nothing missed: `since_label`
+                is null before the first visit ever recorded one, in which case the
+                subtitle falls back to a plain unread count. */}
+            {digestMeta && digestMeta.story_count > 0 && (
+              <div className="missed-strip">
+                <div className="missed-text">
+                  <div className="missed-title">What you missed</div>
+                  <div className="missed-sub">
+                    {digestMeta.since_label
+                      ? `${digestMeta.story_count} stories since ${digestMeta.since_label} · ${digestMeta.read_minutes} min summary`
+                      : `${digestMeta.story_count} unread`}
+                  </div>
+                </div>
+                <button className="missed-cta" onClick={() => setShowDigest(true)}>Read</button>
               </div>
-            </div>
-            <button className="missed-cta" onClick={() => setShowDigest(true)}>Read</button>
-          </div>
-        )}
+            )}
 
-        <div id="article-list">
-          {error && <p className="error">{error}</p>}
-          {articles.map((a, i) => (
-            <ArticleCard
-              key={a.id}
-              article={a}
-              focused={i === focused}
-              onOpen={(x) => setReading(x.id)}
-              onVote={vote}
-              onSave={save}
-              onTopic={(t) => { setTopic(t); setSearch(''); }}
-              // The shell already holds the feed list for the sidebar; the article
-              // itself only carries feed_id.
-              feedName={feeds?.feeds.find((f) => f.id === a.feed_id)?.title}
-            />
-          ))}
-          {loading && <p className="loading">Loading…</p>}
-          {!loading && articles.length === 0 && !error && (
-            // The server says why. "Nothing to read" on its own is how a
-            // misconfigured model went unnoticed three times.
-            diagnosis ? (
-              <div className={`empty diagnosis diagnosis-${diagnosis.kind}`}>
-                <h2>{diagnosis.title}</h2>
-                <p>{diagnosis.detail}</p>
-                {/* Withheld from a plain reader: there is nothing they can do
-                    about an unreachable Ollama, and a button that 403s reads
-                    as breakage rather than as a permission. */}
-                {diagnosis.action && (!diagnosis.admin_only || me?.role === 'admin') && (
-                  <button onClick={() => runDiagnosisAction(diagnosis.kind)}>
-                    {diagnosis.action}
+            <div id="article-list">
+              {error && <p className="error">{error}</p>}
+              {articles.map((a, i) => (
+                <ArticleCard
+                  key={a.id}
+                  article={a}
+                  focused={i === focused}
+                  onOpen={(x) => setReading(x.id)}
+                  onVote={vote}
+                  onSave={save}
+                  onTopic={(t) => { setTopic(t); setSearch(''); }}
+                  // The shell already holds the feed list for the sidebar; the article
+                  // itself only carries feed_id.
+                  feedName={feeds?.feeds.find((f) => f.id === a.feed_id)?.title}
+                />
+              ))}
+              {loading && <p className="loading">Loading…</p>}
+              {!loading && articles.length === 0 && !error && (
+                // The server says why. "Nothing to read" on its own is how a
+                // misconfigured model went unnoticed three times.
+                diagnosis ? (
+                  <div className={`empty diagnosis diagnosis-${diagnosis.kind}`}>
+                    <h2>{diagnosis.title}</h2>
+                    <p>{diagnosis.detail}</p>
+                    {/* Withheld from a plain reader: there is nothing they can do
+                        about an unreachable Ollama, and a button that 403s reads
+                        as breakage rather than as a permission. */}
+                    {diagnosis.action && (!diagnosis.admin_only || me?.role === 'admin') && (
+                      <button onClick={() => runDiagnosisAction(diagnosis.kind)}>
+                        {diagnosis.action}
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <p className="empty">Nothing to read.</p>
+                )
+              )}
+              {/* The dismissed pile, under everything else and behind a press.
+                  Only offered once the unread list has actually run out -- a
+                  button to load more of what you have dealt with, above things you
+                  have not, would be in the way. */}
+              {offersDismissed && !hasMore && !loading && (
+                showDismissed ? (
+                  <>
+                    <h2 className="pile-heading">Dismissed</h2>
+                    {pile.articles.map((a) => (
+                      <ArticleCard
+                        key={a.id}
+                        article={a}
+                        onOpen={(x) => setReading(x.id)}
+                        onVote={vote}
+                        onSave={save}
+                        onTopic={(t) => { setTopic(t); setSearch(''); }}
+                        // The shell already holds the feed list for the sidebar; the article
+                        // itself only carries feed_id.
+                        feedName={feeds?.feeds.find((f) => f.id === a.feed_id)?.title}
+                      />
+                    ))}
+                    {pile.loading && <p className="loading">Loading…</p>}
+                    {!pile.loading && pile.articles.length === 0 && (
+                      <p className="empty">Nothing dismissed.</p>
+                    )}
+                  </>
+                ) : (
+                  <button className="pile-toggle" onClick={() => setShowDismissed(true)}>
+                    Show dismissed articles
                   </button>
-                )}
-              </div>
-            ) : (
-              <p className="empty">Nothing to read.</p>
-            )
-          )}
-          {/* The dismissed pile, under everything else and behind a press.
-              Only offered once the unread list has actually run out -- a
-              button to load more of what you have dealt with, above things you
-              have not, would be in the way. */}
-          {offersDismissed && !hasMore && !loading && (
-            showDismissed ? (
-              <>
-                <h2 className="pile-heading">Dismissed</h2>
-                {pile.articles.map((a) => (
-                  <ArticleCard
-                    key={a.id}
-                    article={a}
-                    onOpen={(x) => setReading(x.id)}
-                    onVote={vote}
-                    onSave={save}
-                    onTopic={(t) => { setTopic(t); setSearch(''); }}
-                    // The shell already holds the feed list for the sidebar; the article
-                    // itself only carries feed_id.
-                    feedName={feeds?.feeds.find((f) => f.id === a.feed_id)?.title}
-                  />
-                ))}
-                {pile.loading && <p className="loading">Loading…</p>}
-                {!pile.loading && pile.articles.length === 0 && (
-                  <p className="empty">Nothing dismissed.</p>
-                )}
-              </>
-            ) : (
-              <button className="pile-toggle" onClick={() => setShowDismissed(true)}>
-                Show dismissed articles
-              </button>
-            )
-          )}
-          <div ref={sentinel} />
-        </div>
+                )
+              )}
+              <div ref={sentinel} />
+            </div>
+          </>
+        )}
       </main>
 
       {reading !== null && <Reader id={reading} onClose={() => setReading(null)} />}

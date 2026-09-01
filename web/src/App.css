@@ -1441,3 +1441,159 @@ kbd {
   .meta-tag:hover { color: var(--color-ink); }
   .article-title:hover { text-decoration: underline; }
 }
+
+/* ── Single-story mode (task 11) ────────────────────────────────────────────
+   Triage one story at a time: a dark shell that stays dark in both themes
+   (`--color-shell-story` is a near-black value in both the light and dark
+   blocks of index.css, on purpose), one card that follows the theme like any
+   other surface, three actions. It is an alternative to the reading list, not
+   a replacement -- reached from the drawer's "One at a time" button, and left
+   again through `Feeds` here or through voting/advancing past the last story. */
+.single-story {
+  background: var(--color-shell-story);
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.single-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 52px 24px 0;
+}
+
+/* Muted on purpose, and `--color-placeholder-label` rather than the usual
+   ink tokens: those flip with the theme, but the shell behind this text does
+   not, so a token that reads as "muted" against a permanently dark ground is
+   the one this needs. */
+.single-counter {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-placeholder-label);
+}
+
+.single-exit {
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--color-placeholder-label);
+  cursor: pointer;
+}
+
+.single-card {
+  margin: 34px 24px 0;
+  border-radius: var(--radius-story);
+  background: var(--color-surface-story);
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  /* The only property this mode animates. 250ms matches the JS timeout that
+     advances the index once the exit finishes, so the counter never jumps
+     ahead of what the reader watched leave the screen. */
+  transition: transform 250ms cubic-bezier(.2, .8, .2, 1);
+}
+.single-card.leaving-right { transform: translateX(120%); }
+.single-card.leaving-left { transform: translateX(-120%); }
+
+.single-image {
+  width: 100%;
+  height: 220px;
+  object-fit: cover;
+  flex: none;
+}
+
+.single-body {
+  padding: 30px 26px 26px;
+  gap: 18px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.single-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--color-ink-muted);
+}
+
+/* The pill is retained here and nowhere else -- the list card deliberately
+   shows a bare gold number, see ArticleCard's `.meta-score`. */
+.score-pill {
+  padding: 4px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--color-gold-pill-surface);
+  color: var(--color-gold-pill-ink);
+  font-weight: 600;
+}
+
+.single-headline {
+  font-family: var(--font-serif);
+  font-size: 27px;
+  line-height: 1.18;
+  font-weight: 600;
+  letter-spacing: -0.4px;
+  color: var(--color-ink);
+}
+
+.single-summary {
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--color-ink-secondary);
+}
+
+/* Plain text joined by middots, no chips -- the same call the list card made
+   for its own single topic. */
+.single-tags {
+  margin-top: auto;
+  font-size: 12px;
+  color: var(--color-ink-muted);
+}
+
+.single-actions {
+  padding: 26px 4px 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.single-vote {
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-placeholder-label);
+  background: none;
+  color: var(--color-placeholder-label);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.single-open {
+  flex: 1;
+  height: 52px;
+  margin: 0 16px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* The slide-off is the one thing this mode animates, and it is exactly what
+   a reduced-motion preference asks to lose -- the story still advances on
+   the same 250ms clock in App.tsx, only the motion is skipped. */
+@media (prefers-reduced-motion: reduce) {
+  .single-card.leaving-right,
+  .single-card.leaving-left {
+    transform: none;
+  }
+}

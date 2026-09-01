@@ -441,3 +441,80 @@ test.describe('sign in', () => {
     expect(cta!.y).toBeGreaterThan(vp.height * 0.6);
   });
 });
+
+/**
+ * Task 11: single-story mode. Triage one story at a time instead of scanning
+ * a list -- an alternative reached from the drawer's "One at a time" button,
+ * not a replacement for the list. Driven through that entry point rather than
+ * by URL, per the task brief.
+ */
+test.describe('single-story mode', () => {
+  test('the counter reads 1 OF n on entry', async ({ page }) => {
+    await signedIn(page);
+    await mockApi(page, [article(1), article(2), article(3)]);
+    await page.goto('/');
+    await openDrawer(page);
+    await page.getByRole('button', { name: 'One at a time' }).click();
+    await expect(page.locator('.single-counter')).toHaveText('1 OF 3');
+  });
+
+  test('the score pill renders here -- and still not on a list card', async ({ page }) => {
+    await signedIn(page);
+    await mockApi(page, [article(1)]);
+    await page.goto('/');
+    // The list card shows a bare gold number -- no pill.
+    await expect(page.locator('#card-1 .score-pill')).toHaveCount(0);
+    await openDrawer(page);
+    await page.getByRole('button', { name: 'One at a time' }).click();
+    // fixtures' article() scores 0.8.
+    await expect(page.locator('.single-card .score-pill')).toHaveText('80');
+  });
+
+  test('Up votes and advances the counter to 2 OF n', async ({ page }) => {
+    await signedIn(page);
+    let voted: number | null = null;
+    await mockApi(page, [article(1), article(2)]);
+    await page.route('**/api/v1/articles/1/vote', (r) => {
+      voted = 1;
+      return r.fulfill({ json: article(1, { state: { read: false, saved: false, dismissed: false, opinion: 'liked' } }) });
+    });
+    await page.goto('/');
+    await openDrawer(page);
+    await page.getByRole('button', { name: 'One at a time' }).click();
+    await page.locator('.single-actions').getByRole('button', { name: 'Up' }).click();
+    await expect(page.locator('.single-counter')).toHaveText('2 OF 2');
+    expect(voted).toBe(1);
+  });
+
+  test('Open does not advance', async ({ page }) => {
+    await signedIn(page);
+    await mockApi(page, [article(1), article(2)]);
+    await page.goto('/');
+    await openDrawer(page);
+    await page.getByRole('button', { name: 'One at a time' }).click();
+    await page.locator('.single-actions').getByRole('button', { name: 'Open' }).click();
+    await expect(page.locator('[aria-label="Article"]')).toBeVisible();
+    await expect(page.locator('.single-counter')).toHaveText('1 OF 2');
+  });
+
+  test('Feeds exits back to the list', async ({ page }) => {
+    await signedIn(page);
+    await mockApi(page, [article(1)]);
+    await page.goto('/');
+    await openDrawer(page);
+    await page.getByRole('button', { name: 'One at a time' }).click();
+    await expect(page.locator('.single-story')).toBeVisible();
+    await page.locator('.single-top').getByRole('button', { name: 'Feeds' }).click();
+    await expect(page.locator('.single-story')).toHaveCount(0);
+    await expect(page.locator('#card-1')).toBeVisible();
+  });
+
+  test('a card with no thumbnail_url renders no image element', async ({ page }) => {
+    await signedIn(page);
+    await mockApi(page, [article(1, { thumbnail_url: null })]);
+    await page.goto('/');
+    await openDrawer(page);
+    await page.getByRole('button', { name: 'One at a time' }).click();
+    await expect(page.locator('.single-card img')).toHaveCount(0);
+  });
+});

@@ -864,6 +864,15 @@ dialog[open] { display: flex; flex-direction: column; }
   font: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
 }
 
+/* The way out is not the thing to press first. `.btn-secondary` alone loses to
+   `.signin-cta button` on specificity, so without this the escape hatch renders
+   as a second identical gold pill beside the action it is the alternative to. */
+.signin-cta .btn-secondary {
+  background: none;
+  color: var(--color-ink-muted);
+  border: 1px solid var(--color-hairline-strong);
+}
+
 @media (min-width: 900px) {
   .signin { max-width: 352px; margin: 0 auto; justify-content: center; padding: 0; }
   .signin-head { padding-top: 0; }

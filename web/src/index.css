@@ -21,15 +21,22 @@
 
 /* The design tokens. Every colour, font and radius in the app resolves here.
  *
- * Taken from `job-application-tracker`'s `index.css` — its structure *and* its
- * palette, because the ask was for this app to look like that one. Warm
- * neutrals rather than pure white and pure black: #faf9f6 over #ffffff, ink at
- * #1f1d1a rather than #000, hairlines that are warm grey rather than blue-grey.
+ * The palette is the 2026-09 whitespace redesign's: warm cream and gold, not
+ * the blue-grey it replaced. Structure still follows `job-application-tracker`
+ * — the file it was originally lifted from — but none of that palette's values
+ * survive, so do not read hex here as shared with it.
  *
- * What is not taken: the seven `--stage-*` Kanban accents, which have no
- * analogue in a reader, and the priority/badge chips. What is added:
- * `--color-like-surface`, `--color-dislike-surface` and `--color-saved`, which
- * are this app's own vocabulary and have no counterpart there.
+ * Three theme blocks, and they must agree: light `:root`, `[data-theme=dark]`,
+ * and a `prefers-color-scheme` fallback that repeats the dark declarations
+ * verbatim. The repetition is deliberate — the fallback covers first paint,
+ * before `theme.ts` stamps `data-theme`, and a token present in one block and
+ * missing from the other flashes the wrong colour.
+ *
+ * Names outlive values. `--color-surface-2`, `--color-like-surface` and
+ * `--color-dislike-surface` are kept and neutralised rather than deleted,
+ * because seven screens outside the redesign still reference them and a
+ * missing token fails silently: the property does not apply and the element
+ * inherits something that usually looks plausible.
  *
  * `App.css` contains no hex literal at all, and a test asserts that, because
  * this is the kind of thing that decays one merge at a time. If a component

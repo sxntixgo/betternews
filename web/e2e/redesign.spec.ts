@@ -190,7 +190,12 @@ test.describe('desktop layout', () => {
     // One, not the chip row the four-row card carried: fixtures' article has
     // two topics and only the first is shown.
     await expect(page.locator('#card-1 .meta-tag')).toHaveText('economy');
-    await expect(page.locator('#card-1 .topic-chip')).toHaveCount(0);
+    // One, and only one. The fixture carries two topics; asserting the count
+    // is what proves the second is dropped. Checking that `.topic-chip` is
+    // absent proved nothing -- that class exists nowhere in the app, so the
+    // assertion was true before the feature was written and would stay true
+    // if every tag came back.
+    await expect(page.locator('#card-1 .meta-tag')).toHaveCount(1);
   });
 });
 

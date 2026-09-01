@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { article, mockApi, signedIn } from './fixtures';
+import { article, mockApi, openDrawer, signedIn } from './fixtures';
 
 test.describe('story row', () => {
   test('is one meta+actions line, not four rows', async ({ page }) => {
@@ -222,5 +222,136 @@ test.describe('below 900px the desktop layout collapses', () => {
 
     // And the Search button is still the way to the field here.
     await expect(page.locator('.search-toggle')).toBeVisible();
+  });
+});
+
+/**
+ * The drawer.
+ *
+ * Five all-caps labelled sections -- FEEDS / SAVED / SETTINGS / YOU / ADMIN --
+ * collapse to three unlabelled groups, a settings block and a footer. The
+ * headers go entirely: a drawer with six words in it does not need five more
+ * telling you what they are.
+ *
+ * The same element is the phone's slide-in drawer and the desktop's permanent
+ * column, so every claim here is asserted on whichever project it belongs to
+ * rather than on a forced viewport.
+ */
+test.describe('drawer', () => {
+  test('has no all-caps section headers', async ({ page }) => {
+    await signedIn(page);
+    await mockApi(page);
+    await page.goto('/');
+    await openDrawer(page);
+    await expect(page.locator('.sidebar-section-title')).toHaveCount(0);
+  });
+
+  test('is three groups, a settings block and a footer', async ({ page }) => {
+    await signedIn(page);
+    await mockApi(page);
+    await page.goto('/');
+    await openDrawer(page);
+    // Three, not "at least three": the failure this guards against is a fourth
+    // group added beside the old sections instead of replacing them.
+    await expect(page.locator('.drawer-group')).toHaveCount(3);
+    // Task 9 replaces the controls inside this container, not the container.
+    await expect(page.locator('.drawer-settings')).toHaveCount(1);
+    await expect(page.locator('.drawer-footer')).toHaveCount(1);
+  });
+
+  test('names the reader and their unread count under the wordmark', async ({ page }) => {
+    await signedIn(page);
+    await mockApi(page);
+    await page.goto('/');
+    await openDrawer(page);
+    await expect(page.locator('.drawer-head')).toContainText('Better News');
+    // fixtures' ME is "reader" and FEEDS carries 139 unread.
+    await expect(page.locator('.drawer-sub')).toContainText('reader');
+    await expect(page.locator('.drawer-sub')).toContainText('139 unread');
+  });
+
+  test('keeps every group in its own place', async ({ page }) => {
+    await signedIn(page);
+    await mockApi(page);
+    await page.goto('/');
+    await openDrawer(page);
+    const groups = page.locator('.drawer-group');
+    // 1: the feeds. 2: what a reader keeps and what was kept from them.
+    await expect(groups.nth(0)).toContainText('All feeds');
+    await expect(groups.nth(1)).toContainText('Saved articles');
+    await expect(groups.nth(1)).toContainText('Hidden');
+    await expect(groups.nth(1)).toContainText('Your stats');
+    // 3: the display preferences, all four of them.
+    const settings = page.locator('.drawer-settings');
+    await expect(settings.getByRole('switch', { name: 'Show photos' })).toBeVisible();
+    await expect(settings.getByRole('switch', { name: 'Compact list' })).toBeVisible();
+    await expect(settings.getByRole('switch', { name: /sort by score/i })).toBeVisible();
+    await expect(settings.getByRole('radiogroup', { name: 'Theme' })).toBeVisible();
+  });
+
+  test('feed children sit behind an indent rule', async ({ page }) => {
+    await signedIn(page);
+    await mockApi(page);
+    await page.goto('/');
+    await openDrawer(page);
+    const kids = page.locator('.drawer-children');
+    const rule = await kids.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return { width: cs.borderLeftWidth, pad: cs.paddingLeft };
+    });
+    expect(rule.width).toBe('2px');
+    // 16px on a phone, 14px once the column is permanent.
+    expect(['16px', '14px']).toContain(rule.pad);
+  });
+
+  test('the footer holds the admin controls, and withholds them from a reader', async ({
+    page,
+  }) => {
+    await signedIn(page);
+    await mockApi(page);
+    await page.goto('/');
+    await openDrawer(page);
+    const footer = page.locator('.drawer-footer');
+    // fixtures' ME is an admin, so all three admin screens have a home here.
+    for (const name of ['Users', 'Server settings', 'Ollama log']) {
+      await expect(footer.getByRole('button', { name, exact: true })).toBeVisible();
+    }
+    await expect(footer.getByRole('button', { name: 'Sign out' })).toBeVisible();
+
+    await page.route('**/api/v1/me', (r) => r.fulfill({
+      json: { id: 2, username: 'plain', role: 'user', must_change_password: false,
+              declickbait: false, content_filter_mode: 'off' },
+    }));
+    await page.reload();
+    await page.waitForSelector('.article-row');
+    await openDrawer(page);
+    for (const name of ['Users', 'Server settings', 'Ollama log']) {
+      await expect(footer.getByRole('button', { name, exact: true })).toHaveCount(0);
+    }
+    // Their own account and the way out stay theirs.
+    await expect(footer.getByRole('button', { name: 'Sign out' })).toBeVisible();
+    await expect(footer.getByRole('button', { name: 'plain' })).toBeVisible();
+  });
+});
+
+test.describe('the drawer is the desktop sidebar', () => {
+  test.skip(({ isMobile }) => isMobile, 'desktop only');
+
+  test('renders as a permanent 262px column, not an off-screen drawer', async ({ page }) => {
+    await signedIn(page);
+    await mockApi(page);
+    await page.goto('/');
+    await page.waitForSelector('.article-row');
+    const sidebar = page.locator('.sidebar');
+    const box = (await sidebar.boundingBox())!;
+    expect(Math.round(box.width)).toBe(262);
+    // On screen, and never translated out of it: the phone's slide-in
+    // transform must be reset here or the permanent column renders off-page.
+    expect(box.x).toBe(0);
+    expect(await sidebar.evaluate((el) => getComputedStyle(el).transform))
+      .toBe('none');
+    // The footer sits at the bottom of the column, not under the last group.
+    const footer = (await page.locator('.drawer-footer').boundingBox())!;
+    expect(footer.y).toBeGreaterThan(box.height / 2);
   });
 });

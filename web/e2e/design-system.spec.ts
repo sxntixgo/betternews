@@ -88,8 +88,10 @@ test('closing a modal returns focus to what opened it', async ({ page }) => {
 
   // A keyboard user who closes a dialog should not be dumped at the top of the
   // document with their place in the page lost.
-  // The footer tray is gone; the drawer is labelled sections now.
-  const opener = page.locator('.sidebar-item').first();
+  // `.sidebar-item` was the labelled sections' row class and went with them;
+  // the drawer's footer links are the same kind of opener, so this holds the
+  // same claim against the shape that replaced it.
+  const opener = page.locator('.drawer-footer button').first();
   await opener.focus();
   const before = await page.evaluate(() => document.activeElement?.className ?? '');
   await page.keyboard.press('Control+k');
@@ -143,7 +145,10 @@ test.describe('nothing is command-palette-only', () => {
 
   test('every icon-only control has an accessible name', async ({ page }) => {
     // An icon with no name is a mystery to a screen reader and to a tooltip.
-    const nameless = await page.locator('.sidebar-section button, .sidebar-manage')
+    // The whole drawer, not one section of it: `.sidebar-section` is gone, and
+    // scoping to a class that no longer exists would have made this pass by
+    // matching nothing at all.
+    const nameless = await page.locator('.sidebar button, .sidebar-manage')
       .evaluateAll((els) => els
         .filter((el) => !el.textContent?.trim() && !el.getAttribute('aria-label'))
         .length);
@@ -253,7 +258,17 @@ test('on a desktop the card is two rows, not columns', async ({ page, isMobile }
 });
 
 
-test.describe('the drawer is five labelled sections', () => {
+/**
+ * The drawer.
+ *
+ * It was five all-caps labelled sections -- FEEDS / SAVED / SETTINGS / YOU /
+ * ADMIN -- and is three unlabelled groups, a settings block and a footer. Two
+ * of the three tests here described the labels themselves and one described a
+ * claim that outlived them; see the note on each. The *shape* is asserted in
+ * redesign.spec's `drawer` block. What stays here is the contract this file is
+ * for: a control for every action, and none of the admin ones for a reader.
+ */
+test.describe('the drawer', () => {
   test.beforeEach(async ({ page }) => {
     await signedIn(page);
     await mockApi(page);
@@ -263,18 +278,20 @@ test.describe('the drawer is five labelled sections', () => {
     await openDrawer(page);
   });
 
-  test('in the order a reader reaches for them', async ({ page }) => {
-    // It used to be one undivided list of feeds with an unlabelled tray of
-    // icons underneath, so "where do I change the theme" had no answer you
-    // could arrive at by looking.
-    await expect(page.locator('.sidebar-section-title'))
-      .toHaveText(['Feeds', 'Saved', 'Settings', 'You', 'Admin']);
-  });
+  // Deleted with the labels: "in the order a reader reaches for them" asserted
+  // `.sidebar-section-title` read exactly Feeds / Saved / Settings / You /
+  // Admin. The redesign removes the headers entirely, so its subject is gone
+  // rather than moved. redesign.spec asserts the count is now zero.
 
-  test('the display preferences are all in Settings', async ({ page }) => {
+  test('the display preferences are all in the drawer, not the header', async ({ page }) => {
     // Density and sort were in the top bar, where on a 390px screen they cost
     // a whole row of a header that was already a quarter of the viewport.
-    const settings = page.locator('.sidebar-section').filter({ hasText: 'Settings' });
+    // The section that held them is gone; the block that replaced it is
+    // `.drawer-settings`, and the claim -- these belong here and nowhere else
+    // -- is unchanged. Photos is asserted too: it is in the same block and was
+    // simply missing from the list before.
+    const settings = page.locator('.drawer-settings');
+    await expect(settings.getByRole('switch', { name: 'Show photos' })).toBeVisible();
     await expect(settings.getByRole('switch', { name: 'Compact list' })).toBeVisible();
     await expect(settings.getByRole('switch', { name: /sort by score/i })).toBeVisible();
     await expect(settings.getByRole('radiogroup', { name: 'Theme' })).toBeVisible();
@@ -283,7 +300,11 @@ test.describe('the drawer is five labelled sections', () => {
     await expect(page.locator('.site-header').getByRole('switch')).toHaveCount(0);
   });
 
-  test('a plain reader gets four sections and no Admin', async ({ page }) => {
+  test('a plain reader gets the drawer without the admin links', async ({ page }) => {
+    // Was "a plain reader gets four sections and no Admin", counted off the
+    // section headers. There are no sections to count now, so it asserts the
+    // thing the count stood for: the admin screens have no entry point, and
+    // everything that is theirs still does.
     await page.route('**/api/v1/me', (r) => r.fulfill({
       json: { id: 2, username: 'plain', role: 'user', must_change_password: false,
               declickbait: false, content_filter_mode: 'off' },
@@ -292,10 +313,18 @@ test.describe('the drawer is five labelled sections', () => {
     await page.waitForSelector('.article-row');
     await openDrawer(page);
 
-    await expect(page.locator('.sidebar-section-title'))
-      .toHaveText(['Feeds', 'Saved', 'Settings', 'You']);
-    // Their own account and the way out stay theirs.
+    for (const name of ['Users', 'Server settings', 'Ollama log', 'Your stats',
+                        'Manage feeds']) {
+      await expect(page.locator('.sidebar').getByRole('button', { name, exact: true }))
+        .toHaveCount(0);
+    }
+    // Their own account and the way out stay theirs, and so do the feeds, the
+    // lists and every display preference.
     await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Keyboard shortcuts' })).toBeVisible();
+    await expect(page.locator('.drawer-groups')).toContainText('All feeds');
+    await expect(page.locator('.drawer-groups')).toContainText('Saved articles');
+    await expect(page.locator('.drawer-groups')).toContainText('Hidden');
     await expect(page.getByRole('switch', { name: 'Compact list' })).toBeVisible();
   });
 });

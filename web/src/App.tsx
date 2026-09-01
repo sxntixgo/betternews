@@ -16,7 +16,7 @@ import { applyTheme, loadTheme, setTheme, watchSystemTheme, type ThemePreference
 import { applyDensity, loadDensity, setDensity, type Density } from './density';
 import { applyPhotos, loadPhotos, setPhotos, type Photos } from './photos';
 import { Toolbar } from './components/Toolbar';
-import { Sidebar } from './components/Sidebar';
+import { Sidebar, HiddenFeeds } from './components/Sidebar';
 import { ManageFeeds } from './screens/ManageFeeds';
 import { Profile } from './screens/Profile';
 import { Settings } from './screens/Settings';
@@ -389,178 +389,194 @@ export default function App() {
         onClick={() => setDrawerOpen(false)}
       />
 
-      {/* Five sections, in the order a reader reaches for them: what to read,
-          what they kept, how it looks, who they are, and what only an
-          administrator touches. It used to be one undivided list of feeds with
-          an unlabelled tray of icons underneath, so "where do I change the
-          theme" had no answer you could arrive at by looking. */}
+      {/* Three groups, a settings block and a footer -- no headings at all.
+          It was five all-caps labelled sections (FEEDS / SAVED / SETTINGS /
+          YOU / ADMIN), and with six rows under some of them the labels were
+          most of the drawer's ink. What groups the rows now is the space
+          between the groups and, for the feeds, the indent rule their
+          children hang behind. */}
       <aside className={`sidebar ${drawerOpen ? 'open' : ''}`}>
-        <div className="sidebar-brand">Better News</div>
+        {/* The one part that scrolls, and it holds everything: on a phone the
+            drawer is taller than the screen, so a head or a footer pinned
+            outside this would be a band the reader cannot scroll past. */}
         <div className="sidebar-scroll">
+          <div className="drawer-head">
+            <div className="drawer-wordmark">Better News</div>
+            {/* Who is reading and how much is waiting -- the two facts the
+                five section headers never told anyone. */}
+            <div className="drawer-sub">
+              {me?.username ?? 'Reader'} · {feeds?.unread ?? 0} unread
+            </div>
+          </div>
 
-          <section className="sidebar-section">
-            <h2 className="sidebar-section-title">Feeds</h2>
-            <Sidebar
-              feeds={feeds}
-              feed={feed}
-              saved={saved}
-              hidden={hidden}
-              onAll={() => choose(() => { setFeed(undefined); setSaved(false); setHidden(false); })}
-              onFeed={(id) => choose(() => { setFeed(id); setSaved(false); setHidden(false); })}
-              onHidden={() => choose(() => { setHidden(true); setSaved(false); setFeed(undefined); })}
-              onHiddenFeed={(id) => choose(() => { setHidden(true); setSaved(false); setFeed(id); })}
-              onManageFeeds={me?.role === 'admin' ? () => setShowFeeds(true) : undefined}
-            />
-          </section>
-
-          <section className="sidebar-section">
-            <h2 className="sidebar-section-title">Saved</h2>
-            <button
-              className={`sidebar-feed ${saved ? 'active' : ''}`}
-              onClick={() => choose(() => { setSaved(true); setFeed(undefined); setHidden(false); })}
-            >
-              <span className="sidebar-feed-title">Saved articles</span>
-              {feeds && feeds.saved > 0 && (
-                <span className="pill sidebar-feed-count">{feeds.saved}</span>
-              )}
-            </button>
-          </section>
-
-          {/* Display preferences, and all of them per-device on purpose: the
-              right density on a phone is not the right one on a desktop. These
-              two toggles used to live in the top bar, where on a 390px screen
-              they cost a whole second row of a header that was already a
-              quarter of the viewport. */}
-          <section className="sidebar-section">
-            <h2 className="sidebar-section-title">Settings</h2>
-
-            <div className="sidebar-row">
-              <span className="switch-label">Compact</span>
-              <button
-                className="switch"
-                role="switch"
-                aria-checked={density === 'compact'}
-                aria-label="Compact list"
-                title="Compact list — hides summaries and tags"
-                onClick={() => {
-                  const next = density === 'compact' ? 'comfortable' : 'compact';
-                  setDensity(next); setDensityState(next);
-                }}
-              >
-                <span className="switch-track"><span className="switch-knob" /></span>
-              </button>
+          <div className="drawer-groups">
+            {/* 1. What to read. */}
+            <div className="drawer-group">
+              <Sidebar
+                feeds={feeds}
+                feed={feed}
+                saved={saved}
+                hidden={hidden}
+                onAll={() => choose(() => { setFeed(undefined); setSaved(false); setHidden(false); })}
+                onFeed={(id) => choose(() => { setFeed(id); setSaved(false); setHidden(false); })}
+                onManageFeeds={me?.role === 'admin' ? () => setShowFeeds(true) : undefined}
+              />
             </div>
 
-            {/* One control with two states, not two buttons that happen to be
-                adjacent. Date is the default and the left-hand position, so the
-                knob resting at "off" means newest-first. */}
-            <div className="sidebar-row">
-              <span className="switch-label">Photos</span>
+            {/* 2. The lists that are not the reading list: what the reader
+                kept, what was kept from them, and how well the score has been
+                guessing. Saved and Hidden were two sections of one row each. */}
+            <div className="drawer-group">
               <button
-                className="switch"
-                role="switch"
-                aria-checked={photos === 'on'}
-                aria-label="Show photos"
-                title="Show article photos"
-                onClick={() => {
-                  const next = photos === 'on' ? 'off' : 'on';
-                  setPhotos(next); setPhotosState(next);
-                }}
+                className={`sidebar-feed ${saved ? 'active' : ''}`}
+                onClick={() => choose(() => { setSaved(true); setFeed(undefined); setHidden(false); })}
               >
-                <span className="switch-track"><span className="switch-knob" /></span>
+                <span className="sidebar-feed-title">Saved articles</span>
+                {feeds && feeds.saved > 0 && (
+                  <span className="pill sidebar-feed-count count">{feeds.saved}</span>
+                )}
               </button>
-            </div>
 
-            {/* "Date" used to sit hard left with the knob and "Score" pushed to
-                the right edge, so the row read as three separate things. The
-                two state names belong beside the knob that moves between
-                them; "Sort" is the row's label, like every other row here. */}
-            <div className="sidebar-row">
-              <span className="switch-label">Sort</span>
-              <button
-                className="switch"
-                role="switch"
-                aria-checked={sort === 'score'}
-                aria-label="Sort by score instead of date"
-                onClick={() => setSort(sort === 'score' ? 'date' : 'score')}
-              >
-                <span className="switch-label">Date</span>
-                <span className="switch-track"><span className="switch-knob" /></span>
-                <span className="switch-label">Score</span>
-              </button>
-            </div>
+              <HiddenFeeds
+                feeds={feeds}
+                feed={feed}
+                hidden={hidden}
+                onHidden={() => choose(() => { setHidden(true); setSaved(false); setFeed(undefined); })}
+                onHiddenFeed={(id) => choose(() => { setHidden(true); setSaved(false); setFeed(id); })}
+              />
 
-            {/* Three icons, not a dropdown: it is a three-state preference used
-                often enough that opening a menu to change it is a step too many.
-                System is a monitor, not "auto", because what it follows is the
-                machine's setting. */}
-            {/* Labelled like the toggles above it. As a bare row of three icons
-                in a list of named settings, the one thing it did not say was
-                what it was for. */}
-            <div className="sidebar-row">
-            <span className="switch-label">Theme</span>
-            <div className="theme-picker" role="radiogroup" aria-label="Theme">
-              {THEMES.map(({ value, label, d }) => (
-                <button
-                  key={value}
-                  className={`btn-icon ${theme === value ? 'active' : ''}`}
-                  role="radio"
-                  aria-checked={theme === value}
-                  title={label}
-                  aria-label={label}
-                  onClick={() => { setTheme(value); setThemeState(value); }}
-                >
-                  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-                    <path fill="none" stroke="currentColor" strokeWidth="1.8"
-                          strokeLinecap="round" strokeLinejoin="round" d={d} />
-                  </svg>
+              {/* Ranking accuracy: how often the score agreed with the reader.
+                  Filed with the reader's own lists rather than with the admin
+                  links because it is a statement about this reader's taste --
+                  though the endpoint is still admin-only, so a plain reader is
+                  not offered a button that would answer 403. */}
+              {me?.role === 'admin' && (
+                <button className="drawer-item" onClick={() => setShowInsights(true)}>
+                  Your stats
                 </button>
-              ))}
-            </div>
+              )}
             </div>
 
-            <button className="sidebar-item" onClick={() => setShowShortcuts(true)}>
-              Keyboard shortcuts
-            </button>
-          </section>
+            {/* 3. Display preferences, and all of them per-device on purpose:
+                the right density on a phone is not the right one on a desktop.
+                Task 9 replaces the controls in here; the container is what it
+                depends on. */}
+            <div className="drawer-group drawer-settings">
+              <div className="drawer-row">
+                <span className="switch-label">Photos</span>
+                <button
+                  className="switch"
+                  role="switch"
+                  aria-checked={photos === 'on'}
+                  aria-label="Show photos"
+                  title="Show article photos"
+                  onClick={() => {
+                    const next = photos === 'on' ? 'off' : 'on';
+                    setPhotos(next); setPhotosState(next);
+                  }}
+                >
+                  <span className="switch-track"><span className="switch-knob" /></span>
+                </button>
+              </div>
 
-          <section className="sidebar-section">
-            <h2 className="sidebar-section-title">You</h2>
-            <button className="sidebar-item" onClick={() => setShowProfile(true)}>
+              <div className="drawer-row">
+                <span className="switch-label">Compact</span>
+                <button
+                  className="switch"
+                  role="switch"
+                  aria-checked={density === 'compact'}
+                  aria-label="Compact list"
+                  title="Compact list — hides summaries and tags"
+                  onClick={() => {
+                    const next = density === 'compact' ? 'comfortable' : 'compact';
+                    setDensity(next); setDensityState(next);
+                  }}
+                >
+                  <span className="switch-track"><span className="switch-knob" /></span>
+                </button>
+              </div>
+
+              {/* One control with two states, not two buttons that happen to be
+                  adjacent. Date is the default and the left-hand position, so
+                  the knob resting at "off" means newest-first. */}
+              <div className="drawer-row">
+                <span className="switch-label">Sort</span>
+                <button
+                  className="switch"
+                  role="switch"
+                  aria-checked={sort === 'score'}
+                  aria-label="Sort by score instead of date"
+                  onClick={() => setSort(sort === 'score' ? 'date' : 'score')}
+                >
+                  <span className="switch-label">Date</span>
+                  <span className="switch-track"><span className="switch-knob" /></span>
+                  <span className="switch-label">Score</span>
+                </button>
+              </div>
+
+              {/* Three icons, not a dropdown: it is a three-state preference
+                  used often enough that opening a menu to change it is a step
+                  too many. System is a monitor, not "auto", because what it
+                  follows is the machine's setting. Labelled like the toggles
+                  above it -- as a bare row of three icons in a list of named
+                  settings, the one thing it did not say was what it was for. */}
+              <div className="drawer-row">
+                <span className="switch-label">Theme</span>
+                <div className="theme-picker" role="radiogroup" aria-label="Theme">
+                  {THEMES.map(({ value, label, d }) => (
+                    <button
+                      key={value}
+                      className={`btn-icon ${theme === value ? 'active' : ''}`}
+                      role="radio"
+                      aria-checked={theme === value}
+                      title={label}
+                      aria-label={label}
+                      onClick={() => { setTheme(value); setThemeState(value); }}
+                    >
+                      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                        <path fill="none" stroke="currentColor" strokeWidth="1.8"
+                              strokeLinecap="round" strokeLinejoin="round" d={d} />
+                      </svg>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="drawer-divider" />
+
+          {/* Everything that opens a dialog rather than filtering the list,
+              as small text at the foot of the column. The three admin entries
+              are here by name rather than behind one "Admin" word: every
+              action needs its own visible control, and design-system.spec
+              asserts each of these is clickable without the palette. Hiding a
+              control is not gating an endpoint -- all three are behind
+              `@api_admin` as well, and tests/test_api.py asserts a plain
+              reader gets a JSON 403 from each. */}
+          <div className="drawer-footer">
+            <button className="drawer-link" onClick={() => setShowProfile(true)}>
               {me?.username ? `Profile — ${me.username}` : 'Profile'}
             </button>
-            {/* Ranking accuracy: how often the score agreed with the reader.
-                Filed here rather than under Admin because it is a statement
-                about this reader's taste, not about the server -- though the
-                endpoint is still admin-only, so a plain reader is not offered
-                a button that would answer 403. */}
             {me?.role === 'admin' && (
-              <button className="sidebar-item" onClick={() => setShowInsights(true)}>
-                Your stats
-              </button>
+              <>
+                <button className="drawer-link" onClick={() => setShowUsers(true)}>Users</button>
+                <button className="drawer-link" onClick={() => setShowSettings(true)}>
+                  Server settings
+                </button>
+                <button className="drawer-link" onClick={() => setShowLog(true)}>Ollama log</button>
+              </>
             )}
+            <button className="drawer-link" onClick={() => setShowShortcuts(true)}>
+              Keyboard shortcuts
+            </button>
             <button
-              className="sidebar-item"
+              className="drawer-link"
               onClick={() => { void api.logout().finally(() => setSignedIn(false)); }}
             >
               Sign out
             </button>
-          </section>
-
-          {/* Hiding a control is not gating an endpoint -- every one of these is
-              behind `@api_admin` as well, and `tests/test_api.py` asserts a
-              plain reader gets a JSON 403 from each. This is only about not
-              offering a button that cannot work. */}
-          {me?.role === 'admin' && (
-            <section className="sidebar-section">
-              <h2 className="sidebar-section-title">Admin</h2>
-              <button className="sidebar-item" onClick={() => setShowUsers(true)}>Users</button>
-              <button className="sidebar-item" onClick={() => setShowSettings(true)}>
-                Server settings
-              </button>
-              <button className="sidebar-item" onClick={() => setShowLog(true)}>Ollama log</button>
-            </section>
-          )}
+          </div>
         </div>
       </aside>
 

@@ -318,12 +318,12 @@ test.describe('the top bar and the drawer fit the screen', () => {
 
   test('a long feed list does not strand the lower sections', async ({ page, isMobile }) => {
     test.skip(!isMobile, 'phone only');
-    // The drawer is five stacked sections and the feed list is the first, so
-    // with thirty feeds everything below it is off-screen until you scroll.
-    // What matters is that scrolling reaches them: an earlier version made the
-    // whole sidebar `overflow: hidden` to pin a footer that no longer exists,
-    // which would leave Settings, You and Admin unreachable on a phone -- the
-    // one place nothing else opens them.
+    // The feed list is the drawer's first group, so with thirty feeds
+    // everything below it is off-screen until you scroll. What matters is that
+    // scrolling reaches them: an earlier version made the whole sidebar
+    // `overflow: hidden` to pin a footer that no longer exists, which would
+    // leave the settings block and the footer links unreachable on a phone --
+    // the one place nothing else opens them.
     await page.route('**/api/v1/feeds', (r) => r.fulfill({ json: {
       feeds: Array.from({ length: 30 }, (_, i) => ({
         id: i + 1, title: `Feed number ${i + 1}`, unread: i, hidden: 0,
@@ -335,8 +335,10 @@ test.describe('the top bar and the drawer fit the screen', () => {
     await page.waitForSelector('.article-row');
     await openDrawer(page);
 
-    const admin = page.locator('.sidebar-section').filter({ hasText: 'Admin' });
-    await admin.scrollIntoViewIfNeeded();
+    // Was the `.sidebar-section` labelled "Admin". The sections are gone and
+    // the admin links moved into the drawer's footer, which is now the last
+    // thing in the column and so the thing furthest out of reach.
+    await page.locator('.drawer-footer').scrollIntoViewIfNeeded();
 
     const vp = page.viewportSize()!;
     for (const name of ['Sign out', 'Ollama log']) {

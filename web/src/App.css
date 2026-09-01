@@ -59,8 +59,9 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 .sidebar {
   width: 240px;
   flex-shrink: 0;
-  /* `overflow-y: auto` moved to the feed list below, so the footer can stay
-     put. Scrolling the whole column is what buried it. */
+  /* `overflow-y: auto` lives on the scroller below, not here, so the drawer
+     can hold a head and a footer that scroll with the groups instead of
+     pinning bands the reader cannot get past on a phone. */
   border-right: 1px solid var(--color-hairline);
   /* Chrome, not content: the sidebar stays on the page colour and the article
      list lifts onto a surface in front of it. One flat background could not
@@ -68,20 +69,22 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
   background: var(--color-bg);
   display: flex;
   flex-direction: column;
-  padding: 16px 0;
+  /* Padding belongs to the blocks inside, which take different amounts of it
+     -- 56px above the wordmark, 44px under the footer. */
+  padding: 0;
   position: sticky;
   top: 0;
   height: 100vh;
   overflow: hidden;
 }
-/* The one part that scrolls. `min-height: 0` is load-bearing: a flex child
-   defaults to `min-height: auto`, which refuses to shrink below its content,
-   so without it the list simply pushes the footer out again and nothing
-   scrolls at all.
+/* The one part that scrolls, and it holds the whole drawer.
+   `min-height: 0` is load-bearing: a flex child defaults to `min-height:
+   auto`, which refuses to shrink below its content, so without it the groups
+   push the footer out again and nothing scrolls at all. mobile.spec's "a long
+   feed list does not strand the lower sections" is what fails when it goes.
 
    A wrapper element, because `Sidebar` returns a fragment and a fragment
-   cannot be scrolled. (`.sidebar-nav` further down is dead -- nothing renders
-   it -- so it is not the hook it looks like.) */
+   cannot be scrolled. */
 .sidebar-scroll {
   flex: 1;
   min-height: 0;
@@ -89,119 +92,143 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
   display: flex;
   flex-direction: column;
 }
-.sidebar-brand {
-  font-weight: 700;
-  font-size: 16px;
-  padding: 0 16px 12px;
-  color: var(--color-ink);
-  text-decoration: none;
-  border-bottom: 1px solid var(--color-hairline);
-}
-/* The drawer is five labelled sections now -- Feeds, Saved, Settings, You,
-   Admin -- rather than one list of feeds with an unlabelled tray of icons
-   under it. `flex: 1` is gone with the tray: every section sizes to its
-   contents and the column scrolls as a whole. */
-.sidebar-section {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 10px 8px;
-}
-.sidebar-section + .sidebar-section { border-top: 1px solid var(--color-hairline); }
-.sidebar-section-title {
-  margin: 0 0 4px;
-  padding: 0 8px;
-  font-size: 11px;
+
+/* ── the drawer ─────────────────────────────────────────────────────────────
+   Three unlabelled groups, a settings block and a footer, where there were
+   five all-caps labelled sections: FEEDS / SAVED / SETTINGS / YOU / ADMIN.
+   With one or two rows under most of them the headers were the loudest thing
+   in the column and said the least. What groups the rows now is the 34px
+   between the groups; what nests the feeds is the rule their children hang
+   behind. */
+.drawer-head { padding: 56px 28px 40px; }
+.drawer-wordmark {
+  font-family: var(--font-serif);
+  font-size: 24px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  line-height: 1.1;
+  letter-spacing: -0.4px;
+  color: var(--color-ink);
+}
+.drawer-sub {
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 400;
   color: var(--color-ink-muted);
 }
-/* A plain row, same shape and hit area as a feed, for the things that open a
-   dialog rather than filter the list. */
-.sidebar-item {
+
+.drawer-groups {
   display: flex;
-  align-items: center;
-  text-align: left;
-  width: 100%;
-  padding: 8px;
-  border: 0;
-  background: none;
-  border-radius: var(--radius-sm);
-  color: var(--color-ink);
-  font: inherit;
-  cursor: pointer;
+  flex-direction: column;
+  gap: 34px;
+  padding: 0 28px;
 }
-.sidebar-item:hover { background: var(--color-surface-2); }
-/* Every setting is the same row: its name on the left, its control on the
-   right, where the feed counts sit. */
-.sidebar-row > .switch,
-.sidebar-row > .theme-picker { margin-left: auto; }
-.sidebar-row > .switch { gap: 6px; padding: 4px 0; }
-.sidebar-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 2px 8px;
-}
-.sidebar-section .theme-picker { display: flex; gap: 2px; }
+.drawer-group { display: flex; flex-direction: column; gap: 18px; }
+
+/* One row shape for everything in the drawer that filters the list or opens a
+   screen. `.sidebar-feed` is the same row under its older name -- reading,
+   interaction and mobile spec all reach for that class -- so the two share a
+   declaration rather than drifting into two nearly-identical rows. No fill,
+   no radius, no hover tint: a tint behind a row is exactly what the
+   whitespace redesign takes out. */
+.drawer-item,
 .sidebar-feed {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 6px 10px;
-  border: none;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--color-ink);
-  font-size: 14px;
+  gap: 12px;
+  width: 100%;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 15px;
+  color: var(--color-ink-secondary);
   text-align: left;
   cursor: pointer;
-  width: 100%;
 }
-.sidebar-feed:hover { background: var(--color-surface-2); }
-.sidebar-feed.active { background: var(--color-surface-2); font-weight: 600; }
+/* All feeds leads its group, and is the only row that does. */
+.drawer-item.is-all { font-size: 17px; font-weight: 600; color: var(--color-ink); }
+.drawer-item.active,
+.sidebar-feed.active { color: var(--color-ink); font-weight: 600; }
 .sidebar-feed-title {
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The count is a bare number now. `.pill` stays on the element because it is
+   the app's last pill and gives it a touch-safe height, but the fill and the
+   reserved 22px go: a filled chip on every row was a second column of colour
+   down the side of the drawer. */
 .sidebar-feed-count {
-  color: var(--color-ink-muted);
-  background: var(--color-hairline);
-  min-width: 22px;
-  justify-content: center;
+  background: none;
+  color: var(--color-ink-meta);
+  min-width: 0;
+  padding-right: 0;
 }
-.sidebar-feed.active .sidebar-feed-count { color: var(--color-ink); }
+.drawer-item.is-all .sidebar-feed-count { color: var(--color-accent); }
 
-.sidebar-group { display: flex; flex-direction: column; }
-.sidebar-group-header { display: flex; align-items: center; gap: 2px; }
-.sidebar-collapse {
-  border: none;
-  background: transparent;
+/* All feeds and the pencil that edits the list share a line. */
+.drawer-all { display: flex; align-items: center; gap: 8px; }
+.drawer-all .drawer-item { flex: 1; min-width: 0; }
+
+/* The indent rule: the feeds hang 16px behind a 2px line, and the line goes
+   gold while one of them is the list being read. Between them that is what
+   the deleted "FEEDS" header and the row tint used to say. */
+.drawer-children {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding-left: 16px;
+  border-left: 2px solid var(--color-indent-inactive);
+}
+.drawer-children.is-active { border-left-color: var(--color-indent-active); }
+
+/* Every setting is the same row: its name on the left, its control on the
+   right, where the feed counts sit. */
+.drawer-row { display: flex; align-items: center; gap: 8px; }
+.drawer-row > .switch,
+.drawer-row > .theme-picker { margin-left: auto; }
+.drawer-row > .switch { gap: 6px; }
+
+.drawer-divider {
+  height: 1px;
+  flex: none;
+  background: var(--color-divider);
+  margin: 34px 28px 0;
+}
+/* It wraps. On a phone each of these is a 40px touch target and six of them
+   do not fit one 260px line. */
+.drawer-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 24px;
+  padding: 24px 28px 44px;
+  font-size: 13px;
   color: var(--color-ink-muted);
+}
+.drawer-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 13px;
+  color: var(--color-ink-muted);
+  text-align: left;
   cursor: pointer;
-  font-size: 11px;
-  padding: 2px 4px;
-  width: 18px;
-  flex-shrink: 0;
-  transition: transform 0.15s;
 }
-.sidebar-group.collapsed .sidebar-collapse { transform: rotate(-90deg); }
-.sidebar-group-title { flex: 1; font-weight: 600; }
-.sidebar-tag-label {
-  padding: 6px 10px;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--color-ink-muted);
-  font-weight: 600;
-}
-.sidebar-group-body { display: flex; flex-direction: column; gap: 2px; padding-left: 18px; }
+
+.sidebar-group { display: flex; flex-direction: column; gap: 18px; }
+/* The rows line up under their tag label, not under the chevron sitting left
+   of it. The label is already indented by the chevron's width, so the body has
+   to match it or the feeds read as belonging to the row above them -- which is
+   what dropping this indent entirely looked like. The chevron is wider on a
+   touch screen (it carries a 40px tap target), so the indent is too. */
+.sidebar-group-body { display: flex; flex-direction: column; gap: 18px; padding-left: 21px; }
+@media (pointer: coarse) { .sidebar-group-body { padding-left: 42px; } }
 .sidebar-group.collapsed .sidebar-group-body { display: none; }
-.sidebar-feed-nested { font-size: 13px; }
+.sidebar-feed-nested { font-size: 14px; }
 .sidebar-manage {
   display: inline-flex;
   align-items: center;
@@ -211,7 +238,7 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
   text-decoration: none;
   flex-shrink: 0;
 }
-.sidebar-manage:hover { color: var(--color-ink); background: var(--color-surface-2); }
+.sidebar-manage:hover { color: var(--color-ink); }
 
 /* Mobile drawer. `.drawer-toggle` is restyled here -- a two-bar hamburger
    instead of the old three-line icon -- but it still needs to sit above the
@@ -567,7 +594,9 @@ button:disabled { opacity: 0.4; cursor: default; }
 .btn-icon:disabled { opacity: 0.4; cursor: default; }
 .btn-icon:disabled:hover { background: none; }
 
-.sidebar-collapse, .sidebar-feed { border: 1px solid transparent; }
+/* `.sidebar-feed` is borderless now -- it is the drawer's plain row, not a
+   button-shaped thing -- so only the collapse chevron reserves the border. */
+.sidebar-collapse { border: 1px solid transparent; }
 
 /* Dark mode: surface the reserved borders so buttons stand apart from the
    panel background. Padding/box-sizing are unchanged — these rules only
@@ -1025,7 +1054,7 @@ kbd {
 /* ── sidebar groups ───────────────────────────────────────────────────────── */
 /* Feeds group under their tags. The flat list this replaces ignored Feed.tags
    entirely, so tagging a feed was something you could do and never see. */
-.sidebar-group-header { display: flex; align-items: center; gap: 2px; padding-right: 8px; }
+.sidebar-group-header { display: flex; align-items: center; gap: 2px; }
 .sidebar-group-header .sidebar-feed { flex: 1; min-width: 0; }
 .sidebar-collapse {
   border: 0;
@@ -1040,14 +1069,16 @@ kbd {
 .sidebar-group.collapsed .sidebar-collapse { transform: rotate(-90deg); }
 .sidebar-tag-label {
   flex: 1;
-  padding: 6px 4px;
+  padding: 0;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--color-ink-muted);
 }
-.sidebar-group-body .sidebar-feed-nested { padding-left: 26px; }
+/* The nested feeds used to be indented 26px again under the tag label. They
+   are already 16px behind `.drawer-children`'s rule, and a second indent on
+   top of it left the titles fighting for what was left of a 260px drawer. */
 
 /* An embed card, not an embed. Nothing loads from X or Instagram: the widget
    scripts the server-rendered reader injected were the only thing in the app
@@ -1274,10 +1305,13 @@ kbd {
   }
 }
 
-@media (max-width: 720px) {
-  .sidebar-tools,
-  .theme-picker { display: contents; }
-}
+/* A `@media (max-width: 720px)` rule used to unbox `.sidebar-tools` and
+   `.theme-picker` with `display: contents` on a phone. `.sidebar-tools` was
+   already dead -- nothing has rendered it for a long time -- and the theme
+   picker only survived it because a more specific `.sidebar-section
+   .theme-picker` put the flex box back. That section is gone, so the rule is
+   deleted rather than re-overridden: unboxed, the radiogroup has no layout
+   box at all and stops being a visible group. */
 
 /* The threshold controls: a field and up to three buttons that must not wrap
    into a column on a phone-width dialog. */
@@ -1308,8 +1342,38 @@ kbd {
    block that widens it, and below 900px none of it applies -- which is what
    makes the collapse back to the phone layout a deletion rather than a second
    set of overrides. 900px is the redesign's one breakpoint for the reading
-   column. (The drawer still becomes a sidebar at 720px, which is Task 8's.) */
+   column. Above 720px the drawer is already in flow rather than an overlay;
+   this block is what makes it the redesign's 262px column. */
 @media (min-width: 900px) {
+  /* The same element as the phone's drawer, permanently in the page. It sits
+     on the surface colour instead of behind a rule -- the article list is what
+     lifts in front of it -- and `transform: none` is not decoration: the
+     overlay slides in on a transform below 720px, and a stray one here would
+     park the permanent column off the left edge of the window. */
+  .sidebar {
+    width: 262px;
+    flex: none;
+    background: var(--color-surface);
+    border-right: 0;
+    padding: 30px 26px 26px;
+    transform: none;
+  }
+  .sidebar-scroll { gap: 30px; }
+  .drawer-head { padding: 0; }
+  .drawer-wordmark { font-size: 19px; }
+  .drawer-groups { padding: 0; gap: 34px; }
+  .drawer-item,
+  .sidebar-feed { font-size: 14px; }
+  .drawer-item.is-all { font-size: 15px; }
+  .sidebar-feed-nested { font-size: 13px; }
+  .drawer-children { padding-left: 14px; }
+  /* `margin-top: auto` goes on the divider, not the footer: with it on the
+     footer the rule stayed behind under the last group and only the links
+     dropped, which reads as a stray line across the middle of the column. */
+  .drawer-divider { margin: auto 0 0; }
+  .drawer-footer { padding: 0; font-size: 12px; }
+  .drawer-link { font-size: 12px; }
+
   /* A reading measure, not a column of full-window text: 760px including the
      48px gutters. The bottom padding is the base's, kept rather than zeroed --
      the list is a surface, and a surface that stops flush against its last

@@ -197,6 +197,20 @@ test.describe('desktop layout', () => {
     // if every tag came back.
     await expect(page.locator('#card-1 .meta-tag')).toHaveCount(1);
   });
+
+  test('the topic filters the list, and does not also open the reader', async ({ page }) => {
+    await signedIn(page);
+    await mockApi(page);
+    await page.goto('/');
+    const asked: string[] = [];
+    page.on('request', (r) => {
+      if (r.url().includes('/api/v1/articles?')) asked.push(r.url());
+    });
+    await page.locator('#card-1 .meta-tag').click();
+    await expect.poll(() => asked.some((u) => u.includes('topic=economy'))).toBe(true);
+    // The card opens the reader when clicked; a control on it must not.
+    await expect(page.getByRole('dialog')).toBeHidden();
+  });
 });
 
 test.describe('below 900px the desktop layout collapses', () => {

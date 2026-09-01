@@ -1191,7 +1191,19 @@ kbd {
 /* One topic, as plain text and not as a chip row. Desktop only, with its own
    separator dot: this is the item that would wrap the phone's single meta
    line, and a dot left behind by a hidden tag is a stray mark. */
-.meta-tag { display: none; flex: none; }
+/* A button, so the card's click guard excludes it and it is reachable by Tab --
+   but it must read as the plain text the design asks for, not as a chip. */
+.meta-tag {
+  display: none;
+  flex: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+  cursor: pointer;
+}
 .meta-dot-tag { display: none; }
 
 /* The dismissed pile: a divider you have to cross on purpose. It sits below
@@ -1426,5 +1438,6 @@ kbd {
      they earned; hovering must not read as un-saving. */
   .article-actions .action:not([aria-pressed='true']):hover,
   .article-actions .action-open:hover { color: var(--color-ink); }
+  .meta-tag:hover { color: var(--color-ink); }
   .article-title:hover { text-decoration: underline; }
 }

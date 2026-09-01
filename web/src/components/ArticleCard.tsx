@@ -47,12 +47,6 @@ export function ArticleCard({
     onOpen(article);
   }
 
-  // Declared, deliberately unused. The desktop meta line carries one topic
-  // again, but as plain text rather than as a control: a tag that filters the
-  // list is a second thing to press on a line that already holds four, and the
-  // card itself opens the reader. The prop stays in the signature so making
-  // that tag clickable later is a change here and nowhere else.
-  void onTopic;
 
   const s = article.state;
   const classes = [
@@ -137,7 +131,13 @@ export function ArticleCard({
           {article.topics[0] && (
             <>
               <span className="meta-dot meta-dot-tag">·</span>
-              <span className="meta-tag">{article.topics[0]}</span>
+              <button
+                className="meta-tag"
+                onClick={() => onTopic?.(article.topics[0])}
+                title={`Show only ${article.topics[0]}`}
+              >
+                {article.topics[0]}
+              </button>
             </>
           )}
         </div>

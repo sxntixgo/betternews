@@ -184,13 +184,6 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 }
 .drawer-children.is-active { border-left-color: var(--color-indent-active); }
 
-/* Every setting is the same row: its name on the left, its control on the
-   right, where the feed counts sit. */
-.drawer-row { display: flex; align-items: center; gap: 8px; }
-.drawer-row > .switch,
-.drawer-row > .theme-picker { margin-left: auto; }
-.drawer-row > .switch { gap: 6px; }
-
 .drawer-divider {
   height: 1px;
   flex: none;
@@ -373,50 +366,39 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
   max-width: 180px;
 }
 
-/* A switch: one control, two states. It replaced two adjacent buttons, which
-   read as two independent actions rather than a choice between two. */
-.switch {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  border: 0;
-  background: none;
-  padding: 4px 2px;
-  cursor: pointer;
-  font-size: 13px;
-  color: var(--color-ink-muted);
-}
-.switch-track {
-  position: relative;
-  width: 30px;
-  height: 17px;
-  flex: none;
+/* The drawer's four display-preference controls: Toggle and Segmented from
+   Task 9. `.setting-row` is their shared shell -- a name on the left, the
+   control on the right -- rendered by each component rather than by the
+   markup that uses them. */
+.drawer-settings { display: flex; flex-direction: column; gap: 22px; padding: 0 28px; }
+.setting-row { display: flex; align-items: center; justify-content: space-between; }
+.setting-label { font-size: 15px; color: var(--color-ink-secondary); }
+
+.toggle {
+  width: 42px; height: 26px; flex: none;
+  border: 0; padding: 0 3px;
   border-radius: var(--radius-pill);
-  background: var(--color-hairline);
-  border: 1px solid var(--color-hairline-strong);
-  transition: background-color 0.15s ease;
+  background: var(--color-toggle-off);
+  display: flex; align-items: center; cursor: pointer;
 }
-.switch-knob {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 11px;
-  height: 11px;
+.toggle[aria-checked='true'] { background: var(--color-accent); justify-content: flex-end; }
+.toggle-knob { width: 20px; height: 20px; border-radius: var(--radius-pill); background: var(--color-segment-selected); }
+
+.segmented { display: flex; gap: 0; padding: 3px; border-radius: var(--radius-pill); background: var(--color-track-2); }
+.segment {
+  border: 0; background: none; padding: 4px 10px;
   border-radius: var(--radius-pill);
-  background: var(--color-ink-muted);
-  transition: transform 0.15s ease, background-color 0.15s ease;
+  font: inherit; font-size: 12px; font-weight: 400;
+  color: var(--color-ink-muted); cursor: pointer;
 }
-.switch[aria-checked='true'] .switch-track {
-  background: var(--color-accent);
-  border-color: var(--color-accent);
+.segment[aria-checked='true'] { background: var(--color-segment-selected); color: var(--color-ink); font-weight: 600; }
+
+@media (min-width: 900px) {
+  .drawer-settings { gap: 19px; }
+  .toggle { width: 38px; height: 23px; }
+  .toggle-knob { width: 17px; height: 17px; }
+  .segment { font-size: 11.5px; }
 }
-.switch[aria-checked='true'] .switch-knob {
-  transform: translateX(13px);
-  background: var(--color-on-accent);
-}
-/* The active side is the one in ink; the other stays muted. */
-.switch[aria-checked='false'] .switch-label:first-of-type,
-.switch[aria-checked='true'] .switch-label:last-of-type { color: var(--color-ink); }
 
 /* Article list — flat rows */
 #article-list {
@@ -1106,15 +1088,6 @@ kbd {
 .embed-open { font-size: 12px; color: var(--color-accent); }
 .sidebar-manage { flex: none; padding: 4px; color: var(--color-ink-muted); }
 .sidebar-manage:hover { color: var(--color-ink); }
-
-/* Three states, one row. `.active` is the chosen one, not a hover state. */
-.theme-picker { display: flex; gap: 2px; }
-.theme-picker .btn-icon { padding: 5px 7px; color: var(--color-ink-muted); }
-.theme-picker .btn-icon:hover { color: var(--color-ink); background: var(--color-surface-2); }
-.theme-picker .btn-icon.active {
-  color: var(--color-on-accent);
-  background: var(--color-accent);
-}
 
 /* The story kind, beside the topics but visibly not one of them: a reader can
    want Boca Juniors transfer news and not Boca Juniors fixture listings. */

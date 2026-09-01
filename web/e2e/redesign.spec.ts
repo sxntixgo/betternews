@@ -285,7 +285,7 @@ test.describe('drawer', () => {
     const settings = page.locator('.drawer-settings');
     await expect(settings.getByRole('switch', { name: 'Show photos' })).toBeVisible();
     await expect(settings.getByRole('switch', { name: 'Compact list' })).toBeVisible();
-    await expect(settings.getByRole('switch', { name: /sort by score/i })).toBeVisible();
+    await expect(settings.getByRole('radiogroup', { name: 'Sort' })).toBeVisible();
     await expect(settings.getByRole('radiogroup', { name: 'Theme' })).toBeVisible();
   });
 
@@ -353,5 +353,43 @@ test.describe('the drawer is the desktop sidebar', () => {
     // The footer sits at the bottom of the column, not under the last group.
     const footer = (await page.locator('.drawer-footer').boundingBox())!;
     expect(footer.y).toBeGreaterThan(box.height / 2);
+  });
+});
+
+/**
+ * Task 9: Photos and Compact are switches; Sort and Theme are segmented
+ * radiogroups. Photos keeps its pre-existing accessible name ("Show photos",
+ * not the visible "Photos") -- see the controller correction on Toggle --
+ * so this is a regression guard as much as a new-behaviour test. Sort and
+ * Theme are the two that actually change shape here.
+ */
+test.describe('drawer controls', () => {
+  test('Photos is a switch that reports its state', async ({ page }) => {
+    await signedIn(page);
+    await mockApi(page);
+    await page.goto('/');
+    await openDrawer(page);
+    const sw = page.getByRole('switch', { name: 'Show photos' });
+    const before = await sw.getAttribute('aria-checked');
+    await sw.click();
+    await expect(sw).toHaveAttribute('aria-checked', before === 'true' ? 'false' : 'true');
+  });
+
+  test('Sort offers exactly Score and Date', async ({ page }) => {
+    await signedIn(page);
+    await mockApi(page);
+    await page.goto('/');
+    await openDrawer(page);
+    const group = page.getByRole('radiogroup', { name: 'Sort' });
+    await expect(group.getByRole('radio')).toHaveText(['Score', 'Date']);
+  });
+
+  test('Theme offers Auto, Light and Dark', async ({ page }) => {
+    await signedIn(page);
+    await mockApi(page);
+    await page.goto('/');
+    await openDrawer(page);
+    const group = page.getByRole('radiogroup', { name: 'Theme' });
+    await expect(group.getByRole('radio')).toHaveText(['Auto', 'Light', 'Dark']);
   });
 });

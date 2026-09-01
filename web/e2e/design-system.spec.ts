@@ -188,23 +188,28 @@ test.describe('the shared pill', () => {
   });
 });
 
-test('sort is one switch defaulting to date', async ({ page }) => {
+test('sort is a segmented control defaulting to Date', async ({ page }) => {
   await signedIn(page);
   await mockApi(page);
   await page.goto('/');
   await page.waitForSelector('.article-row');
 
-  // It lives in the drawer's Settings section now, not the top bar.
+  // It lives in the drawer's Settings section now, not the top bar. Task 9
+  // replaced the ambiguous Date<->Score switch with a 2-up radiogroup: Date
+  // and Score are two positions, not an on/off state.
   await openDrawer(page);
-  // One control with two states, not two buttons that happen to be adjacent.
-  const sw = page.getByRole('switch', { name: /sort by score/i });
-  await expect(sw).toBeVisible();
-  await expect(sw).toHaveAttribute('aria-checked', 'false');
+  const group = page.getByRole('radiogroup', { name: 'Sort' });
+  await expect(group).toBeVisible();
+  const date = group.getByRole('radio', { name: 'Date' });
+  const score = group.getByRole('radio', { name: 'Score' });
+  await expect(date).toHaveAttribute('aria-checked', 'true');
+  await expect(score).toHaveAttribute('aria-checked', 'false');
 
   const sorted = page.waitForRequest((r) => r.url().includes('sort=score'));
-  await sw.click();
+  await score.click();
   await sorted;
-  await expect(sw).toHaveAttribute('aria-checked', 'true');
+  await expect(score).toHaveAttribute('aria-checked', 'true');
+  await expect(date).toHaveAttribute('aria-checked', 'false');
 });
 
 test('theme is three icons, and the current one is marked', async ({ page }) => {
@@ -293,7 +298,7 @@ test.describe('the drawer', () => {
     const settings = page.locator('.drawer-settings');
     await expect(settings.getByRole('switch', { name: 'Show photos' })).toBeVisible();
     await expect(settings.getByRole('switch', { name: 'Compact list' })).toBeVisible();
-    await expect(settings.getByRole('switch', { name: /sort by score/i })).toBeVisible();
+    await expect(settings.getByRole('radiogroup', { name: 'Sort' })).toBeVisible();
     await expect(settings.getByRole('radiogroup', { name: 'Theme' })).toBeVisible();
 
     // And gone from the top bar, or they would be in two places at once.

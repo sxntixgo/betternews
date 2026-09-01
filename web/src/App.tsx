@@ -16,6 +16,8 @@ import { applyTheme, loadTheme, setTheme, watchSystemTheme, type ThemePreference
 import { applyDensity, loadDensity, setDensity, type Density } from './density';
 import { applyPhotos, loadPhotos, setPhotos, type Photos } from './photos';
 import { Toolbar } from './components/Toolbar';
+import { Toggle } from './components/Toggle';
+import { Segmented } from './components/Segmented';
 import { Sidebar, HiddenFeeds } from './components/Sidebar';
 import { ManageFeeds } from './screens/ManageFeeds';
 import { Profile } from './screens/Profile';
@@ -462,85 +464,55 @@ export default function App() {
                 Task 9 replaces the controls in here; the container is what it
                 depends on. */}
             <div className="drawer-group drawer-settings">
-              <div className="drawer-row">
-                <span className="switch-label">Photos</span>
-                <button
-                  className="switch"
-                  role="switch"
-                  aria-checked={photos === 'on'}
-                  aria-label="Show photos"
-                  title="Show article photos"
-                  onClick={() => {
-                    const next = photos === 'on' ? 'off' : 'on';
-                    setPhotos(next); setPhotosState(next);
-                  }}
-                >
-                  <span className="switch-track"><span className="switch-knob" /></span>
-                </button>
-              </div>
+              <Toggle
+                label="Photos"
+                name="Show photos"
+                checked={photos === 'on'}
+                onChange={(v) => {
+                  const next = v ? 'on' : 'off';
+                  setPhotos(next); setPhotosState(next);
+                }}
+              />
 
-              <div className="drawer-row">
-                <span className="switch-label">Compact</span>
-                <button
-                  className="switch"
-                  role="switch"
-                  aria-checked={density === 'compact'}
-                  aria-label="Compact list"
-                  title="Compact list — hides summaries and tags"
-                  onClick={() => {
-                    const next = density === 'compact' ? 'comfortable' : 'compact';
-                    setDensity(next); setDensityState(next);
-                  }}
-                >
-                  <span className="switch-track"><span className="switch-knob" /></span>
-                </button>
-              </div>
+              <Toggle
+                label="Compact"
+                name="Compact list"
+                checked={density === 'compact'}
+                onChange={(v) => {
+                  const next = v ? 'compact' : 'comfortable';
+                  setDensity(next); setDensityState(next);
+                }}
+              />
 
-              {/* One control with two states, not two buttons that happen to be
-                  adjacent. Date is the default and the left-hand position, so
-                  the knob resting at "off" means newest-first. */}
-              <div className="drawer-row">
-                <span className="switch-label">Sort</span>
-                <button
-                  className="switch"
-                  role="switch"
-                  aria-checked={sort === 'score'}
-                  aria-label="Sort by score instead of date"
-                  onClick={() => setSort(sort === 'score' ? 'date' : 'score')}
-                >
-                  <span className="switch-label">Date</span>
-                  <span className="switch-track"><span className="switch-knob" /></span>
-                  <span className="switch-label">Score</span>
-                </button>
-              </div>
+              {/* Was one switch, "sort by score instead of date". A radiogroup
+                  says the same thing without the double negative: Date and
+                  Score are two positions, not an on/off toggle. */}
+              <Segmented
+                label="Sort"
+                value={sort}
+                options={[
+                  { value: 'score', label: 'Score' },
+                  { value: 'date', label: 'Date' },
+                ]}
+                onChange={setSort}
+              />
 
-              {/* Three icons, not a dropdown: it is a three-state preference
+              {/* Three positions, not a dropdown: a three-state preference
                   used often enough that opening a menu to change it is a step
-                  too many. System is a monitor, not "auto", because what it
-                  follows is the machine's setting. Labelled like the toggles
-                  above it -- as a bare row of three icons in a list of named
-                  settings, the one thing it did not say was what it was for. */}
-              <div className="drawer-row">
-                <span className="switch-label">Theme</span>
-                <div className="theme-picker" role="radiogroup" aria-label="Theme">
-                  {THEMES.map(({ value, label, d }) => (
-                    <button
-                      key={value}
-                      className={`btn-icon ${theme === value ? 'active' : ''}`}
-                      role="radio"
-                      aria-checked={theme === value}
-                      title={label}
-                      aria-label={label}
-                      onClick={() => { setTheme(value); setThemeState(value); }}
-                    >
-                      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-                        <path fill="none" stroke="currentColor" strokeWidth="1.8"
-                              strokeLinecap="round" strokeLinejoin="round" d={d} />
-                      </svg>
-                    </button>
-                  ))}
-                </div>
-              </div>
+                  too many. The system option is visibly "Auto" -- it used to
+                  be an unlabelled icon -- but keeps its old accessible name
+                  ("Follow the system") via Segmented's `name` override, since
+                  interaction.spec.ts still finds it by that. */}
+              <Segmented
+                label="Theme"
+                value={theme}
+                options={[
+                  { value: 'system', label: 'Auto', name: 'Auto — follow the system' },
+                  { value: 'light', label: 'Light' },
+                  { value: 'dark', label: 'Dark' },
+                ]}
+                onChange={(v) => { setTheme(v); setThemeState(v); }}
+              />
             </div>
           </div>
 
@@ -723,15 +695,3 @@ export default function App() {
   );
 }
 
-
-/** System, light and dark. `d` is the icon path; the label is both tooltip and
- *  accessible name. */
-const THEMES: { value: ThemePreference; label: string; d: string }[] = [
-  { value: 'system', label: 'Follow the system',
-    d: 'M3 4h18v12H3z M8 20h8 M12 16v4' },
-  { value: 'light', label: 'Light',
-    d: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z M12 2v2 M12 20v2 M2 12h2 M20 12h2 '
-       + 'M4.9 4.9l1.4 1.4 M17.7 17.7l1.4 1.4 M4.9 19.1l1.4-1.4 M17.7 6.3l1.4-1.4' },
-  { value: 'dark', label: 'Dark',
-    d: 'M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z' },
-];

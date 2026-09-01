@@ -261,22 +261,15 @@ test.describe('the top bar and the drawer fit the screen', () => {
     }
   });
 
-  test('the legacy toolbar row still hides its labels to icons, and still has names', async ({ page, isMobile }) => {
-    test.skip(!isMobile, 'phone only');
-    // What is left of the original toolbar, below the compact header: the
-    // admin-only refresh with its polling state, the digest opener and the
-    // field-behind-a-button search -- none of which the compact header
-    // replaces. reading.spec.ts drives every one of these ids directly, on
-    // every viewport, so this row has to keep working exactly as it did.
-    const row = page.locator('.toolbar-row');
-    for (const id of ['#poll-btn', '#dismiss-all-btn', '#digest-btn']) {
-      await expect(page.locator(`${id} .btn-label`)).toBeHidden();
-    }
-    // Hiding the text must not leave a nameless button. Scoped to this row --
-    // the compact header above has its own, separately-named "Refresh" and
-    // "Search" now, and an unscoped query would match both.
-    for (const name of ['Refresh', 'Dismiss all', 'What you missed', 'Search articles']) {
-      await expect(row.getByRole('button', { name })).toBeVisible();
+  test('every header action is a named control', async ({ page }) => {
+    // The legacy icon row this replaced lived for exactly one commit, stacked
+    // under the compact header, rendering Refresh, Search and dismiss twice
+    // each with two accessible names apiece. What is worth keeping from the
+    // test that covered it is this: every action in the one remaining header
+    // is reachable by the name a reader actually sees on it.
+    const header = page.locator('.app-header');
+    for (const name of ['Refresh', 'Mark all read', 'What you missed', 'Search']) {
+      await expect(header.getByRole('button', { name })).toBeVisible();
     }
   });
 
@@ -285,7 +278,7 @@ test.describe('the top bar and the drawer fit the screen', () => {
     // It used to be squeezed into whatever width was left, which was 53px --
     // a field showing "Fi".
     await expect(page.locator('#search')).toBeHidden();
-    await page.getByRole('button', { name: 'Search articles' }).click();
+    await page.locator('.app-header').getByRole('button', { name: 'Search' }).click();
 
     const field = page.locator('#search');
     await expect(field).toBeVisible();
@@ -308,8 +301,12 @@ test.describe('the top bar and the drawer fit the screen', () => {
     test.skip(isMobile, 'desktop only');
     await expect(page.locator('#digest-btn')).toContainText('What you missed');
     await expect(page.locator('#search')).toBeVisible();
-    // The toggle is a phone affordance; a desktop has room for the field.
-    await expect(page.locator('.search-toggle')).toBeHidden();
+    // `.search-toggle` was an icon that existed only at phone width. It is a
+    // text action in the header at every width now, and on a desktop it
+    // toggles nothing, because the field beside it is already open. Task 7
+    // owns the desktop toolbar and decides whether it keeps both.
+    await expect(page.locator('.app-header').getByRole('button', { name: 'Search' }))
+      .toBeVisible();
   });
 
   test('a long feed list does not strand the lower sections', async ({ page, isMobile }) => {

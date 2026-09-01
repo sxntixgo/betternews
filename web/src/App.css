@@ -1234,23 +1234,13 @@ kbd {
   align-items: center;
   gap: 6px;
 }
-/* The toggle exists only at phone width; a desktop has room for the field.
-   Not a `.btn-icon`: it sits in a row of four bordered buttons, and as a bare
-   glyph it read as a stray mark rather than as the control it is. */
-.search-toggle {
-  display: none;
-  align-items: center;
-  justify-content: center;
-}
+/* `.search-toggle` carries no styling any more -- it is a behavioural hook.
+   The Search control is a text action in the header at every width; what still
+   differs by width is the field it reveals, so above 720px the button has
+   nothing to reveal. The class stays because `App.tsx`'s "/" shortcut clicks
+   it to open the field when the field is hidden and cannot take focus. */
 
 @media (max-width: 720px) {
-  /* The icon carries it. `aria-label` is on every one of these buttons, so
-     dropping the text costs the sighted reader nothing and the screen-reader
-     user nothing either. */
-  .btn-labelled .btn-label { display: none; }
-  .btn-labelled { padding: 0 10px; }
-
-  .search-toggle { display: inline-flex; }
   /* Hidden rather than narrow. Squeezing it into whatever space was left is
      what produced a field showing two characters. */
   .search-input { display: none; }

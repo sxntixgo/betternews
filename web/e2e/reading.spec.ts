@@ -143,7 +143,9 @@ test('refresh kicks the pipeline and reloads when it finishes', async ({ page })
   await page.locator('#poll-btn').click();
   await expect.poll(() => polled).toBe(true);
   // The button reports progress rather than looking inert for two minutes.
-  await expect(page.locator('#poll-btn')).toHaveClass(/is-loading/);
+  // The redesign says that inline on the label rather than with a spinner
+  // overlay, so the evidence is the word, not a class.
+  await expect(page.locator('#poll-btn')).toHaveText('Refreshing…');
 });
 
 test('refresh is offered to an admin and withheld from a plain reader', async ({ page }) => {

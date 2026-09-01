@@ -80,14 +80,16 @@ test.describe('list rhythm', () => {
 });
 
 test.describe('mobile header', () => {
-  test('carries the three text actions with Search at full strength', async ({ page }) => {
+  test('carries every action as full-strength text', async ({ page }) => {
     await signedIn(page);
     await mockApi(page);
     await page.goto('/');
     const actions = page.locator('.header-actions');
-    await expect(actions.getByText('Refresh')).toBeVisible();
-    await expect(actions.getByText('Mark all read')).toBeVisible();
-    await expect(actions.getByText('Search')).toBeVisible();
+    // Four, not three: the briefing opener moved up here when the legacy icon
+    // row was removed, rather than being lost with it.
+    for (const name of ['Refresh', 'Mark all read', 'What you missed', 'Search']) {
+      await expect(actions.getByRole('button', { name })).toBeVisible();
+    }
   });
 
   test('the missed strip is the first list item and is not sticky', async ({ page }) => {

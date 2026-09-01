@@ -193,11 +193,10 @@ both clients.
   wrong colour. **`App.css` contains no hex literal and no literal radius**, and
   `e2e/design-system.spec.ts` asserts both, plus that every `var(--token)` used is
   actually defined — a typo there is silent, the property just does not apply.
-- **Token names outlive their values.** `--color-surface-2`, `--color-like-surface` and
-  `--color-dislike-surface` no longer tint anything, but they are kept and neutralised
-  rather than deleted, because seven screens outside the redesign still reference them
-  and a missing token fails the same silent way a typo does: the property does not
-  apply and the element inherits something that usually looks plausible.
+- **Token names outlive their values when something still references them.**
+  `--color-surface-2` is genuinely used (`App.css` paints the focused row with it),
+  so it stays. A token name kept on a rationale that had already stopped being true
+  is dead weight, so unreferenced tokens are deleted when the rationale expires.
 - **Source Serif 4 is self-hosted** in `public/fonts/`, never linked. This box is
   LAN-only — it should not phone home, and a Google Fonts `<link>` hangs first paint
   whenever the WAN is down, which here is a normal condition rather than an outage.

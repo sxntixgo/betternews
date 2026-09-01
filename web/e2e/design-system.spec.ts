@@ -166,20 +166,17 @@ test.describe('the shared pill', () => {
     await page.waitForSelector('.article-row');
   });
 
-  test('every pill is the same height, on touch too', async ({ page, isMobile }) => {
-    // The card's two pills -- the topic chip and the score badge -- were removed
-    // by the whitespace redesign, so the sidebar's unread count is the only pill
-    // left in the app. The rule it was protecting still holds for the survivor:
-    // one pill shape, and on a coarse pointer a touch-safe one.
-    const count = await page.evaluate(
-      () => document.querySelector('.sidebar-feed-count')?.getBoundingClientRect().height ?? null,
-    );
-    expect(count, 'the sidebar count is the last pill; if it goes, delete this test')
-      .not.toBeNull();
-    if (isMobile) {
-      expect(count!).toBeGreaterThanOrEqual(24);   // WCAG 2.5.8
-      expect(count!).toBeLessThanOrEqual(30);      // and not a button
-    }
+  test('the unread count is plain text, not a pill', async ({ page }) => {
+    // It carried `.pill` while the card had pills to match. Nothing rendered
+    // that border or that radius, so the shape was decoration on a number.
+    const el = page.locator('.sidebar-feed-count').first();
+    await expect(el).toHaveCount(1);
+    const style = await el.evaluate((n) => {
+      const cs = getComputedStyle(n);
+      return { radius: cs.borderTopLeftRadius, border: cs.borderTopWidth };
+    });
+    expect(style.radius).toBe('0px');
+    expect(style.border).toBe('0px');
   });
 
   test('no ad-hoc pill radii survive in App.css', () => {

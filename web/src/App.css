@@ -145,15 +145,17 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* The count is a bare number now. `.pill` stays on the element because it is
-   the app's last pill and gives it a touch-safe height, but the fill and the
-   reserved 22px go: a filled chip on every row was a second column of colour
-   down the side of the drawer. */
+/* Plain text, not a pill. It wore `.pill` while the card had pills to match;
+   with those gone it was a bare number carrying invisible styling. The values
+   below restore only what this element needs, dropping the pill's background,
+   border and radius. */
 .sidebar-feed-count {
   background: none;
   color: var(--color-ink-meta);
+  font-size: 11px;
+  line-height: 16px;
+  padding: 2px 0 2px 8px;
   min-width: 0;
-  padding-right: 0;
 }
 .drawer-item.is-all .sidebar-feed-count { color: var(--color-accent); }
 

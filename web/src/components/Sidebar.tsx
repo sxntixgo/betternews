@@ -104,9 +104,9 @@ function group(feeds: Feed[]): { tags: [string, Feed[]][]; untagged: Feed[] } {
 
 /** The count beside a row: a bare number, gold on All feeds and muted below. */
 function Count({ n }: { n: number }) {
-  // `pill` and `sidebar-feed-count` are the app's one pill shape, kept for the
-  // touch-target height; the redesign only takes the fill off it.
-  return <span className="pill sidebar-feed-count count">{n}</span>;
+  // Plain text, not a pill. `.pill` survives only in Settings, where it was
+  // never removed by the redesign.
+  return <span className="sidebar-feed-count">{n}</span>;
 }
 
 export function Sidebar({

@@ -32,11 +32,10 @@
  * before `theme.ts` stamps `data-theme`, and a token present in one block and
  * missing from the other flashes the wrong colour.
  *
- * Names outlive values. `--color-surface-2`, `--color-like-surface` and
- * `--color-dislike-surface` are kept and neutralised rather than deleted,
- * because seven screens outside the redesign still reference them and a
- * missing token fails silently: the property does not apply and the element
- * inherits something that usually looks plausible.
+ * Names outlive values when something still references them: `--color-surface-2`
+ * is genuinely used (`App.css` paints the focused row with it), so it stays.
+ * A token name kept on a rationale that had already stopped being true is dead
+ * weight, so unreferenced tokens are deleted when the rationale expires.
  *
  * `App.css` contains no hex literal at all, and a test asserts that, because
  * this is the kind of thing that decays one merge at a time. If a component
@@ -87,11 +86,6 @@
   --color-success-surface: #e8f3ea;
   --color-warning: #7d4e00;
   --color-warning-surface: #f3efe4;
-
-  /* Kept as names so unredesigned screens still resolve, but neutralised:
-     the redesign removes vote tints from rows entirely. */
-  --color-like-surface: transparent;
-  --color-dislike-surface: transparent;
 
   --color-offline-surface: #7d4e00;
   --color-offline-ink: #fdfbf5;
@@ -148,9 +142,6 @@
   --color-success-surface: #16281a;
   --color-warning: #d4a055;
   --color-warning-surface: #211f19;
-
-  --color-like-surface: transparent;
-  --color-dislike-surface: transparent;
 
   --color-offline-surface: #5a4310;
   --color-offline-ink: #f4f1e9;
@@ -212,9 +203,6 @@
     --color-success-surface: #16281a;
     --color-warning: #d4a055;
     --color-warning-surface: #211f19;
-
-    --color-like-surface: transparent;
-    --color-dislike-surface: transparent;
 
     --color-offline-surface: #5a4310;
     --color-offline-ink: #f4f1e9;

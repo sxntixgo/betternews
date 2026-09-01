@@ -1,3 +1,24 @@
+/* Self-hosted, never linked. A LAN-only box should not phone home, and a
+   Google Fonts <link> hangs first paint whenever the WAN is down -- which on
+   this stack is a normal condition, not an outage. The redesign handoff asks
+   for Google Fonts; this file already ruled that out and the ruling stands.
+   `swap` so the fallback renders immediately and the serif swaps in when it
+   lands, rather than blocking text on a 20KB download. */
+@font-face {
+  font-family: 'Source Serif 4';
+  src: url('/fonts/source-serif-4-400.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Source Serif 4';
+  src: url('/fonts/source-serif-4-600.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* The design tokens. Every colour, font and radius in the app resolves here.
  *
  * Taken from `job-application-tracker`'s `index.css` — its structure *and* its
@@ -143,6 +164,11 @@
     'Segoe UI', Roboto, sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas,
     monospace;
+
+  /* Wordmark and long-form headlines only -- never body or UI. Self-hosted
+     above; Georgia is the fallback because it is the one serif present on
+     effectively every device this app is read on. */
+  --font-serif: 'Source Serif 4', Georgia, 'Times New Roman', serif;
 
   --radius-sm: 3px;
   --radius-md: 6px;

@@ -372,19 +372,18 @@ export default function App() {
     setDrawerOpen(false);
   };
 
+  // What the compact header calls the current list -- the same choice the
+  // sidebar highlights, spelled out for a reader who has not opened it.
+  const headerTitle = saved
+    ? 'Saved articles'
+    : hidden
+      ? 'Hidden'
+      : feed
+        ? (feeds?.feeds.find((f) => f.id === feed)?.title ?? 'Feed')
+        : 'All feeds';
+
   return (
     <div className="site-layout">
-      <button
-        className="drawer-toggle"
-        aria-label="Feeds"
-        aria-expanded={drawerOpen}
-        onClick={() => setDrawerOpen((v) => !v)}
-      >
-        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-          <path stroke="currentColor" strokeWidth="2" strokeLinecap="round"
-                d="M4 7h16 M4 12h16 M4 17h16" />
-        </svg>
-      </button>
       <div
         className={`drawer-scrim ${drawerOpen ? 'visible' : ''}`}
         onClick={() => setDrawerOpen(false)}
@@ -584,8 +583,26 @@ export default function App() {
                                      hidden: hidden || undefined, topic });
               setReloads((n) => n + 1);
             }}
+            title={headerTitle}
+            unread={feeds?.unread ?? 0}
+            onOpenDrawer={() => setDrawerOpen((v) => !v)}
           />
         </header>
+
+        {/* The briefing's trigger, not the briefing itself -- Digest still
+            fetches only when opened, so this is built entirely from the
+            unread count App.tsx already holds for the favicon, never from a
+            digest call nobody asked for. Hidden with nothing unread: there is
+            nothing to have missed. */}
+        {feeds && feeds.unread > 0 && (
+          <div className="missed-strip">
+            <div className="missed-text">
+              <div className="missed-title">What you missed</div>
+              <div className="missed-sub">{feeds.unread} unread</div>
+            </div>
+            <button className="missed-cta" onClick={() => setShowDigest(true)}>Read</button>
+          </div>
+        )}
 
         <div id="article-list">
           {error && <p className="error">{error}</p>}

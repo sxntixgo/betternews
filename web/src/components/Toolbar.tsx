@@ -38,6 +38,9 @@ export function Toolbar({
   onDigest,
   onRefreshed,
   canPoll,
+  title,
+  unread,
+  onOpenDrawer,
 }: {
   search: string;
   onSearch: (q: string) => void;
@@ -45,6 +48,9 @@ export function Toolbar({
   onDigest: () => void;
   onRefreshed: () => void;
   canPoll: boolean;
+  title: string;
+  unread: number;
+  onOpenDrawer: () => void;
 }) {
   const [polling, setPolling] = useState(false);
   const [text, setText] = useState(search);
@@ -88,73 +94,112 @@ export function Toolbar({
 
   return (
     <>
-      {/* Icon plus label, and the phone hides the label. Three word-buttons and
-          a field wrapped onto three rows there: 173px of a 664px screen, a
-          quarter of the viewport spent before the first headline, with the
-          search box crushed to 53px and reading "Fi". The label carries the
-          accessible name on a desktop; `aria-label` carries it either way, so
-          hiding the text never leaves a nameless button. */}
-      {canPoll && (
+      {/* The compact header: hamburger, page title and unread count on the
+          left, the three actions a reader reaches most often on the right.
+          Text at full strength always -- there is no icon-only phase here,
+          unlike the row below it. `.drawer-toggle` is the same control
+          App.tsx used to render fixed at the top-left corner; it moved in
+          here (restyled from a three-line icon to a two-bar one) so it reads
+          as part of the header rather than floating over it, but the class
+          survives because other specs open the drawer by it directly. */}
+      <div className="app-header">
+        <div className="header-row">
+          <div className="header-title">
+            <button className="drawer-toggle" aria-label="Open menu" onClick={onOpenDrawer}>
+              <span /><span />
+            </button>
+            <span className="header-name">{title}</span>
+            <span className="unread-count">{unread}</span>
+          </div>
+          <div className="header-actions">
+            {canPoll && (
+              <button className="header-action" disabled={polling} onClick={refresh}>
+                {polling ? 'Refreshing…' : 'Refresh'}
+              </button>
+            )}
+            <button className="header-action" onClick={onDismissAll}>Mark all read</button>
+            <button
+              className="header-action is-ink"
+              aria-expanded={searchOpen}
+              onClick={() => setSearchOpen((o) => !o)}
+            >
+              Search
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* The original toolbar: refresh with its polling state, the digest
+          modal's opener, and the field-behind-a-button search. Kept exactly
+          as it was -- reading.spec.ts drives every one of these ids on every
+          viewport, and the digest and admin-only refresh have no home in the
+          compact header above. Icon plus label, and the phone hides the
+          label: three word-buttons and a field wrapped onto three rows here
+          once, 173px of a 664px screen. The label carries the accessible
+          name on a desktop; `aria-label` carries it either way, so hiding the
+          text never leaves a nameless button. */}
+      <div className="toolbar-row">
+        {canPoll && (
+          <button
+            id="poll-btn"
+            className={`btn-loadable btn-labelled ${polling ? 'is-loading' : ''}`}
+            disabled={polling}
+            onClick={refresh}
+            aria-label="Refresh"
+            title="Refresh — poll the feeds now"
+          >
+            <Icon d={ICON.refresh} />
+            <span className="btn-label">Refresh</span>
+          </button>
+        )}
         <button
-          id="poll-btn"
-          className={`btn-loadable btn-labelled ${polling ? 'is-loading' : ''}`}
-          disabled={polling}
-          onClick={refresh}
-          aria-label="Refresh"
-          title="Refresh — poll the feeds now"
+          id="dismiss-all-btn"
+          className="btn-labelled"
+          aria-label="Dismiss all"
+          title="Mark every shown article as dealt with"
+          onClick={onDismissAll}
         >
-          <Icon d={ICON.refresh} />
-          <span className="btn-label">Refresh</span>
+          <Icon d={ICON.dismiss} />
+          <span className="btn-label">Dismiss all</span>
         </button>
-      )}
-      <button
-        id="dismiss-all-btn"
-        className="btn-labelled"
-        aria-label="Dismiss all"
-        title="Mark every shown article as dealt with"
-        onClick={onDismissAll}
-      >
-        <Icon d={ICON.dismiss} />
-        <span className="btn-label">Dismiss all</span>
-      </button>
-      {/* The briefing, on request. It used to sit above the list and push the
-          first article below the fold on every screen. */}
-      <button
-        id="digest-btn"
-        className="btn-labelled"
-        aria-label="What you missed"
-        title="What you missed — a briefing over your unread articles"
-        onClick={onDigest}
-      >
-        <Icon d={ICON.digest} />
-        <span className="btn-label">What you missed</span>
-      </button>
+        {/* The briefing, on request. It used to sit above the list and push the
+            first article below the fold on every screen. */}
+        <button
+          id="digest-btn"
+          className="btn-labelled"
+          aria-label="What you missed"
+          title="What you missed — a briefing over your unread articles"
+          onClick={onDigest}
+        >
+          <Icon d={ICON.digest} />
+          <span className="btn-label">What you missed</span>
+        </button>
 
-      {/* On a phone the field is behind this button; on a desktop the button is
-          not rendered at all and the field is simply there. One markup, and the
-          open state only ever means anything at phone width -- which is why it
-          is CSS that decides, not a viewport read in JavaScript. */}
-      <button
-        className="search-toggle"
-        aria-label="Search articles"
-        aria-expanded={searchOpen}
-        title="Search articles"
-        onClick={() => setSearchOpen((o) => !o)}
-      >
-        <Icon d={ICON.search} />
-      </button>
-      <input
-        ref={field}
-        id="search"
-        className={`search-input ${searchOpen ? 'open' : ''}`}
-        type="search"
-        placeholder="Filter articles…"
-        autoComplete="off"
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => { if (e.key === 'Escape' && !text) setSearchOpen(false); }}
-      />
-
+        {/* On a phone the field is behind this button; on a desktop the button is
+            not rendered at all and the field is simply there. One markup, and the
+            open state only ever means anything at phone width -- which is why it
+            is CSS that decides, not a viewport read in JavaScript. */}
+        <button
+          className="search-toggle"
+          aria-label="Search articles"
+          aria-expanded={searchOpen}
+          title="Search articles"
+          onClick={() => setSearchOpen((o) => !o)}
+        >
+          <Icon d={ICON.search} />
+        </button>
+        <input
+          ref={field}
+          id="search"
+          className={`search-input ${searchOpen ? 'open' : ''}`}
+          type="search"
+          placeholder="Filter articles…"
+          autoComplete="off"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Escape' && !text) setSearchOpen(false); }}
+        />
+      </div>
     </>
   );
 }

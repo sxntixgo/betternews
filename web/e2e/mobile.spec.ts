@@ -244,20 +244,39 @@ test.describe('the top bar and the drawer fit the screen', () => {
     await page.waitForSelector('.article-row');
   });
 
-  test('on a phone the actions are icons, and still have names', async ({ page, isMobile }) => {
+  test('the compact header stays compact, and its actions are named text', async ({ page, isMobile }) => {
     test.skip(!isMobile, 'phone only');
-    // Measured before: Refresh, Dismiss all, What you missed and the field
-    // wrapped onto three rows -- a 173px header on a 664px screen, a quarter of
-    // the viewport spent before the first headline.
-    const header = (await page.locator('.site-header').boundingBox())!;
+    // `.app-header` is the new top row -- hamburger, title, unread count, and
+    // Refresh / Mark all read / Search as full-strength text on every width
+    // (see redesign.spec.ts). Measured before the redesign: Refresh, Dismiss
+    // all, What you missed and the field wrapped onto three rows -- a 173px
+    // header on a 664px screen, a quarter of the viewport spent before the
+    // first headline. This is the row that replaces that measurement.
+    const header = (await page.locator('.app-header').boundingBox())!;
     expect(header.height).toBeLessThan(130);
 
+    const actions = page.locator('.header-actions');
+    for (const name of ['Refresh', 'Mark all read', 'Search']) {
+      await expect(actions.getByText(name)).toBeVisible();
+    }
+  });
+
+  test('the legacy toolbar row still hides its labels to icons, and still has names', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'phone only');
+    // What is left of the original toolbar, below the compact header: the
+    // admin-only refresh with its polling state, the digest opener and the
+    // field-behind-a-button search -- none of which the compact header
+    // replaces. reading.spec.ts drives every one of these ids directly, on
+    // every viewport, so this row has to keep working exactly as it did.
+    const row = page.locator('.toolbar-row');
     for (const id of ['#poll-btn', '#dismiss-all-btn', '#digest-btn']) {
       await expect(page.locator(`${id} .btn-label`)).toBeHidden();
     }
-    // Hiding the text must not leave a nameless button.
+    // Hiding the text must not leave a nameless button. Scoped to this row --
+    // the compact header above has its own, separately-named "Refresh" and
+    // "Search" now, and an unscoped query would match both.
     for (const name of ['Refresh', 'Dismiss all', 'What you missed', 'Search articles']) {
-      await expect(page.getByRole('button', { name })).toBeVisible();
+      await expect(row.getByRole('button', { name })).toBeVisible();
     }
   });
 

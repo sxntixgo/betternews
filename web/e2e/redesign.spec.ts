@@ -78,3 +78,25 @@ test.describe('list rhythm', () => {
     expect(await row.evaluate((el) => getComputedStyle(el).opacity)).toBe('0.55');
   });
 });
+
+test.describe('mobile header', () => {
+  test('carries the three text actions with Search at full strength', async ({ page }) => {
+    await signedIn(page);
+    await mockApi(page);
+    await page.goto('/');
+    const actions = page.locator('.header-actions');
+    await expect(actions.getByText('Refresh')).toBeVisible();
+    await expect(actions.getByText('Mark all read')).toBeVisible();
+    await expect(actions.getByText('Search')).toBeVisible();
+  });
+
+  test('the missed strip is the first list item and is not sticky', async ({ page }) => {
+    await signedIn(page);
+    await mockApi(page);
+    await page.goto('/');
+    const strip = page.locator('.missed-strip');
+    await expect(strip).toBeVisible();
+    expect(await strip.evaluate((el) => getComputedStyle(el).position)).toBe('static');
+    await expect(strip.getByRole('button', { name: 'Read' })).toBeVisible();
+  });
+});

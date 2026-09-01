@@ -26,16 +26,28 @@ body {
   line-height: 1.5;
 }
 
+/* Not sticky: a `position` here would establish its own stacking context,
+   and `.drawer-toggle` inside it is `position: fixed` specifically so it
+   stays clickable above the open drawer (z-index 25) -- trapped in a
+   stickied ancestor's context, no z-index on the toggle could out-rank a
+   sibling stacking context at all. The missed strip below is unpinned for
+   the same family of reason, just simpler: it scrolls with the list. */
 .site-header {
+  border-bottom: 1px solid var(--color-hairline);
+  background: var(--color-bg);
+}
+/* The original toolbar row -- refresh with its polling state, dismiss-all,
+   the digest opener, and the field-behind-a-button search -- moved out of
+   `.site-header` proper so the compact `.app-header` above it can own the
+   header's padding instead of stacking on top of this row's own. Layout is
+   otherwise unchanged: reading.spec.ts drives every id in here directly, on
+   every viewport, so nothing about how these controls behave moved with
+   them. */
+.toolbar-row {
   display: flex;
   align-items: center;
   gap: 16px;
   padding: 10px 16px;
-  border-bottom: 1px solid var(--color-hairline);
-  position: sticky;
-  top: 0;
-  background: var(--color-bg);
-  z-index: 10;
   flex-wrap: wrap;
 }
 
@@ -201,19 +213,34 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 }
 .sidebar-manage:hover { color: var(--color-ink); background: var(--color-surface-2); }
 
-/* Mobile drawer */
+/* Mobile drawer. `.drawer-toggle` is restyled here -- a two-bar hamburger
+   instead of the old three-line icon -- but it still needs to sit above the
+   open drawer, not behind it: the sidebar overlays at z-index 25 while open,
+   and its own descendants clicked through, so an in-flow copy inside
+   `.app-header` (which is `.site-header`'s own, much lower, stacking
+   context) would go dead the moment the drawer covered it. Fixed and above
+   both keeps `photos toggle > it takes the reader lead image with it`
+   (mobile.spec.ts) able to close the drawer by tapping this same control a
+   second time. `.header-title` reserves the matching space below so the
+   title text does not start underneath it. */
 .drawer-toggle {
   display: none;
   position: fixed;
-  top: 10px;
-  left: 10px;
+  top: 58px;
+  left: 24px;
   z-index: 30;
-  background: var(--color-bg);
-  border: 1px solid var(--color-hairline);
-  border-radius: var(--radius-md);
-  padding: 6px;
-  color: var(--color-ink);
-  line-height: 0;
+  width: 18px;
+  flex-direction: column;
+  gap: 4px;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.drawer-toggle span {
+  display: block;
+  height: 1.5px;
+  background: var(--color-ink);
 }
 .drawer-scrim {
   display: none;
@@ -225,7 +252,11 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 .drawer-scrim.visible { display: block; }
 
 @media (max-width: 720px) {
-  .drawer-toggle { display: inline-flex; }
+  .drawer-toggle { display: flex; }
+  /* The toggle is fixed and out of flow at this width, so `.header-title`
+     reserves its width itself rather than leaving the title to render
+     underneath it. */
+  .header-title { padding-left: 32px; }
   .sidebar {
     position: fixed;
     top: 0;
@@ -238,10 +269,6 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
     box-shadow: 2px 0 12px rgba(0, 0, 0, 0.2);
   }
   .sidebar.open { transform: translateX(0); }
-  /* Shift the brand right so the fixed hamburger toggle doesn't cover it
-     when the drawer is open. */
-  .sidebar .sidebar-brand { padding-left: 48px; }
-  .site-header { padding-left: 56px; }
 
   /* Reader modal goes full-bleed on small screens — the desktop margins
      just eat real estate on a phone. */
@@ -1133,6 +1160,68 @@ kbd {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--color-ink-muted);
+}
+
+/* ── The compact header ──────────────────────────────────────────────────
+   Hamburger, page title and unread count, then the three actions a reader
+   reaches for most -- Refresh, Mark all read, Search -- as text at full
+   strength on every screen, not just a desktop. It sits above `.toolbar-row`
+   below, which still carries the admin-only refresh, the digest opener and
+   the field-behind-a-button search: those have no home up here and stay
+   exactly as they were. */
+.app-header {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 52px 24px 16px;
+}
+.header-row { display: flex; align-items: center; justify-content: space-between; }
+.header-title { display: flex; align-items: center; gap: 14px; }
+.header-name { font-size: 17px; font-weight: 600; letter-spacing: -0.2px; color: var(--color-ink); }
+.unread-count { font-size: 12px; font-weight: 400; color: var(--color-ink-meta); }
+
+.header-actions { display: flex; align-items: center; gap: 20px; }
+.header-action {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--color-ink-muted);
+  cursor: pointer;
+}
+.header-action.is-ink { color: var(--color-ink); }
+
+/* ── The "what you missed" strip ─────────────────────────────────────────
+   The trigger for the digest modal, not the digest itself -- Digest.tsx still
+   fetches only when opened. Built from `feeds.unread`, the same count the
+   favicon already draws, so showing this costs no request beyond the feed
+   list the shell already holds. `position: static` on purpose: it scrolls
+   away with the list rather than pinning above it. */
+.missed-strip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 16px 0;
+  padding: 14px 16px;
+  border-radius: var(--radius-strip);
+  background: var(--color-surface-accent);
+  position: static;
+}
+.missed-text { flex: 1; min-width: 0; }
+.missed-title { font-size: 13px; font-weight: 600; line-height: 1.2; color: var(--color-gold-strong); }
+.missed-sub { margin-top: 4px; font-size: 11.5px; font-weight: 400; line-height: 1.3; color: var(--color-gold-soft); }
+.missed-cta {
+  flex: none;
+  padding: 8px 14px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
 }
 
 /* ── Toolbar: words on a desktop, icons on a phone ──────────────────────────

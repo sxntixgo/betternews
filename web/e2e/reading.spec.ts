@@ -405,6 +405,22 @@ test.describe('opening an article', () => {
     }
     expect(calls.sort()).toEqual(['save', 'vote', 'vote']);
   });
+
+  test('opening in the browser does not also open the reader', async ({ page, isMobile }) => {
+    test.skip(isMobile, 'the external link is hidden on a phone');
+    // Deleted with the four-row card and restored here: the same claim against
+    // the desktop layout's `.action-open`, which is the same link doing the
+    // same job in the redesign's meta line.
+    const link = page.locator('.article-row .action-open').first();
+    await expect(link).toHaveAttribute('target', '_blank');
+    // Neutralised rather than clicked: a real click opens a tab Playwright
+    // then has to chase, and the question here is only whether the card's
+    // handler stayed out of the way.
+    await link.evaluate((a: HTMLAnchorElement) => a.removeAttribute('target'));
+    await page.route('https://**', (r) => r.fulfill({ body: 'ok' }));
+    await link.click();
+    await expect(page.getByRole('dialog')).toBeHidden();
+  });
 });
 
 test('no article is ever rendered twice', async ({ page }) => {

@@ -316,17 +316,25 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 #article-list { padding-bottom: 24px; min-height: 60vh; }
 
 
+/* The filter field -- one field, and the one the app has always had. The
+   redesign asks for an underline rather than a bordered box, so `#search` is
+   restyled here; a second `.filter-field` beside it would repeat the mistake
+   Task 6 had to be rescued from, which shipped a new header over the old
+   toolbar and rendered three controls twice. The right-hand alignment and the
+   280px cap are desktop-only, at the foot of this file: at phone width the
+   field is revealed by a button and takes a whole row when it is. */
 .search-input {
-  flex: 1;
   min-width: 0;
-  border: 1px solid var(--color-hairline);
-  border-radius: var(--radius-md);
-  padding: 5px 10px;
-  font-size: 14px;
-  background: var(--color-bg);
+  border: 0;
+  border-bottom: 1px solid var(--color-hairline);
+  padding: 9px 0;
+  font: inherit;
+  font-size: 13px;
+  background: none;
   color: var(--color-ink);
 }
-.search-input:focus { outline: none; border-color: var(--color-accent); }
+.search-input::placeholder { color: var(--color-ink-muted); }
+.search-input:focus { outline: none; border-bottom-color: var(--color-accent); }
 
 .feed-filter {
   border: 1px solid var(--color-hairline);
@@ -496,7 +504,12 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 .meta-score { color: var(--color-accent); font-weight: 600; }
 
 .article-actions { display: flex; gap: 18px; flex: none; }
-.article-actions .action {
+/* `.action-open` is listed beside `.action` rather than carrying that class:
+   it is display:none below 900px, and the phone's tap-target sweep measures
+   every `.article-actions .action` -- an element with no box has no bounding
+   box to measure and no tap target to be too small. */
+.article-actions .action,
+.article-actions .action-open {
   background: none;
   border: 0;
   /* Padding widens the touch target; the negative margin hands the space back,
@@ -512,6 +525,9 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 }
 .article-actions .action[aria-pressed='true'] { color: var(--color-accent); }
 .article-actions .action:disabled { cursor: default; }
+/* The way out to the publisher. Desktop only: a phone card has four controls
+   on its meta line already, and the reader is one tap away on the card itself. */
+.article-actions .action-open { display: none; text-decoration: none; }
 
 .article-row:hover .article-title { color: var(--color-accent); }
 /* The whole card opens the reader, so the whole card says so -- except the
@@ -1140,6 +1156,11 @@ kbd {
   white-space: nowrap;
 }
 .meta-age, .meta-dot, .meta-dupes { flex: none; }
+/* One topic, as plain text and not as a chip row. Desktop only, with its own
+   separator dot: this is the item that would wrap the phone's single meta
+   line, and a dot left behind by a hidden tag is a stray mark. */
+.meta-tag { display: none; flex: none; }
+.meta-dot-tag { display: none; }
 
 /* The dismissed pile: a divider you have to cross on purpose. It sits below
    the unread list, so it needs to read as a different section rather than as
@@ -1281,3 +1302,65 @@ kbd {
    did not mean "except the big one". */
 [data-photos='off'] .article-thumb,
 [data-photos='off'] .modal-lead { display: none; }
+
+/* ── Desktop ─────────────────────────────────────────────────────────────
+   Everything above is written for a phone and is the base; this is the only
+   block that widens it, and below 900px none of it applies -- which is what
+   makes the collapse back to the phone layout a deletion rather than a second
+   set of overrides. 900px is the redesign's one breakpoint for the reading
+   column. (The drawer still becomes a sidebar at 720px, which is Task 8's.) */
+@media (min-width: 900px) {
+  /* A reading measure, not a column of full-window text: 760px including the
+     48px gutters. The bottom padding is the base's, kept rather than zeroed --
+     the list is a surface, and a surface that stops flush against its last
+     card reads as cut off. */
+  #article-list {
+    max-width: 760px;
+    gap: 40px;
+    padding: 34px 48px 24px;
+  }
+  /* Held to the list's own text measure so the strip and the cards share a
+     left and a right edge: 760 less the two 48px gutters. */
+  .missed-strip {
+    margin: 16px 48px 0;
+    max-width: 664px;
+    padding: 16px 20px;
+  }
+
+  .article-head { gap: 22px; }
+  .article-title { font-size: 20px; line-height: 1.3; }
+  .article-thumb { width: 104px; height: 78px; }
+  .article-meta { font-size: 11.5px; }
+  .article-actions { gap: 20px; }
+  .article-actions .action-open { display: inline; }
+  .meta-tag, .meta-dot-tag { display: inline; }
+
+  /* Held to the same 760px as the list below it. Left to the full width of
+     the content column the header's right edge -- the actions and the filter
+     field -- floated 260px past the right edge of every card under it, and the
+     toolbar stopped reading as this column's toolbar. */
+  .app-header { max-width: 760px; padding: 26px 48px 0; gap: 28px; }
+  .header-actions { gap: 24px; }
+  /* The field is simply there at this width, so the button that reveals it has
+     nothing left to reveal -- it would toggle something already open. Hidden,
+     never unrendered: App.tsx's "/" shortcut clicks it when the field cannot
+     take focus, and it asks the element, not the viewport. */
+  .search-toggle { display: none; }
+  .search-input {
+    margin-left: auto;
+    max-width: 280px;
+    width: 100%;
+  }
+}
+
+/* Hover is an affordance for a pointer, and never a background fill: a tint
+   behind a row is exactly what the whitespace redesign took out. Guarded by
+   `hover: hover` so a phone does not keep the last-tapped state. */
+@media (hover: hover) {
+  .header-action:hover { color: var(--color-ink); }
+  /* `:not([aria-pressed='true'])` leaves Saved and a cast vote in the accent
+     they earned; hovering must not read as un-saving. */
+  .article-actions .action:not([aria-pressed='true']):hover,
+  .article-actions .action-open:hover { color: var(--color-ink); }
+  .article-title:hover { text-decoration: underline; }
+}

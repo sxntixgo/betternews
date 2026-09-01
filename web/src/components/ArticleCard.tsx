@@ -47,10 +47,11 @@ export function ArticleCard({
     onOpen(article);
   }
 
-  // Declared, deliberately unused. The desktop layout puts one topic back on
-  // the meta line as plain text and reaches for this; dropping the prop now
-  // would mean threading it back through the list screen later, and nothing on
-  // a phone-width card has room for a tag.
+  // Declared, deliberately unused. The desktop meta line carries one topic
+  // again, but as plain text rather than as a control: a tag that filters the
+  // list is a second thing to press on a line that already holds four, and the
+  // card itself opens the reader. The prop stays in the signature so making
+  // that tag clickable later is a change here and nowhere else.
   void onTopic;
 
   const s = article.state;
@@ -129,9 +130,34 @@ export function ArticleCard({
               </span>
             </>
           )}
+          {/* One topic, plain text, and only where there is room for it: the
+              meta line is a single line on a phone and this is the item that
+              would wrap it. Rendered at every width and hidden by CSS below
+              900px -- the card must not hold its own copy of the breakpoint. */}
+          {article.topics[0] && (
+            <>
+              <span className="meta-dot meta-dot-tag">·</span>
+              <span className="meta-tag">{article.topics[0]}</span>
+            </>
+          )}
         </div>
 
         <div className="article-actions">
+          {/* The reading list's way out to the publisher, back after the
+              four-row card took it with the rest of that row. Class
+              `action-open` and *not* `action`: it is display:none below 900px,
+              and mobile.spec's tap-target sweep measures every
+              `.article-actions .action` -- an element with no box has no tap
+              target and no bounding box to measure. It shares the styling
+              through a grouped selector instead. */}
+          <a
+            className="action-open"
+            href={article.url}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Open
+          </a>
           <button
             className="action"
             aria-pressed={s.saved}

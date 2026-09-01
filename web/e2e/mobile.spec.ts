@@ -261,16 +261,21 @@ test.describe('the top bar and the drawer fit the screen', () => {
     }
   });
 
-  test('every header action is a named control', async ({ page }) => {
+  test('every header action is a named control', async ({ page, isMobile }) => {
     // The legacy icon row this replaced lived for exactly one commit, stacked
     // under the compact header, rendering Refresh, Search and dismiss twice
     // each with two accessible names apiece. What is worth keeping from the
     // test that covered it is this: every action in the one remaining header
     // is reachable by the name a reader actually sees on it.
     const header = page.locator('.app-header');
-    for (const name of ['Refresh', 'Mark all read', 'What you missed', 'Search']) {
+    for (const name of ['Refresh', 'Mark all read', 'What you missed']) {
       await expect(header.getByRole('button', { name })).toBeVisible();
     }
+    // Search is an action of the phone's header only: above 900px the field it
+    // reveals is already open, so the button is hidden (and still rendered --
+    // the "/" shortcut clicks it). The field is the named control there.
+    if (isMobile) await expect(header.getByRole('button', { name: 'Search' })).toBeVisible();
+    else await expect(page.locator('#search')).toBeVisible();
   });
 
   test('on a phone the search field is behind a button', async ({ page, isMobile }) => {
@@ -301,12 +306,14 @@ test.describe('the top bar and the drawer fit the screen', () => {
     test.skip(isMobile, 'desktop only');
     await expect(page.locator('#digest-btn')).toContainText('What you missed');
     await expect(page.locator('#search')).toBeVisible();
-    // `.search-toggle` was an icon that existed only at phone width. It is a
-    // text action in the header at every width now, and on a desktop it
-    // toggles nothing, because the field beside it is already open. Task 7
-    // owns the desktop toolbar and decides whether it keeps both.
+    // `.search-toggle` was an icon that existed only at phone width, then a
+    // text action at every width. Task 7 settled it: on a desktop it toggled
+    // nothing, because the field beside it is already open, so above 900px the
+    // button is hidden -- and still rendered, because App.tsx's "/" shortcut
+    // clicks it whenever the field itself cannot take focus.
     await expect(page.locator('.app-header').getByRole('button', { name: 'Search' }))
-      .toBeVisible();
+      .toBeHidden();
+    await expect(page.locator('.app-header .search-toggle')).toHaveCount(1);
   });
 
   test('a long feed list does not strand the lower sections', async ({ page, isMobile }) => {

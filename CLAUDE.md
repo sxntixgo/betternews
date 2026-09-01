@@ -183,30 +183,80 @@ both clients.
 
 ## Frontend
 - **`web/` is the reader**: Vite + React + TypeScript, served at `/` by Caddy. `shared/api.ts` is the one API contract, imported by both `web/` and `mobile/`.
-- **`web/src/index.css` is the design system** — ~30 tokens taken from `job-application-tracker` (structure *and* palette: warm neutrals, not pure white/black). **`App.css` contains no hex literal and no literal radius**, and `e2e/design-system.spec.ts` asserts both, plus that every `var(--token)` used is actually defined — a typo there is silent, the property just does not apply.
+- **`web/src/index.css` is the design system** — ~30 tokens whose *structure* still
+  follows `job-application-tracker`, the file it was lifted from, but whose values are
+  the whitespace redesign's warm cream and gold, not the blue-grey it replaced; do not
+  read a hex here as shared with that project. Three theme blocks that must agree:
+  light `:root`, `[data-theme=dark]`, and a `prefers-color-scheme` fallback repeating
+  the dark declarations verbatim — the fallback covers first paint, before `theme.ts`
+  stamps `data-theme`, and a token in one block and missing from the other flashes the
+  wrong colour. **`App.css` contains no hex literal and no literal radius**, and
+  `e2e/design-system.spec.ts` asserts both, plus that every `var(--token)` used is
+  actually defined — a typo there is silent, the property just does not apply.
+- **Token names outlive their values.** `--color-surface-2`, `--color-like-surface` and
+  `--color-dislike-surface` no longer tint anything, but they are kept and neutralised
+  rather than deleted, because seven screens outside the redesign still reference them
+  and a missing token fails the same silent way a typo does: the property does not
+  apply and the element inherits something that usually looks plausible.
+- **Source Serif 4 is self-hosted** in `public/fonts/`, never linked. This box is
+  LAN-only — it should not phone home, and a Google Fonts `<link>` hangs first paint
+  whenever the WAN is down, which here is a normal condition rather than an outage.
+  `font-display: swap`, so text renders in the fallback immediately instead of waiting
+  on a 20KB download. The redesign handoff asked for Google Fonts; `index.css` had
+  already ruled that out and the ruling stands.
 - **`components/Modal.tsx` is the only modal.** Nine screens hand-rolled one, none with `role="dialog"`, `aria-modal`, a focus trap or focus restoration. Its focus trap filters to elements with a layout box: the OPML `<input type="file">` is `display:none`, matches the focusable selector, sorts last, and can never take focus — so the wrap never fired and Tab walked out of the dialog.
-- **The drawer is five labelled sections**: Feeds, Saved, Settings, You, Admin.
-  Reader preferences (density, sort, theme) are *Settings*; the server-side
-  admin panel is *Server settings* under Admin — two different things that were
-  both called "Settings". Density and sort used to sit in the top bar, which on
-  a 390px screen cost a whole row of a header that was already a quarter of the
-  viewport; the header is 61px now, down from 173px. `Insights` is offered as
-  *Your stats* under You because it describes this reader's taste, but the
-  endpoint is still `@api_admin`, so it stays hidden from a plain reader rather
-  than answering 403.
-- **The article card is three rows, in block flow.** A floated photo the
-  headline and summary wrap around; then score / reading time / Open / save /
-  like / dislike; then source, age and every tag. It was a four-column grid,
-  which reserved a photo column on every card whether or not there was a photo
-  in it — that reservation was the white space. Two consequences worth knowing:
-  the headline is a `<span role="button">` and **not a `<button>`**, because a
-  button is an atomic inline-level box in every engine (`display: inline` does
-  not change that) and so can never wrap around a float; and the tag cap and
-  13ch truncation are gone, because those were bought by the old single-line
-  layout where tags fought the vote buttons for 356px.
+- **The drawer is three unlabelled groups, then settings, then a footer.** It was five
+  all-caps labelled sections (Feeds, Saved, Settings, You, Admin); the headers are gone,
+  because 34px of space between groups says the same thing and the labels were the
+  loudest type in the column while saying the least. The groups are: what to read
+  (feeds), the lists that are not the reading list (Saved, Hidden, Your stats), and the
+  display preferences — `.drawer-settings`, where `Toggle` gives Photos and Compact and
+  `Segmented` gives Sort and Theme as radiogroups. Sort was a "sort by score instead of
+  date" switch; two positions say it without the double negative. Everything that opens
+  a dialog rather than filtering the list sits in `.drawer-footer` as small text, each
+  admin entry by name rather than behind one "Admin" word. Density and sort used to sit
+  in the top bar, which on a 390px screen cost a whole row of a header that was already
+  a quarter of the viewport. `Insights` is offered as *Your stats* because it describes
+  this reader's taste, but the endpoint is still `@api_admin`, so it stays hidden from a
+  plain reader rather than answering 403.
+- **One header, not two.** `components/Toolbar.tsx` renders a single `.app-header` with
+  Refresh, Mark all read, What you missed and Search as text; an icon toolbar stacked
+  under a text header would spend the vertical space the redesign exists to reclaim,
+  and rendered three of those actions twice with two accessible names apiece. The ids
+  are the old row's on purpose — `#poll-btn`, `#dismiss-all-btn`, `#digest-btn` and
+  `.drawer-toggle` are what several specs drive, and they are the same controls doing
+  the same jobs. A "what you missed" strip sits above the list, offering the digest
+  where the unread count is rather than behind a header button alone.
+- **The article card is two rows.** `.article-head` — headline, summary and the
+  thumbnail beside them — over a single `.article-meta` line carrying score · source ·
+  age · duplicate count on the left and Save / Up / Down on the right. That one line
+  replaced four separate rows; the earlier layout before those was a four-column grid
+  that reserved a photo column on every card whether or not there was a photo in it, and
+  that reservation was the white space. The headline is still a `<span role="button">`
+  and **not a `<button>`** — a button is an atomic inline-level box in every engine
+  (`display: inline` does not change that), and everything on this card is type.
+  Actions are words, not emoji. The score is a bare gold number: **no pill survives on
+  the card at all.** The redesign kept a pill only for a single-story mode, and that
+  mode was never built, so there is no styling here waiting for it. Tags are down to one
+  topic as plain text (`.meta-tag`), desktop only — it is the item that would wrap the
+  phone's single meta line — so the old tag cap and 13ch truncation are gone with the
+  row that needed them. `.action-open`, the link out to the publisher, is desktop-only
+  too, and is listed beside `.action` rather than carrying that class: the phone's
+  tap-target sweep measures every `.article-actions .action`, and an element with
+  `display: none` has no box to measure.
+- **Whitespace separates the stories — nothing else does.** 34px between cards, 40px on
+  desktop; no dividers, no row background tints, and no vote tints. Read state is
+  `opacity: .55` on the row rather than a colour, so a read story recedes without
+  becoming a second kind of card.
+- **Desktop is a reading measure, not the window**: `#article-list` is capped at 760px
+  including its 48px gutters, and the header and the what-you-missed strip are held to
+  the same edges. The whole desktop layout lives in one `@media (min-width: 900px)`
+  block — below that it collapses to the phone layout, drawer overlay and all, rather
+  than to a third in-between one nobody tests.
 - **Three display preferences, all per-device localStorage**: `theme`,
-  `density`, `photos`. `density` (compact) drops the summary and the tags —
-  text the model produced. `photos` drops the images — the only thing on a card
+  `density`, `photos`. `density` (compact) now drops only the summary — the tags it
+  also used to hide have gone from the card entirely, and the meta line is one line in
+  either mode. `photos` drops the images — the only thing on a card
   fetched from a third party. They are different levers for different reasons.
 - **Every action needs a visible control**, not only a command-palette entry. Sign-out, Settings, Users, Insights, the Ollama log and Manage feeds were all palette-only at one point, which put the whole admin surface behind a shortcut. `design-system.spec.ts` asserts each is clickable without the palette, that a plain reader sees none of the admin ones, and that no icon-only button is nameless.
 - **The PWA is real again**: `public/manifest.webmanifest`, `public/sw.js` (app shell only — offline *reading* is still deferred, D2), and a production-only registration in `src/pwa.ts`. Registering on the dev server caches module URLs Vite is rewriting, and Playwright reuses a developer's own server.

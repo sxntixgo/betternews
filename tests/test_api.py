@@ -39,7 +39,7 @@ EVERY_ENDPOINT = [
     ("post", f"{API}/articles/1/read"), ("post", f"{API}/articles/1/vote"),
     ("get", f"{API}/feeds"), ("get", f"{API}/topics"),
     ("post", f"{API}/topics/space/stance"), ("get", f"{API}/digest"),
-    ("get", f"{API}/me"),
+    ("get", f"{API}/digest/meta"), ("get", f"{API}/me"),
 ]
 
 

@@ -109,6 +109,15 @@ test.describe('mobile header', () => {
     expect(await strip.evaluate((el) => getComputedStyle(el).position)).toBe('static');
     await expect(strip.getByRole('button', { name: 'Read' })).toBeVisible();
   });
+
+  test('the subtitle reports the count and label from digest/meta, not the raw unread count', async ({ page }) => {
+    await signedIn(page);
+    await mockApi(page);
+    await page.goto('/');
+    // fixtures' DIGEST_META: story_count 32, since_label 'Friday', read_minutes 2.
+    // FEEDS.unread is 139 -- if this read that instead, it would say so.
+    await expect(page.locator('.missed-sub')).toHaveText('32 stories since Friday · 2 min summary');
+  });
 });
 
 /**

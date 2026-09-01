@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import type { Article, ArticleDetail, FeedList, Me } from '../../shared/api';
+import type { Article, ArticleDetail, DigestMeta, FeedList, Me } from '../../shared/api';
 
 /** Shapes mirror shared/api.ts, so a contract change breaks these too. */
 export const ME: Me = {
@@ -59,6 +59,10 @@ export const DIGEST = {
   article_count: 7,
   cached: false,
   articles: [{ id: 1, url: 'https://example.com/1' }],
+};
+
+export const DIGEST_META: DigestMeta = {
+  story_count: 32, since_label: 'Friday', read_minutes: 2,
 };
 
 /** 25 articles over two pages, so infinite scroll has something to do. */
@@ -123,6 +127,7 @@ export async function mockApi(page: Page, articles: Article[] = ARTICLES) {
   }));
   await page.route('**/api/v1/topics/*/stance', (r) => r.fulfill({ json: { topic: 'x', stance: 'more' } }));
   await page.route('**/api/v1/digest', (r) => r.fulfill({ json: DIGEST }));
+  await page.route('**/api/v1/digest/meta', (r) => r.fulfill({ json: DIGEST_META }));
   await page.route('**/api/v1/digest/dismiss', (r) => r.fulfill({ json: { ok: true } }));
   await page.route('**/api/v1/status', (r) => r.fulfill({
     json: {

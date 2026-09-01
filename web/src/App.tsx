@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { isNetworkError } from '@shared/api';
-import type { Article, FeedList, ListQuery, Me } from '@shared/api';
+import type { Article, DigestMeta, FeedList, ListQuery, Me } from '@shared/api';
 import { api, setAuthFailureHandler } from './api/client';
 import { useArticles } from './api/useArticles';
 import { ArticleCard } from './components/ArticleCard';
@@ -53,6 +53,7 @@ export default function App() {
       });
   }, [signedIn, retries]);
   const [feeds, setFeeds] = useState<FeedList | null>(null);
+  const [digestMeta, setDigestMeta] = useState<DigestMeta | null>(null);
   const [feed, setFeed] = useState<number | undefined>();
   const [saved, setSaved] = useState(false);
   const [sort, setSort] = useState<'date' | 'score'>('date');
@@ -158,6 +159,15 @@ export default function App() {
   useEffect(() => {
     if (signedIn) void api.feeds().then(setFeeds).catch(() => {});
   }, [signedIn, articles.length, reloads]);
+
+  useEffect(() => {
+    // Once per sign-in, not on every reload: `/digest/meta` records the visit
+    // (`repo.users.touch_last_seen`) as a side effect of being asked, so
+    // calling it repeatedly would keep pushing "since Friday" toward "since
+    // now". It never generates the briefing itself -- that's still only
+    // `GET /digest`, opened on demand -- so this is cheap on every page load.
+    if (signedIn) void api.digestMeta().then(setDigestMeta).catch(() => {});
+  }, [signedIn]);
 
   useEffect(() => {
     if (feeds) drawFavicon(feeds.unread);
@@ -579,15 +589,22 @@ export default function App() {
         </header>
 
         {/* The briefing's trigger, not the briefing itself -- Digest still
-            fetches only when opened, so this is built entirely from the
-            unread count App.tsx already holds for the favicon, never from a
-            digest call nobody asked for. Hidden with nothing unread: there is
-            nothing to have missed. */}
-        {feeds && feeds.unread > 0 && (
+            fetches the briefing body only when opened. The subtitle comes from
+            `digestMeta` (`GET /digest/meta`), which answers counts and the
+            previous-visit weekday without generating anything; that's a
+            separate endpoint from `GET /digest` specifically so this strip
+            never costs an LLM call. Hidden with nothing missed: `since_label`
+            is null before the first visit ever recorded one, in which case the
+            subtitle falls back to a plain unread count. */}
+        {digestMeta && digestMeta.story_count > 0 && (
           <div className="missed-strip">
             <div className="missed-text">
               <div className="missed-title">What you missed</div>
-              <div className="missed-sub">{feeds.unread} unread</div>
+              <div className="missed-sub">
+                {digestMeta.since_label
+                  ? `${digestMeta.story_count} stories since ${digestMeta.since_label} · ${digestMeta.read_minutes} min summary`
+                  : `${digestMeta.story_count} unread`}
+              </div>
             </div>
             <button className="missed-cta" onClick={() => setShowDigest(true)}>Read</button>
           </div>

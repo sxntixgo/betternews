@@ -151,11 +151,11 @@ is cleared.
 - `GET|POST /login` `GET|POST /register` `GET|POST /logout` — public
 - `GET /health` — public; the container healthcheck curls it
 
-**JSON — `/api/v1`, 60 routes**, in `app/api/`: `articles` (list, detail, vote,
+**JSON — `/api/v1`, 61 routes**, in `app/api/`: `articles` (list, detail, vote,
 save, dismiss, dismiss-all, search, export), `feeds` (+ OPML), `me` (password,
-tokens, preferences), `auth` (login, register, logout), `topics`, `digest`,
-`status`, `poll`, `rescore-hidden`, `settings` (14), `admin` (users, insights,
-ollama-log).
+tokens, preferences), `auth` (login, register, logout), `topics`, `digest`
+(+ meta), `status`, `poll`, `rescore-hidden`, `settings` (14), `admin` (users,
+insights, ollama-log).
 
 Read `shared/api.ts` for the shapes — `tests/test_api_contract.py` parses it and
 asserts the API sends exactly those fields, so a rename cannot silently break

@@ -5,6 +5,8 @@ adds registration, roles and sessions on top of the same rows — no second data
 migration.
 """
 
+from datetime import datetime, timedelta, timezone
+
 from sqlalchemy import func, select
 
 from app.models import users as U
@@ -42,6 +44,24 @@ def ensure_bootstrap_user(db) -> int:
             username=BOOTSTRAP_USERNAME, password_hash="", role="admin"
         ).returning(U.c.id)
     ).scalar_one()
+
+
+def touch_last_seen(db, user_id: int, *, now=None, stale_after=timedelta(minutes=30)):
+    """Record that the reader is here; answer when they were last here.
+
+    Returns the previous `last_seen_at`, or None if they have never been seen.
+
+    The stored value only advances once it is older than `stale_after`. Without
+    that, refreshing the page would collapse "since Friday" into "since a
+    minute ago" -- a label that resets every time you look at it says nothing.
+    """
+    now = now or datetime.now(timezone.utc)
+    prev = db.execute(
+        select(U.c.last_seen_at).where(U.c.id == user_id)
+    ).scalar_one_or_none()
+    if prev is None or (now - prev) >= stale_after:
+        db.execute(U.update().where(U.c.id == user_id).values(last_seen_at=now))
+    return prev
 
 
 def all_with_stats(db):

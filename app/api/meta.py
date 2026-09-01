@@ -77,6 +77,38 @@ def digest():
     })
 
 
+@bp.get("/digest/meta")
+@api_auth
+def digest_meta():
+    """What the strip says, without generating the briefing it links to.
+
+    This mutates on a GET -- a deliberate exception. Arriving *is* the event
+    being recorded (`repo.users.touch_last_seen`), and the alternative is a
+    second request whose only job is to say "I am here", which is worse than
+    the thing it is avoiding.
+    """
+    from app.repo import users as user_repo
+
+    db = get_db()
+    uid = current_api_user()
+    prev = user_repo.touch_last_seen(db, uid)
+    db.commit()
+
+    story_count = (
+        art_repo.unread_since(db, uid, prev) if prev is not None
+        else art_repo.unread_count(db, uid)
+    )
+    # An estimate, not a measurement: measuring the real reading time means
+    # generating the briefing, which is exactly what this endpoint exists to
+    # avoid.
+    read_minutes = max(1, round(min(story_count, digest_mod.MAX_ARTICLES) / 6))
+    return jsonify({
+        "story_count": story_count,
+        "since_label": prev.strftime("%A") if prev else None,
+        "read_minutes": read_minutes,
+    })
+
+
 @bp.get("/me")
 @api_auth
 def me():

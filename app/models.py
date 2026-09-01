@@ -49,6 +49,7 @@ users = Table(
     Column("must_change_password", Boolean, nullable=False, server_default="false"),
     _ts(name="created_at", nullable=False, server_default=func.now()),
     _ts(name="last_login_at"),
+    _ts(name="last_seen_at"),
     CheckConstraint("role IN ('user','admin')", name="role_valid"),
 )
 # Case-insensitive uniqueness without the citext extension.

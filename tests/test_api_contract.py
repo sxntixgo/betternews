@@ -119,6 +119,11 @@ def test_digest_fields_match_the_contract(client, app, token):
     assert set(got) == declared_fields("Digest")
 
 
+def test_digest_meta_fields_match_the_contract(client, token):
+    assert set(client.get("/api/v1/digest/meta", headers=token).get_json()) \
+        == declared_fields("DigestMeta")
+
+
 def test_opinion_values_match_the_declared_union(client, token, seeded):
     """`opinion` is a union in the contract, so the API must not invent a third."""
     src = CONTRACT.read_text()

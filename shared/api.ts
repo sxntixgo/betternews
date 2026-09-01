@@ -194,6 +194,15 @@ export interface Digest {
   articles: { id: number; url: string }[];
 }
 
+/** What the "what you missed" strip shows, without generating the briefing. */
+export interface DigestMeta {
+  story_count: number;
+  /** Weekday of the previous visit, e.g. "Friday". Null on a first visit. */
+  since_label: string | null;
+  /** An estimate. Measuring it would mean generating the briefing. */
+  read_minutes: number;
+}
+
 /**
  * The Ollama endpoint, and which one is actually in force.
  *
@@ -666,6 +675,10 @@ export class BetterNewsClient {
 
   digest() {
     return this.request<Digest>('/digest');
+  }
+
+  digestMeta() {
+    return this.request<DigestMeta>('/digest/meta');
   }
 
   dismissDigest() {

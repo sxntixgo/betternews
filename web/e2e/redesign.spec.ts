@@ -8,9 +8,12 @@ test.describe('story row', () => {
     await page.goto('/');
     const row = page.locator('#card-1');
     await expect(row.locator('.article-meta')).toHaveCount(1);
-    // The pill, the topic chips and the Open link were the other three rows.
-    await expect(row.locator('.score-badge')).toHaveCount(0);
-    await expect(row.locator('.topic-chips')).toHaveCount(0);
+    // One line, not four. Asserting the *count* of the line that replaced them
+    // is falsifiable; asserting that `.score-badge` and `.topic-chips` are
+    // absent was not, because neither class exists anywhere in the app — both
+    // were true before this redesign was written.
+    await expect(row.locator('.meta-score')).toHaveCount(1);
+    await expect(row.locator('.article-actions')).toHaveCount(1);
   });
 
   test('shows the score as a bare number in gold, no percent sign', async ({ page }) => {
@@ -109,7 +112,7 @@ test.describe('mobile header', () => {
     else await expect(search).toBeHidden();
   });
 
-  test('the missed strip is the first list item and is not sticky', async ({ page }) => {
+  test('the missed strip sits above the list and is not sticky', async ({ page }) => {
     await signedIn(page);
     await mockApi(page);
     await page.goto('/');
@@ -117,6 +120,12 @@ test.describe('mobile header', () => {
     await expect(strip).toBeVisible();
     expect(await strip.evaluate((el) => getComputedStyle(el).position)).toBe('static');
     await expect(strip.getByRole('button', { name: 'Read' })).toBeVisible();
+    // Above the list and scrolling with it -- the claim in the name, which
+    // went unasserted. It sits outside `#article-list` rather than in it, so
+    // "first list item" was never literally true either.
+    const stripBox = (await strip.boundingBox())!;
+    const listBox = (await page.locator('#article-list').boundingBox())!;
+    expect(stripBox.y + stripBox.height).toBeLessThanOrEqual(listBox.y + 1);
   });
 
   test('the subtitle reports the count and label from digest/meta, not the raw unread count', async ({ page }) => {
@@ -436,8 +445,12 @@ test.describe('sign in', () => {
     await signInFlow(page);
     await page.goto('/');
     await expect(page.locator('.field-label').first()).toHaveText('Username');
-    await expect(page.getByText(/magic link/i)).toHaveCount(0);
-    await expect(page.getByText(/forgot/i)).toHaveCount(0);
+    // Two fields and one button, so "no email, no magic link, no Forgot?" is
+    // asserted by what is there rather than by naming strings this app has
+    // never contained -- those assertions passed before the screen was written.
+    await expect(page.locator('.signin .field')).toHaveCount(2);
+    await expect(page.locator('.signin button')).toHaveCount(1);
+    await expect(page.locator('input[name=username]')).toBeVisible();
   });
 
   test('the CTA is pinned to the bottom on a phone', async ({ page, isMobile }) => {

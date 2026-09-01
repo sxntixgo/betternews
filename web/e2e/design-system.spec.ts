@@ -148,6 +148,9 @@ test.describe('nothing is command-palette-only', () => {
     // The whole drawer, not one section of it: `.sidebar-section` is gone, and
     // scoping to a class that no longer exists would have made this pass by
     // matching nothing at all.
+    const total = await page.locator('.sidebar button, .sidebar-manage').count();
+    expect(total, 'no drawer controls found -- this test is asserting nothing')
+      .toBeGreaterThan(0);
     const nameless = await page.locator('.sidebar button, .sidebar-manage')
       .evaluateAll((els) => els
         .filter((el) => !el.textContent?.trim() && !el.getAttribute('aria-label'))

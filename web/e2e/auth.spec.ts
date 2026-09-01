@@ -50,8 +50,13 @@ test.describe('signing in', () => {
     await page.locator('.signin button').click();
     await expect(page.locator('.article-row').first()).toBeVisible();
 
+    // Four keys exist -- theme, density, photos, sidebar-collapsed -- and all
+    // four are display preferences. The claim worth asserting is not how many
+    // there are but that none is credential-shaped; the old filter passed only
+    // because nothing had toggled a preference yet.
     const keys = await page.evaluate(() => Object.keys(localStorage));
-    expect(keys.filter((k) => k !== 'theme')).toEqual([]);
+    const ALLOWED = ['theme', 'density', 'photos', 'sidebar-collapsed'];
+    expect(keys.filter((k) => !ALLOWED.includes(k))).toEqual([]);
     expect(await page.content()).not.toContain('hunter2');
   });
 
@@ -83,8 +88,13 @@ test.describe('losing the session', () => {
 
     await expect(page.locator('.signin')).toBeVisible();
     // Nothing to clear: the credential was never in the page's reach.
+    // Four keys exist -- theme, density, photos, sidebar-collapsed -- and all
+    // four are display preferences. The claim worth asserting is not how many
+    // there are but that none is credential-shaped; the old filter passed only
+    // because nothing had toggled a preference yet.
     const keys = await page.evaluate(() => Object.keys(localStorage));
-    expect(keys.filter((k) => k !== 'theme')).toEqual([]);
+    const ALLOWED = ['theme', 'density', 'photos', 'sidebar-collapsed'];
+    expect(keys.filter((k) => !ALLOWED.includes(k))).toEqual([]);
   });
 
   test('a server error is shown, and does not sign the reader out', async ({ page }) => {

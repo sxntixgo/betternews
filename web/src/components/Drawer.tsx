@@ -98,7 +98,7 @@ export function Drawer({
             >
               <span className="sidebar-feed-title">Saved articles</span>
               {feeds && feeds.saved > 0 && (
-                <span className="pill sidebar-feed-count count">{feeds.saved}</span>
+                <span className="sidebar-feed-count">{feeds.saved}</span>
               )}
             </button>
 

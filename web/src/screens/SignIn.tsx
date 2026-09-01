@@ -41,29 +41,42 @@ export function SignIn({ onDone }: { onDone: () => void }) {
 
   return (
     <form className="signin" onSubmit={submit}>
-      <h1>Better News</h1>
-      <input
-        name="username"
-        value={username}
-        onChange={(e) => setUsername(e.target.value)}
-        placeholder="Username"
-        autoComplete="username"
-        autoFocus
-        required
-      />
-      <input
-        name="password"
-        type="password"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        placeholder="Password"
-        autoComplete="current-password"
-        required
-      />
-      {error && <p className="error">{error}</p>}
-      <button type="submit" disabled={busy || !username.trim() || !password}>
-        {busy ? 'Signing in…' : 'Sign in'}
-      </button>
+      <div className="signin-head">
+        <h1 className="signin-wordmark">Better News</h1>
+        <p className="signin-tagline">Your feeds, ranked and quiet.</p>
+      </div>
+
+      <div className="signin-fields">
+        <label className="field">
+          <span className="field-label">Username</span>
+          <input
+            name="username"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            autoComplete="username"
+            autoFocus
+            required
+          />
+        </label>
+        <label className="field">
+          <span className="field-label">Password</span>
+          <input
+            name="password"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
+            required
+          />
+        </label>
+        {error && <p className="error field-error">{error}</p>}
+      </div>
+
+      <div className="signin-cta">
+        <button type="submit" disabled={busy || !username.trim() || !password}>
+          {busy ? 'Signing in…' : 'Sign in'}
+        </button>
+      </div>
     </form>
   );
 }

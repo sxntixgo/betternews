@@ -839,15 +839,41 @@ dialog[open] { display: flex; flex-direction: column; }
 
 /* ── SPA-only: the shell the server rendered in Jinja ───────────────────────── */
 
-.signin {
-  max-width: 380px;
-  margin: 15vh auto;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 0 16px;
+/* .signin is also the root class of ForcedPasswordChange.tsx (a separate,
+   out-of-scope screen -- see task 10's brief). That screen's raw <input>s and
+   two stacked <button>s inherit this layout rather than the .field / .signin-cta
+   rules below, which only the restyled SignIn.tsx markup uses. */
+.signin { display: flex; flex-direction: column; min-height: 100%; padding: 0 28px; max-width: none; margin: 0; }
+.signin-head { padding-top: 150px; }
+.signin-wordmark { margin: 0; font-family: var(--font-serif); font-size: 30px; font-weight: 600; letter-spacing: -0.5px; color: var(--color-ink); }
+.signin-tagline { margin: 10px 0 0; font-size: 15px; line-height: 1.5; color: var(--color-ink-muted); }
+
+.signin-fields { margin-top: 64px; display: flex; flex-direction: column; gap: 30px; }
+.field { display: flex; flex-direction: column; gap: 9px; }
+.field-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--color-ink-faint); }
+.field input {
+  border: 0; border-bottom: 1px solid var(--color-field-underline);
+  background: none; padding: 0 0 13px; font: inherit; font-size: 17px; color: var(--color-ink);
 }
-.signin h1 { margin: 0; font-size: 22px; }
+.field-error { margin: 0; font-size: 12px; color: var(--color-danger); }
+
+.signin-cta { margin-top: auto; padding-bottom: 44px; display: flex; flex-direction: column; gap: 16px; }
+.signin-cta button {
+  height: 52px; border: 0; border-radius: var(--radius-pill);
+  background: var(--color-accent); color: var(--color-on-accent);
+  font: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
+}
+
+@media (min-width: 900px) {
+  .signin { max-width: 352px; margin: 0 auto; justify-content: center; padding: 0; }
+  .signin-head { padding-top: 0; }
+  .signin-wordmark { font-size: 26px; }
+  .signin-tagline { font-size: 13px; }
+  .signin-fields { margin-top: 34px; gap: 26px; }
+  .field input { font-size: 15px; padding-bottom: 11px; }
+  .signin-cta { margin-top: 34px; padding-bottom: 0; }
+  .signin-cta button { height: 46px; font-size: 14px; }
+}
 
 /* Shown instead of the sign-in form when /me fails at the transport layer.
    A cached shell renders normally and `navigator.onLine` stays true, so
@@ -863,8 +889,6 @@ dialog[open] { display: flex; flex-direction: column; }
 }
 .unreachable h1 { margin: 0; font-size: 22px; }
 .unreachable p { margin: 0; color: var(--color-ink-muted); font-size: 14px; }
-
-.signin input { padding: 10px; font-size: 15px; }
 
 .modal-backdrop {
   position: fixed;

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { article, mockApi, openDrawer, signedIn } from './fixtures';
+import { article, mockApi, openDrawer, signedIn, signInFlow } from './fixtures';
 
 test.describe('story row', () => {
   test('is one meta+actions line, not four rows', async ({ page }) => {
@@ -391,5 +391,29 @@ test.describe('drawer controls', () => {
     await openDrawer(page);
     const group = page.getByRole('radiogroup', { name: 'Theme' });
     await expect(group.getByRole('radio')).toHaveText(['Auto', 'Light', 'Dark']);
+  });
+});
+
+/**
+ * Task 10: serif wordmark, underline fields, bottom-weighted CTA on mobile.
+ * Username is kept -- no email, no magic link, no "Forgot?" -- see the
+ * task brief's Global Constraints and controller correction 3.
+ */
+test.describe('sign in', () => {
+  test('asks for a username, not an email, and offers no magic link', async ({ page }) => {
+    await signInFlow(page);
+    await page.goto('/');
+    await expect(page.locator('.field-label').first()).toHaveText('Username');
+    await expect(page.getByText(/magic link/i)).toHaveCount(0);
+    await expect(page.getByText(/forgot/i)).toHaveCount(0);
+  });
+
+  test('the CTA is pinned to the bottom on a phone', async ({ page }) => {
+    await signInFlow(page);
+    await page.goto('/');
+    const cta = await page.locator('.signin-cta').boundingBox();
+    const vp = page.viewportSize()!;
+    // Bottom-weighted so the iOS keyboard never covers it.
+    expect(cta!.y).toBeGreaterThan(vp.height * 0.6);
   });
 });

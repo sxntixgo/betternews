@@ -298,6 +298,20 @@ phone-only setup on `isMobile` or on the page, never on `project.name`: a name
 check silently skipped the drawer on the new project and three failures looked
 like missing UI.
 
+**`e2e/visual.spec.ts` is pixel coverage, not DOM coverage**, added after a
+redesign where every defect that reached final review — an invisible keyboard
+focus row, `--font-ui` never applying, `ForcedPasswordChange` losing its
+styling, a single-story card stretching to 955px — was a pixel fact that a
+class-name or text assertion could not see. It screenshots the four surfaces
+that redesign touched (reading list, drawer open, sign-in, single-story), at
+phone and desktop width, in light and dark, masking `.meta-age` /
+`.single-age` since relative timestamps ("2h", "now") change between runs and
+would fail every snapshot within the hour. Regenerate a baseline with
+`npx playwright test visual.spec.ts --update-snapshots` — but only after a
+human has looked at the new image. Regenerating to make red go away, without
+looking, is how this kind of suite quietly becomes decoration: green whether
+or not the pixels are right.
+
 CI runs the first, second and fourth on every push and pull request
 (`.github/workflows/ci.yml`). Actions is free without a minute limit here
 because the repository is public — the 2,000-minute allowance applies to private

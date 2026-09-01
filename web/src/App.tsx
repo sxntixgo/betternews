@@ -561,6 +561,7 @@ export default function App() {
         )}
         <header className="site-header">
           <Toolbar
+            drawerOpen={drawerOpen}
             search={search}
             onSearch={setSearch}
             canPoll={me?.role === 'admin'}

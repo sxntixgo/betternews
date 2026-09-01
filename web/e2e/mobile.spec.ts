@@ -137,6 +137,13 @@ test.describe('phone layout', () => {
       };
       return { meta: g('.article-meta'), actions: g('.article-actions') };
     });
+    // Guarded first: `g()` answers 0 for a node that is not there, and 0 is
+    // under every threshold below -- so a renamed class would empty this test
+    // rather than fail it.
+    for (const [name, h] of Object.entries(heights)) {
+      expect(h, `${name} is missing, so this test is asserting nothing`)
+        .toBeGreaterThan(0);
+    }
     // 41, not 40: the actions set the line's height at exactly 40, so only a
     // genuine wrap exceeds it. `.article-head` is excluded on purpose -- it
     // holds the headline and summary and is supposed to be tall.

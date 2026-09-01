@@ -408,7 +408,8 @@ test.describe('sign in', () => {
     await expect(page.getByText(/forgot/i)).toHaveCount(0);
   });
 
-  test('the CTA is pinned to the bottom on a phone', async ({ page }) => {
+  test('the CTA is pinned to the bottom on a phone', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'phone only -- on a desktop the column is centred instead');
     await signInFlow(page);
     await page.goto('/');
     const cta = await page.locator('.signin-cta').boundingBox();

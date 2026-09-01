@@ -19,7 +19,10 @@ html {
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  /* No stack here. `index.css` sets `--font-ui`, and this rule used to restate a
+     different one -- it wins on source order in the bundle, so the redesign's
+     switch to Helvetica Neue applied to nothing. A second font stack is not a
+     second opinion; it is a silent override. */
   font-size: 16px;
   background: var(--color-bg);
   color: var(--color-ink);
@@ -35,20 +38,6 @@ body {
 .site-header {
   border-bottom: 1px solid var(--color-hairline);
   background: var(--color-bg);
-}
-/* The original toolbar row -- refresh with its polling state, dismiss-all,
-   the digest opener, and the field-behind-a-button search -- moved out of
-   `.site-header` proper so the compact `.app-header` above it can own the
-   header's padding instead of stacking on top of this row's own. Layout is
-   otherwise unchanged: reading.spec.ts drives every id in here directly, on
-   every viewport, so nothing about how these controls behave moved with
-   them. */
-.toolbar-row {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 10px 16px;
-  flex-wrap: wrap;
 }
 
 nav { display: flex; align-items: center; gap: 12px; flex-shrink: 0; margin-left: auto; }
@@ -271,7 +260,7 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 }
 .drawer-scrim.visible { display: block; }
 
-@media (max-width: 720px) {
+@media (max-width: 899px) {
   .drawer-toggle { display: flex; }
   /* The toggle is fixed and out of flow at this width, so `.header-title`
      reserves its width itself rather than leaving the title to render
@@ -329,9 +318,15 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
    to be here styled nothing at all. */
 #article-list {
   padding: 0 16px;
-  background: var(--color-surface);
-  border-left: 1px solid var(--color-hairline);
-  border-right: 1px solid var(--color-hairline);
+  /* The page ground, not a raised surface. The design puts the reading column on
+     the page colour and reserves the raised one for the sidebar; painting both
+     with `--color-surface` made them one undifferentiated slab, and the borders
+     that used to divide them went with the redesign's rules. Whitespace and the
+     760px measure separate the column now -- that is the whole thesis.
+
+     No hex in this comment on purpose: `design-system.spec.ts` greps the file
+     for hex and cannot tell a value from prose. Name tokens, not colours. */
+  background: var(--color-bg);
 }
 #article-list { padding-bottom: 24px; min-height: 60vh; }
 
@@ -449,7 +444,7 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 .article-row.read .article-thumb { opacity: 0.6; }
 /* Saved has its own colour, not the accent the votes use: it is a keep, not
    an opinion, and it is the one state that outlives retention. */
-.article-row.saved .article-actions .action[aria-pressed='true'] {
+.article-row.saved .article-actions .action.action-save[aria-pressed='true'] {
   color: var(--color-saved);
 }
 .article-row.hidden { opacity: 0.65; border-left: 3px solid var(--color-ink-muted); padding-left: 8px; }
@@ -525,8 +520,8 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
      so the designed 18px gap and every glyph position are unchanged. "Up" is
      15px of text -- below the 24px WCAG 2.5.8 floor -- and this is what lifts
      it over without touching the layout. */
-  padding: 0 5px;
-  margin: 0 -5px;
+  padding: 6px 5px;
+  margin: -6px -5px;
   font: inherit;
   font-size: 12px;
   color: var(--color-ink-faint);
@@ -925,7 +920,7 @@ dialog[open] { display: flex; flex-direction: column; }
 .aside-group > summary { cursor: pointer; color: var(--color-ink-muted); font-size: 13px; }
 .error { color: var(--color-danger); }
 
-@media (max-width: 720px) {
+@media (max-width: 899px) {
   .modal { width: 100vw; }
 }
 
@@ -1169,7 +1164,7 @@ kbd {
   background: var(--color-surface-2);
 }
 
-@media (max-width: 720px) {
+@media (max-width: 899px) {
   /* Almost nothing left here. The card's type and metrics are the phone's own
      now -- 19px headline, 76px photo, one 11px meta line -- so the desktop no
      longer needs undoing at this width; the tuning that used to live here was
@@ -1223,7 +1218,6 @@ kbd {
 /* ── The compact header ──────────────────────────────────────────────────
    Hamburger, page title and unread count, then the three actions a reader
    reaches for most -- Refresh, Mark all read, Search -- as text at full
-   strength on every screen, not just a desktop. It sits above `.toolbar-row`
    below, which still carries the admin-only refresh, the digest opener and
    the field-behind-a-button search: those have no home up here and stay
    exactly as they were. */
@@ -1298,7 +1292,7 @@ kbd {
    nothing to reveal. The class stays because `App.tsx`'s "/" shortcut clicks
    it to open the field when the field is hidden and cannot take focus. */
 
-@media (max-width: 720px) {
+@media (max-width: 899px) {
   /* Hidden rather than narrow. Squeezing it into whatever space was left is
      what produced a field showing two characters. */
   .search-input { display: none; }
@@ -1311,7 +1305,7 @@ kbd {
   }
 }
 
-/* A `@media (max-width: 720px)` rule used to unbox `.sidebar-tools` and
+/* A `@media (max-width: 899px)` rule used to unbox `.sidebar-tools` and
    `.theme-picker` with `display: contents` on a phone. `.sidebar-tools` was
    already dead -- nothing has rendered it for a long time -- and the theme
    picker only survived it because a more specific `.sidebar-section

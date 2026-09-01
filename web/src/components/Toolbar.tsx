@@ -23,6 +23,7 @@ export function Toolbar({
   title,
   unread,
   onOpenDrawer,
+  drawerOpen,
 }: {
   search: string;
   onSearch: (q: string) => void;
@@ -33,6 +34,8 @@ export function Toolbar({
   title: string;
   unread: number;
   onOpenDrawer: () => void;
+  /** The drawer is a disclosure; its toggle has to say which state it is in. */
+  drawerOpen: boolean;
 }) {
   const [polling, setPolling] = useState(false);
   const [text, setText] = useState(search);
@@ -89,7 +92,12 @@ export function Toolbar({
           restyled from a three-line icon to the two-bar one. */}
       <div className="header-row">
         <div className="header-title">
-          <button className="drawer-toggle" aria-label="Open menu" onClick={onOpenDrawer}>
+          <button
+              className="drawer-toggle"
+              aria-label="Open menu"
+              aria-expanded={drawerOpen}
+              onClick={onOpenDrawer}
+            >
             <span /><span />
           </button>
           <span className="header-name">{title}</span>

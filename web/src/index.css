@@ -47,7 +47,7 @@
   /* ---------- Light palette (redesign) ---------- */
   --color-bg: #faf9f7;
   --color-surface: #f4f2ec;
-  --color-surface-2: #f4f2ec;
+  --color-surface-2: #ece8de;
   --color-surface-accent: #f3efe4;
   --color-surface-story: #faf8f3;
   --color-shell-story: #16160f;
@@ -66,7 +66,7 @@
   --color-field-underline: #ddd7cb;
   --color-divider: #eee9e0;
   --color-indent-active: #ede6d6;
-  --color-indent-inactive: #f2eee6;
+  --color-indent-inactive: #e3ddd0;
   --color-track: #eae6dc;
   --color-track-2: #f0ede6;
   --color-toggle-off: #e6e1d6;
@@ -108,7 +108,7 @@
 [data-theme='dark'] {
   --color-bg: #141310;
   --color-surface: #1b1a15;
-  --color-surface-2: #1b1a15;
+  --color-surface-2: #242219;
   --color-surface-accent: #211f19;
   --color-surface-story: #1b1a15;
   --color-shell-story: #0f0e0b;
@@ -172,7 +172,7 @@
   :root:not([data-theme]) {
     --color-bg: #141310;
     --color-surface: #1b1a15;
-    --color-surface-2: #1b1a15;
+    --color-surface-2: #242219;
     --color-surface-accent: #211f19;
     --color-surface-story: #1b1a15;
     --color-shell-story: #0f0e0b;

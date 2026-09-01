@@ -159,7 +159,7 @@ export function ArticleCard({
             Open
           </a>
           <button
-            className="action"
+            className="action action-save"
             aria-pressed={s.saved}
             onClick={() => onSave(article)}
           >

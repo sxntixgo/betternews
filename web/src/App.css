@@ -19,24 +19,25 @@ html {
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  /* No stack here. `index.css` sets `--font-ui`, and this rule used to restate a
+     different one -- it wins on source order in the bundle, so the redesign's
+     switch to Helvetica Neue applied to nothing. A second font stack is not a
+     second opinion; it is a silent override. */
   font-size: 16px;
   background: var(--color-bg);
   color: var(--color-ink);
   line-height: 1.5;
 }
 
+/* Not sticky: a `position` here would establish its own stacking context,
+   and `.drawer-toggle` inside it is `position: fixed` specifically so it
+   stays clickable above the open drawer (z-index 25) -- trapped in a
+   stickied ancestor's context, no z-index on the toggle could out-rank a
+   sibling stacking context at all. The missed strip below is unpinned for
+   the same family of reason, just simpler: it scrolls with the list. */
 .site-header {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 10px 16px;
   border-bottom: 1px solid var(--color-hairline);
-  position: sticky;
-  top: 0;
   background: var(--color-bg);
-  z-index: 10;
-  flex-wrap: wrap;
 }
 
 nav { display: flex; align-items: center; gap: 12px; flex-shrink: 0; margin-left: auto; }
@@ -47,8 +48,9 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 .sidebar {
   width: 240px;
   flex-shrink: 0;
-  /* `overflow-y: auto` moved to the feed list below, so the footer can stay
-     put. Scrolling the whole column is what buried it. */
+  /* `overflow-y: auto` lives on the scroller below, not here, so the drawer
+     can hold a head and a footer that scroll with the groups instead of
+     pinning bands the reader cannot get past on a phone. */
   border-right: 1px solid var(--color-hairline);
   /* Chrome, not content: the sidebar stays on the page colour and the article
      list lifts onto a surface in front of it. One flat background could not
@@ -56,20 +58,22 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
   background: var(--color-bg);
   display: flex;
   flex-direction: column;
-  padding: 16px 0;
+  /* Padding belongs to the blocks inside, which take different amounts of it
+     -- 56px above the wordmark, 44px under the footer. */
+  padding: 0;
   position: sticky;
   top: 0;
   height: 100vh;
   overflow: hidden;
 }
-/* The one part that scrolls. `min-height: 0` is load-bearing: a flex child
-   defaults to `min-height: auto`, which refuses to shrink below its content,
-   so without it the list simply pushes the footer out again and nothing
-   scrolls at all.
+/* The one part that scrolls, and it holds the whole drawer.
+   `min-height: 0` is load-bearing: a flex child defaults to `min-height:
+   auto`, which refuses to shrink below its content, so without it the groups
+   push the footer out again and nothing scrolls at all. mobile.spec's "a long
+   feed list does not strand the lower sections" is what fails when it goes.
 
    A wrapper element, because `Sidebar` returns a fragment and a fragment
-   cannot be scrolled. (`.sidebar-nav` further down is dead -- nothing renders
-   it -- so it is not the hook it looks like.) */
+   cannot be scrolled. */
 .sidebar-scroll {
   flex: 1;
   min-height: 0;
@@ -77,119 +81,138 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
   display: flex;
   flex-direction: column;
 }
-.sidebar-brand {
-  font-weight: 700;
-  font-size: 16px;
-  padding: 0 16px 12px;
-  color: var(--color-ink);
-  text-decoration: none;
-  border-bottom: 1px solid var(--color-hairline);
-}
-/* The drawer is five labelled sections now -- Feeds, Saved, Settings, You,
-   Admin -- rather than one list of feeds with an unlabelled tray of icons
-   under it. `flex: 1` is gone with the tray: every section sizes to its
-   contents and the column scrolls as a whole. */
-.sidebar-section {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 10px 8px;
-}
-.sidebar-section + .sidebar-section { border-top: 1px solid var(--color-hairline); }
-.sidebar-section-title {
-  margin: 0 0 4px;
-  padding: 0 8px;
-  font-size: 11px;
+
+/* ── the drawer ─────────────────────────────────────────────────────────────
+   Three unlabelled groups, a settings block and a footer, where there were
+   five all-caps labelled sections: FEEDS / SAVED / SETTINGS / YOU / ADMIN.
+   With one or two rows under most of them the headers were the loudest thing
+   in the column and said the least. What groups the rows now is the 34px
+   between the groups; what nests the feeds is the rule their children hang
+   behind. */
+.drawer-head { padding: 56px 28px 40px; }
+.drawer-wordmark {
+  font-family: var(--font-serif);
+  font-size: 24px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  line-height: 1.1;
+  letter-spacing: -0.4px;
+  color: var(--color-ink);
+}
+.drawer-sub {
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 400;
   color: var(--color-ink-muted);
 }
-/* A plain row, same shape and hit area as a feed, for the things that open a
-   dialog rather than filter the list. */
-.sidebar-item {
+
+.drawer-groups {
   display: flex;
-  align-items: center;
-  text-align: left;
-  width: 100%;
-  padding: 8px;
-  border: 0;
-  background: none;
-  border-radius: var(--radius-sm);
-  color: var(--color-ink);
-  font: inherit;
-  cursor: pointer;
+  flex-direction: column;
+  gap: 34px;
+  padding: 0 28px;
 }
-.sidebar-item:hover { background: var(--color-surface-2); }
-/* Every setting is the same row: its name on the left, its control on the
-   right, where the feed counts sit. */
-.sidebar-row > .switch,
-.sidebar-row > .theme-picker { margin-left: auto; }
-.sidebar-row > .switch { gap: 6px; padding: 4px 0; }
-.sidebar-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 2px 8px;
-}
-.sidebar-section .theme-picker { display: flex; gap: 2px; }
+.drawer-group { display: flex; flex-direction: column; gap: 18px; }
+
+/* One row shape for everything in the drawer that filters the list or opens a
+   screen. `.sidebar-feed` is the same row under its older name -- reading,
+   interaction and mobile spec all reach for that class -- so the two share a
+   declaration rather than drifting into two nearly-identical rows. No fill,
+   no radius, no hover tint: a tint behind a row is exactly what the
+   whitespace redesign takes out. */
+.drawer-item,
 .sidebar-feed {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 6px 10px;
-  border: none;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--color-ink);
-  font-size: 14px;
+  gap: 12px;
+  width: 100%;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 15px;
+  color: var(--color-ink-secondary);
   text-align: left;
   cursor: pointer;
-  width: 100%;
 }
-.sidebar-feed:hover { background: var(--color-surface-2); }
-.sidebar-feed.active { background: var(--color-surface-2); font-weight: 600; }
+/* All feeds leads its group, and is the only row that does. */
+.drawer-item.is-all { font-size: 17px; font-weight: 600; color: var(--color-ink); }
+.drawer-item.active,
+.sidebar-feed.active { color: var(--color-ink); font-weight: 600; }
 .sidebar-feed-title {
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Plain text, not a pill. It wore `.pill` while the card had pills to match;
+   with those gone it was a bare number carrying invisible styling. The values
+   below restore only what this element needs, dropping the pill's background,
+   border and radius. */
 .sidebar-feed-count {
-  color: var(--color-ink-muted);
-  background: var(--color-hairline);
-  min-width: 22px;
-  justify-content: center;
-}
-.sidebar-feed.active .sidebar-feed-count { color: var(--color-ink); }
-
-.sidebar-group { display: flex; flex-direction: column; }
-.sidebar-group-header { display: flex; align-items: center; gap: 2px; }
-.sidebar-collapse {
-  border: none;
-  background: transparent;
-  color: var(--color-ink-muted);
-  cursor: pointer;
+  background: none;
+  color: var(--color-ink-meta);
   font-size: 11px;
-  padding: 2px 4px;
-  width: 18px;
-  flex-shrink: 0;
-  transition: transform 0.15s;
+  line-height: 16px;
+  padding: 2px 0 2px 8px;
+  min-width: 0;
 }
-.sidebar-group.collapsed .sidebar-collapse { transform: rotate(-90deg); }
-.sidebar-group-title { flex: 1; font-weight: 600; }
-.sidebar-tag-label {
-  padding: 6px 10px;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+.drawer-item.is-all .sidebar-feed-count { color: var(--color-accent); }
+
+/* All feeds and the pencil that edits the list share a line. */
+.drawer-all { display: flex; align-items: center; gap: 8px; }
+.drawer-all .drawer-item { flex: 1; min-width: 0; }
+
+/* The indent rule: the feeds hang 16px behind a 2px line, and the line goes
+   gold while one of them is the list being read. Between them that is what
+   the deleted "FEEDS" header and the row tint used to say. */
+.drawer-children {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding-left: 16px;
+  border-left: 2px solid var(--color-indent-inactive);
+}
+.drawer-children.is-active { border-left-color: var(--color-indent-active); }
+
+.drawer-divider {
+  height: 1px;
+  flex: none;
+  background: var(--color-divider);
+  margin: 34px 28px 0;
+}
+/* It wraps. On a phone each of these is a 40px touch target and six of them
+   do not fit one 260px line. */
+.drawer-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 24px;
+  padding: 24px 28px 44px;
+  font-size: 13px;
   color: var(--color-ink-muted);
-  font-weight: 600;
 }
-.sidebar-group-body { display: flex; flex-direction: column; gap: 2px; padding-left: 18px; }
+.drawer-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 13px;
+  color: var(--color-ink-muted);
+  text-align: left;
+  cursor: pointer;
+}
+
+.sidebar-group { display: flex; flex-direction: column; gap: 18px; }
+/* The rows line up under their tag label, not under the chevron sitting left
+   of it. The label is already indented by the chevron's width, so the body has
+   to match it or the feeds read as belonging to the row above them -- which is
+   what dropping this indent entirely looked like. The chevron is wider on a
+   touch screen (it carries a 40px tap target), so the indent is too. */
+.sidebar-group-body { display: flex; flex-direction: column; gap: 18px; padding-left: 21px; }
+@media (pointer: coarse) { .sidebar-group-body { padding-left: 42px; } }
 .sidebar-group.collapsed .sidebar-group-body { display: none; }
-.sidebar-feed-nested { font-size: 13px; }
+.sidebar-feed-nested { font-size: 14px; }
 .sidebar-manage {
   display: inline-flex;
   align-items: center;
@@ -199,21 +222,36 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
   text-decoration: none;
   flex-shrink: 0;
 }
-.sidebar-manage:hover { color: var(--color-ink); background: var(--color-surface-2); }
+.sidebar-manage:hover { color: var(--color-ink); }
 
-/* Mobile drawer */
+/* Mobile drawer. `.drawer-toggle` is restyled here -- a two-bar hamburger
+   instead of the old three-line icon -- but it still needs to sit above the
+   open drawer, not behind it: the sidebar overlays at z-index 25 while open,
+   and its own descendants clicked through, so an in-flow copy inside
+   `.app-header` (which is `.site-header`'s own, much lower, stacking
+   context) would go dead the moment the drawer covered it. Fixed and above
+   both keeps `photos toggle > it takes the reader lead image with it`
+   (mobile.spec.ts) able to close the drawer by tapping this same control a
+   second time. `.header-title` reserves the matching space below so the
+   title text does not start underneath it. */
 .drawer-toggle {
   display: none;
   position: fixed;
-  top: 10px;
-  left: 10px;
+  top: 58px;
+  left: 24px;
   z-index: 30;
-  background: var(--color-bg);
-  border: 1px solid var(--color-hairline);
-  border-radius: var(--radius-md);
-  padding: 6px;
-  color: var(--color-ink);
-  line-height: 0;
+  width: 18px;
+  flex-direction: column;
+  gap: 4px;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.drawer-toggle span {
+  display: block;
+  height: 1.5px;
+  background: var(--color-ink);
 }
 .drawer-scrim {
   display: none;
@@ -224,8 +262,12 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 }
 .drawer-scrim.visible { display: block; }
 
-@media (max-width: 720px) {
-  .drawer-toggle { display: inline-flex; }
+@media (max-width: 899px) {
+  .drawer-toggle { display: flex; }
+  /* The toggle is fixed and out of flow at this width, so `.header-title`
+     reserves its width itself rather than leaving the title to render
+     underneath it. */
+  .header-title { padding-left: 32px; }
   .sidebar {
     position: fixed;
     top: 0;
@@ -238,10 +280,6 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
     box-shadow: 2px 0 12px rgba(0, 0, 0, 0.2);
   }
   .sidebar.open { transform: translateX(0); }
-  /* Shift the brand right so the fixed hamburger toggle doesn't cover it
-     when the drawer is open. */
-  .sidebar .sidebar-brand { padding-left: 48px; }
-  .site-header { padding-left: 56px; }
 
   /* Reader modal goes full-bleed on small screens — the desktop margins
      just eat real estate on a phone. */
@@ -282,24 +320,38 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
    to be here styled nothing at all. */
 #article-list {
   padding: 0 16px;
-  background: var(--color-surface);
-  border-left: 1px solid var(--color-hairline);
-  border-right: 1px solid var(--color-hairline);
+  /* The page ground, not a raised surface. The design puts the reading column on
+     the page colour and reserves the raised one for the sidebar; painting both
+     with `--color-surface` made them one undifferentiated slab, and the borders
+     that used to divide them went with the redesign's rules. Whitespace and the
+     760px measure separate the column now -- that is the whole thesis.
+
+     No hex in this comment on purpose: `design-system.spec.ts` greps the file
+     for hex and cannot tell a value from prose. Name tokens, not colours. */
+  background: var(--color-bg);
 }
 #article-list { padding-bottom: 24px; min-height: 60vh; }
 
 
+/* The filter field -- one field, and the one the app has always had. The
+   redesign asks for an underline rather than a bordered box, so `#search` is
+   restyled here; a second `.filter-field` beside it would repeat the mistake
+   Task 6 had to be rescued from, which shipped a new header over the old
+   toolbar and rendered three controls twice. The right-hand alignment and the
+   280px cap are desktop-only, at the foot of this file: at phone width the
+   field is revealed by a button and takes a whole row when it is. */
 .search-input {
-  flex: 1;
   min-width: 0;
-  border: 1px solid var(--color-hairline);
-  border-radius: var(--radius-md);
-  padding: 5px 10px;
-  font-size: 14px;
-  background: var(--color-bg);
+  border: 0;
+  border-bottom: 1px solid var(--color-hairline);
+  padding: 9px 0;
+  font: inherit;
+  font-size: 13px;
+  background: none;
   color: var(--color-ink);
 }
-.search-input:focus { outline: none; border-color: var(--color-accent); }
+.search-input::placeholder { color: var(--color-ink-muted); }
+.search-input:focus { outline: none; border-bottom-color: var(--color-accent); }
 
 .feed-filter {
   border: 1px solid var(--color-hairline);
@@ -311,60 +363,63 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
   max-width: 180px;
 }
 
-/* A switch: one control, two states. It replaced two adjacent buttons, which
-   read as two independent actions rather than a choice between two. */
-.switch {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  border: 0;
-  background: none;
-  padding: 4px 2px;
-  cursor: pointer;
-  font-size: 13px;
-  color: var(--color-ink-muted);
-}
-.switch-track {
-  position: relative;
-  width: 30px;
-  height: 17px;
-  flex: none;
+/* The drawer's four display-preference controls: Toggle and Segmented from
+   Task 9. `.setting-row` is their shared shell -- a name on the left, the
+   control on the right -- rendered by each component rather than by the
+   markup that uses them. */
+.drawer-settings { display: flex; flex-direction: column; gap: 22px; padding: 0 28px; }
+.setting-row { display: flex; align-items: center; justify-content: space-between; }
+.setting-label { font-size: 15px; color: var(--color-ink-secondary); }
+
+.toggle {
+  width: 42px; height: 26px; flex: none;
+  border: 0; padding: 0 3px;
   border-radius: var(--radius-pill);
-  background: var(--color-hairline);
-  border: 1px solid var(--color-hairline-strong);
-  transition: background-color 0.15s ease;
+  background: var(--color-toggle-off);
+  display: flex; align-items: center; cursor: pointer;
 }
-.switch-knob {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 11px;
-  height: 11px;
+.toggle[aria-checked='true'] { background: var(--color-accent); justify-content: flex-end; }
+.toggle-knob { width: 20px; height: 20px; border-radius: var(--radius-pill); background: var(--color-segment-selected); }
+
+.segmented { display: flex; gap: 0; padding: 3px; border-radius: var(--radius-pill); background: var(--color-track-2); }
+.segment {
+  border: 0; background: none; padding: 4px 10px;
   border-radius: var(--radius-pill);
-  background: var(--color-ink-muted);
-  transition: transform 0.15s ease, background-color 0.15s ease;
+  font: inherit; font-size: 12px; font-weight: 400;
+  color: var(--color-ink-muted); cursor: pointer;
 }
-.switch[aria-checked='true'] .switch-track {
-  background: var(--color-accent);
-  border-color: var(--color-accent);
+.segment[aria-checked='true'] { background: var(--color-segment-selected); color: var(--color-ink); font-weight: 600; }
+
+@media (min-width: 900px) {
+
+  .drawer-settings { gap: 19px; }
+  .toggle { width: 38px; height: 23px; }
+  .toggle-knob { width: 17px; height: 17px; }
+  .segment { font-size: 11.5px; }
 }
-.switch[aria-checked='true'] .switch-knob {
-  transform: translateX(13px);
-  background: var(--color-on-accent);
-}
-/* The active side is the one in ink; the other stays muted. */
-.switch[aria-checked='false'] .switch-label:first-of-type,
-.switch[aria-checked='true'] .switch-label:last-of-type { color: var(--color-ink); }
 
 /* Article list — flat rows */
+#article-list {
+  display: flex;
+  flex-direction: column;
+  gap: 34px;
+  padding: 6px 24px 24px;
+  list-style: none;
+  margin: 0;
+}
+/* Read is expressed by weight, not by a background. */
+.article-row.read { opacity: 0.55; }
 .article-row {
-  border-bottom: 1px solid var(--color-hairline);
   padding: 10px 0;
-  /* Block flow, not a grid. The photo floats and the headline and summary wrap
-     around it; the meta and the tags are rows below. The grid reserved a photo
-     column down the whole card whether or not there was a photo in it, and that
-     reservation is where the white space came from. */
+  /* Two rows, and only two: the story, then one line carrying every fact a
+     reader reads and every control they press. The float this replaced was
+     bought by a card whose lower rows had to wrap around the photo; with one
+     short meta line there is nothing left for a float to buy. */
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   position: relative;
+  cursor: pointer;
 }
 .article-row.leaving {
   opacity: 0;
@@ -376,11 +431,6 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
   will-change: transform;
   user-select: none;
 }
-.article-row.swipe-like-active    { background: rgba(34, 197, 94, 0.18); }
-.article-row.swipe-dismiss-active { background: rgba(239, 68, 68, 0.18); }
-.article-row:first-child { border-top: 1px solid var(--color-hairline); }
-.article-row.liked    { background: var(--color-like-surface); }
-.article-row.disliked { background: var(--color-dislike-surface); }
 /* Dismissed: dealt with, but still there. Greyed rather than removed so you can
    see what you have already been through, and so nothing vanishes silently --
    retention is the only thing that deletes an article, and never a starred one.
@@ -391,12 +441,15 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
   filter: grayscale(0.8);
 }
 .article-row.dismissed:hover { opacity: 0.75; }
-.article-row.dismissed .btn-save { opacity: 1; filter: none; }
 .article-row.focused  { background: var(--color-surface-2); }
 .article-row.read .article-title { color: var(--color-ink-muted); font-weight: 500; }
 .article-row.read .article-summary { opacity: 0.7; }
 .article-row.read .article-thumb { opacity: 0.6; }
-.article-row.saved .btn-save { color: var(--color-saved); }
+/* Saved has its own colour, not the accent the votes use: it is a keep, not
+   an opinion, and it is the one state that outlives retention. */
+.article-row.saved .article-actions .action.action-save[aria-pressed='true'] {
+  color: var(--color-saved);
+}
 .article-row.hidden { opacity: 0.65; border-left: 3px solid var(--color-ink-muted); padding-left: 8px; }
 .article-row.hidden .article-title { font-style: italic; }
 .hidden-reason {
@@ -406,103 +459,89 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
   font-style: italic;
 }
 
-.article-row-header {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
+/* The story: text in a column, the photo beside it. */
+.article-head { display: flex; gap: 16px; align-items: flex-start; }
+.article-text { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 
-.score-badge {
-  font-weight: 600;
-  color: var(--color-ink-muted);
-  background: var(--color-hairline);
-  flex-shrink: 0;
-}
-
-/* A <button>, so a keyboard can reach the reader without the card being one
-   giant control. Everything here is undoing the user-agent button: it has to
-   read as the headline it is, not as a control. */
+/* A span with role="button", never a <button>: a button is an atomic
+   inline-level box in every engine, so it can never wrap around anything and
+   `font: inherit` has to be undone by hand. Everything here is type. */
 .article-title {
-  /* Inline, so its line boxes wrap around the floated photo. As the default
-     inline-block it is an atomic box: floats push it down whole, and the photo
-     ended up with a column of empty space beside it. */
-  display: inline;
-  appearance: none;
-  background: none;
-  border: 0;
-  padding: 0;
-  margin: 0;
-  font: inherit;
-  text-align: left;
+  font-size: 19px;
+  line-height: 1.32;
   font-weight: 600;
+  letter-spacing: -0.35px;
   color: var(--color-ink);
-  font-size: 15px;
-  flex: 1;
-  line-height: 1.3;
+  text-wrap: pretty;
   cursor: pointer;
 }
+.article-summary {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+  font-weight: 400;
+  color: var(--color-ink-body);
+  text-wrap: pretty;
+}
+.article-thumb {
+  width: 76px;
+  height: 76px;
+  flex: none;
+  border-radius: var(--radius-thumb);
+  object-fit: cover;
+  /* Stripes rather than a flat grey: a slow or missing image reads as a
+     placeholder rather than as an empty box the layout forgot to fill. */
+  background: var(--placeholder-stripes);
+}
+
+/* One line, and the whole of what used to be three: score, source, age and
+   duplicates on the left, the actions on the right. */
+.article-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  color: var(--color-ink-meta);
+}
+.meta-facts { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.meta-score { color: var(--color-accent); font-weight: 600; }
+
+.article-actions { display: flex; gap: 18px; flex: none; }
+/* `.action-open` is listed beside `.action` rather than carrying that class:
+   it is display:none below 900px, and the phone's tap-target sweep measures
+   every `.article-actions .action` -- an element with no box has no bounding
+   box to measure and no tap target to be too small. */
+.article-actions .action,
+.article-actions .action-open {
+  background: none;
+  border: 0;
+  /* Padding widens the touch target; the negative margin hands the space back,
+     so the designed 18px gap and every glyph position are unchanged. "Up" is
+     15px of text -- below the 24px WCAG 2.5.8 floor -- and this is what lifts
+     it over without touching the layout. */
+  padding: 6px 5px;
+  margin: -6px -5px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--color-ink-faint);
+  cursor: pointer;
+}
+.article-actions .action[aria-pressed='true'] { color: var(--color-accent); }
+.article-actions .action:disabled { cursor: default; }
+/* The way out to the publisher. Desktop only: a phone card has four controls
+   on its meta line already, and the reader is one tap away on the card itself. */
+.article-actions .action-open { display: none; text-decoration: none; }
+
 .article-row:hover .article-title { color: var(--color-accent); }
 /* The whole card opens the reader, so the whole card says so -- except the
    controls on it, which do their own thing and keep the arrow. */
-.article-row { cursor: pointer; }
 .article-row button,
 .article-row a { cursor: default; }
-.article-row .article-title,
-.article-row .topic-chip,
-.article-row .btn-icon,
-.article-row .btn-external { cursor: pointer; }
 
-/* A column of .article-row, sitting to the right of the whole card. It used to
-   live inside .article-row-header, where only the title made room for it and
-   the summary ran on underneath -- so the right edge of the card was ragged. */
-.article-actions-inline {
-  display: flex;
-  gap: 2px;
-  flex-shrink: 0;
-  align-items: center;
-  align-self: flex-start;
-}
-
-.article-summary {
-  font-size: 13px;
-  color: var(--color-ink-muted);
-  margin-top: 3px;
-}
-
-.reading-time {
-  display: block;
-  font-size: 11px;
-  color: var(--color-ink-muted);
-  margin-top: 4px;
-}
-
-.article-left {
-  grid-area: meta;
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  min-width: 0;
-}
-
-.article-thumb {
-  /* Floated: the headline and summary wrap around it, and it only takes width
-     while there is an image to take it for. The grid column it replaced was
-     reserved on every card, photo or not. */
-  float: left;
-  width: 88px;
-  height: 88px;
-  object-fit: cover;
-  object-position: center;
-  border-radius: var(--radius-sm);
-  margin: 2px 12px 4px 0;
-}
-
-.article-content {
-  flex: 1;
-  min-width: 0;
-}
 
 
 /* Buttons */
@@ -535,7 +574,9 @@ button:disabled { opacity: 0.4; cursor: default; }
 .btn-icon:disabled { opacity: 0.4; cursor: default; }
 .btn-icon:disabled:hover { background: none; }
 
-.sidebar-collapse, .sidebar-feed { border: 1px solid transparent; }
+/* `.sidebar-feed` is borderless now -- it is the drawer's plain row, not a
+   button-shaped thing -- so only the collapse chevron reserves the border. */
+.sidebar-collapse { border: 1px solid transparent; }
 
 /* Dark mode: surface the reserved borders so buttons stand apart from the
    panel background. Padding/box-sizing are unchanged — these rules only
@@ -560,7 +601,6 @@ button:disabled { opacity: 0.4; cursor: default; }
   }
   .pill { min-height: 26px; }
   .btn-icon, .sidebar-collapse, .sidebar-manage { min-width: 40px; }
-  .article-actions-inline .btn-icon { padding: 8px 10px; }
 }
 
 .btn-external {
@@ -716,7 +756,6 @@ dialog[open] { display: flex; flex-direction: column; }
 }
 .topic-chip:hover { color: var(--color-ink); border-color: var(--color-ink); }
 
-.dup-note { margin: 2px 0 0; font-size: 11px; color: var(--color-ink-muted); }
 .histogram { width: 100%; max-width: 460px; height: auto; margin: 8px 0; }
 
 /* "What you missed" briefing. A dialog now, not a card above the list --
@@ -798,16 +837,65 @@ dialog[open] { display: flex; flex-direction: column; }
 
 /* ── SPA-only: the shell the server rendered in Jinja ───────────────────────── */
 
-.signin {
+/* .signin is also the root class of ForcedPasswordChange.tsx (a separate,
+   out-of-scope screen -- see task 10's brief). That screen's raw <input>s and
+   two stacked <button>s inherit this layout rather than the .field / .signin-cta
+   rules below, which only the restyled SignIn.tsx markup uses. */
+.signin { display: flex; flex-direction: column; min-height: 100%; padding: 0 28px; max-width: none; margin: 0; }
+.signin-head { padding-top: 150px; }
+.signin-wordmark { margin: 0; font-family: var(--font-serif); font-size: 30px; font-weight: 600; letter-spacing: -0.5px; color: var(--color-ink); }
+.signin-tagline { margin: 10px 0 0; font-size: 15px; line-height: 1.5; color: var(--color-ink-muted); }
+
+.signin-fields { margin-top: 64px; display: flex; flex-direction: column; gap: 30px; }
+.field { display: flex; flex-direction: column; gap: 9px; }
+.field-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--color-ink-faint); }
+.field input {
+  border: 0; border-bottom: 1px solid var(--color-field-underline);
+  background: none; padding: 0 0 13px; font: inherit; font-size: 17px; color: var(--color-ink);
+}
+.field-error { margin: 0; font-size: 12px; color: var(--color-danger); }
+
+.signin-cta { margin-top: auto; padding-bottom: 44px; display: flex; flex-direction: column; gap: 16px; }
+.signin-cta button {
+  height: 52px; border: 0; border-radius: var(--radius-pill);
+  background: var(--color-accent); color: var(--color-on-accent);
+  font: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
+}
+
+/* The way out is not the thing to press first. `.btn-secondary` alone loses to
+   `.signin-cta button` on specificity, so without this the escape hatch renders
+   as a second identical gold pill beside the action it is the alternative to. */
+.signin-cta .btn-secondary {
+  background: none;
+  color: var(--color-ink-muted);
+  border: 1px solid var(--color-hairline-strong);
+}
+
+@media (min-width: 900px) {
+  .signin { max-width: 352px; margin: 0 auto; justify-content: center; padding: 0; }
+  .signin-head { padding-top: 0; }
+  .signin-wordmark { font-size: 26px; }
+  .signin-tagline { font-size: 13px; }
+  .signin-fields { margin-top: 34px; gap: 26px; }
+  .field input { font-size: 15px; padding-bottom: 11px; }
+  .signin-cta { margin-top: 34px; padding-bottom: 0; }
+  .signin-cta button { height: 46px; font-size: 14px; }
+}
+
+/* Shown instead of the sign-in form when /me fails at the transport layer.
+   A cached shell renders normally and `navigator.onLine` stays true, so
+   without this the app looks live while reaching no one. */
+.unreachable {
   max-width: 380px;
   margin: 15vh auto;
   display: flex;
   flex-direction: column;
   gap: 12px;
   padding: 0 16px;
+  text-align: center;
 }
-.signin h1 { margin: 0; font-size: 22px; }
-.signin input { padding: 10px; font-size: 15px; }
+.unreachable h1 { margin: 0; font-size: 22px; }
+.unreachable p { margin: 0; color: var(--color-ink-muted); font-size: 14px; }
 
 .modal-backdrop {
   position: fixed;
@@ -835,7 +923,7 @@ dialog[open] { display: flex; flex-direction: column; }
 .aside-group > summary { cursor: pointer; color: var(--color-ink-muted); font-size: 13px; }
 .error { color: var(--color-danger); }
 
-@media (max-width: 720px) {
+@media (max-width: 899px) {
   .modal { width: 100vw; }
 }
 
@@ -890,11 +978,6 @@ kbd {
   padding: 1px 6px;
   background: var(--color-surface-2);
 }
-
-/* Swipe affordances: the row follows the finger, and the intent is coloured in
-   once it passes the threshold that would act on release. */
-.article-row.swipe-like-active { background: var(--color-like-surface); }
-.article-row.swipe-dismiss-active { background: var(--color-dislike-surface); }
 
 /* ── Feed management ───────────────────────────────────────────────────────── */
 
@@ -984,7 +1067,7 @@ kbd {
 /* ── sidebar groups ───────────────────────────────────────────────────────── */
 /* Feeds group under their tags. The flat list this replaces ignored Feed.tags
    entirely, so tagging a feed was something you could do and never see. */
-.sidebar-group-header { display: flex; align-items: center; gap: 2px; padding-right: 8px; }
+.sidebar-group-header { display: flex; align-items: center; gap: 2px; }
 .sidebar-group-header .sidebar-feed { flex: 1; min-width: 0; }
 .sidebar-collapse {
   border: 0;
@@ -999,14 +1082,16 @@ kbd {
 .sidebar-group.collapsed .sidebar-collapse { transform: rotate(-90deg); }
 .sidebar-tag-label {
   flex: 1;
-  padding: 6px 4px;
+  padding: 0;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--color-ink-muted);
 }
-.sidebar-group-body .sidebar-feed-nested { padding-left: 26px; }
+/* The nested feeds used to be indented 26px again under the tag label. They
+   are already 16px behind `.drawer-children`'s rule, and a second indent on
+   top of it left the titles fighting for what was left of a 260px drawer. */
 
 /* An embed card, not an embed. Nothing loads from X or Instagram: the widget
    scripts the server-rendered reader injected were the only thing in the app
@@ -1034,15 +1119,6 @@ kbd {
 .embed-open { font-size: 12px; color: var(--color-accent); }
 .sidebar-manage { flex: none; padding: 4px; color: var(--color-ink-muted); }
 .sidebar-manage:hover { color: var(--color-ink); }
-
-/* Three states, one row. `.active` is the chosen one, not a hover state. */
-.theme-picker { display: flex; gap: 2px; }
-.theme-picker .btn-icon { padding: 5px 7px; color: var(--color-ink-muted); }
-.theme-picker .btn-icon:hover { color: var(--color-ink); background: var(--color-surface-2); }
-.theme-picker .btn-icon.active {
-  color: var(--color-on-accent);
-  background: var(--color-accent);
-}
 
 /* The story kind, beside the topics but visibly not one of them: a reader can
    want Boca Juniors transfer news and not Boca Juniors fixture listings. */
@@ -1091,99 +1167,47 @@ kbd {
   background: var(--color-surface-2);
 }
 
-@media (max-width: 720px) {
-  /* The card is one block-flow layout at every width now: a floated photo with
-     the headline and summary wrapping it, then a meta row, then the tags. The
-     four-column grid that used to live here is gone with the column it
-     positioned -- what remains are the phone-sized adjustments. */
+@media (max-width: 899px) {
+  /* Almost nothing left here. The card's type and metrics are the phone's own
+     now -- 19px headline, 76px photo, one 11px meta line -- so the desktop no
+     longer needs undoing at this width; the tuning that used to live here was
+     all for the four-row card and went with it. */
   .article-row { padding: 8px 0; }
-  /* Smaller here, and it earns its place: it is the thing that makes a story
-     recognisable at a glance while scrolling. */
-  .article-thumb {
-    width: 72px;
-    height: 72px;
-    margin: 2px 10px 4px 0;
-  }
+  /* The rewritten headline is shown under the original in the reader, where
+     there is room for it. */
+  .original-title { display: none; }}
 
-  /* Tags are no longer truncated. The 13ch cap and the two-chip limit were both
-     bought by the old single-line layout, where they competed with the vote
-     buttons for the same 356px; with a row of their own they wrap and fit
-     whole. "copa-libertadores" was rendering as "copa-libert…". */
-  /* The kind earns more room: it is one of nine known words, and it is the one
-     that says why the article scored what it did. */
-
-
-  /* One line. The clock glyph and the number were wrapping onto separate
-     lines, which made this the tallest thing in the meta row. */
-  .reading-time {
-    display: inline-flex;
-    align-items: center;
-    margin-top: 0;
-    white-space: nowrap;
-    flex: none;
-  }
-  /* Still 40px. Shrinking these would buy 8px a card and cost the tap target
-     someone deliberately set; the height came from stacking them, not their
-     size. */
-  .article-actions-inline .btn-icon {
-    min-height: 40px;
-    min-width: 40px;
-    padding: 4px 6px;
-  }
-
-  
-  /* Two lines each. A third line of either is rarely what decides whether to
-     open something, and it costs ~20px per card every time. */
-  /* No `-webkit-box` clamp here any more. It is the only way to line-clamp,
-     and it makes the element atomic -- an atomic box does not wrap around a
-     float, it is pushed below it, which left the photo with a column of empty
-     space beside it. The summary is two or three sentences from the model, so
-     the clamp was rarely doing anything anyway. */
-  .article-summary { overflow: hidden; }
-  /* Tighter leading on a phone. At 1.45 two lines of title and two of summary
-     spend 12px purely on the gaps between them. */
-  .article-title { -webkit-line-clamp: 2; line-height: 1.28; }
-  .article-summary { -webkit-line-clamp: 2; line-height: 1.32; margin-top: 3px; }
-  .article-row-header { align-items: baseline; }
-
-  /* Chips join the meta line rather than claiming a row of their own. */
-  .topic-chips { margin: 0; gap: 4px; }
-  .topic-chips .pill { --pill-padding: 1px 6px; --pill-font-size: 10px; }
-  .original-title, .dup-note { display: none; }}
-
-/* Compact list. Measured on a 664px phone viewport: 139px per card to 101px,
-   4.79 stories on screen to 6.55.
-
-   The summary is the whole saving. Hiding the tags saves nothing vertically --
-   they share the meta line with the action buttons, whose 40px tap target sets
-   that row's height either way -- so they go for a different reason: at this
-   size a truncated "copa-libert…" is clutter rather than information.
-
-   `kind` survives in both modes. It is one short word from a closed vocabulary
-   and it is what explains the score: a fixture listing and a transfer story are
-   the same subject and opposite value to the reader. */
+/* Compact list. The summary is the whole saving, and now the only one: the
+   tags and the kind that compact also used to hide have gone from the card
+   entirely, and the meta line is one line in either mode. */
 [data-density='compact'] .article-summary { display: none; }
-/* Compact drops the tags at every width. They have a row of their own now, so
-   hiding them saves a real line -- two, on an article with six topics. The kind
-   survives: it is one short word and it is what explains the score, which is
-   the thing you are still deciding by when the summary is gone. */
-[data-density='compact'] .topic-chips .topic-chip { display: none; }
 [data-density='compact'] .article-row { padding: 6px 0; }
 
-/* Source and age, on the meta line. Both are muted and small: they qualify the
-   headline rather than competing with it. */
-.article-source,
-.article-age {
-  font-size: 11px;
-  color: var(--color-ink-muted);
-  white-space: nowrap;
-  flex: none;
-}
-.article-source {
+/* The source is the one item on the meta line with no length limit, so it is
+   the one that gives way when the line is short of room. */
+.meta-source {
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 14ch;
+  white-space: nowrap;
 }
+.meta-age, .meta-dot, .meta-dupes { flex: none; }
+/* One topic, as plain text and not as a chip row. Desktop only, with its own
+   separator dot: this is the item that would wrap the phone's single meta
+   line, and a dot left behind by a hidden tag is a stray mark. */
+/* A button, so the card's click guard excludes it and it is reachable by Tab --
+   but it must read as the plain text the design asks for, not as a chip. */
+.meta-tag {
+  display: none;
+  flex: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.meta-dot-tag { display: none; }
 
 /* The dismissed pile: a divider you have to cross on purpose. It sits below
    the unread list, so it needs to read as a different section rather than as
@@ -1206,6 +1230,67 @@ kbd {
   color: var(--color-ink-muted);
 }
 
+/* ── The compact header ──────────────────────────────────────────────────
+   Hamburger, page title and unread count, then the three actions a reader
+   reaches for most -- Refresh, Mark all read, Search -- as text at full
+   below, which still carries the admin-only refresh, the digest opener and
+   the field-behind-a-button search: those have no home up here and stay
+   exactly as they were. */
+.app-header {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 52px 24px 16px;
+}
+.header-row { display: flex; align-items: center; justify-content: space-between; }
+.header-title { display: flex; align-items: center; gap: 14px; }
+.header-name { font-size: 17px; font-weight: 600; letter-spacing: -0.2px; color: var(--color-ink); }
+.unread-count { font-size: 12px; font-weight: 400; color: var(--color-ink-meta); }
+
+.header-actions { display: flex; align-items: center; gap: 20px; }
+.header-action {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--color-ink-muted);
+  cursor: pointer;
+}
+.header-action.is-ink { color: var(--color-ink); }
+
+/* ── The "what you missed" strip ─────────────────────────────────────────
+   The trigger for the digest modal, not the digest itself -- Digest.tsx still
+   fetches only when opened. Built from `feeds.unread`, the same count the
+   favicon already draws, so showing this costs no request beyond the feed
+   list the shell already holds. `position: static` on purpose: it scrolls
+   away with the list rather than pinning above it. */
+.missed-strip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 16px 0;
+  padding: 14px 16px;
+  border-radius: var(--radius-strip);
+  background: var(--color-surface-accent);
+  position: static;
+}
+.missed-text { flex: 1; min-width: 0; }
+.missed-title { font-size: 13px; font-weight: 600; line-height: 1.2; color: var(--color-gold-strong); }
+.missed-sub { margin-top: 4px; font-size: 11.5px; font-weight: 400; line-height: 1.3; color: var(--color-gold-soft); }
+.missed-cta {
+  flex: none;
+  padding: 8px 14px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
 /* ── Toolbar: words on a desktop, icons on a phone ──────────────────────────
    Measured before: Refresh, Dismiss all, What you missed and the field wrapped
    onto three rows on a 390x664 screen -- a 173px header, a quarter of the
@@ -1216,23 +1301,13 @@ kbd {
   align-items: center;
   gap: 6px;
 }
-/* The toggle exists only at phone width; a desktop has room for the field.
-   Not a `.btn-icon`: it sits in a row of four bordered buttons, and as a bare
-   glyph it read as a stray mark rather than as the control it is. */
-.search-toggle {
-  display: none;
-  align-items: center;
-  justify-content: center;
-}
+/* `.search-toggle` carries no styling any more -- it is a behavioural hook.
+   The Search control is a text action in the header at every width; what still
+   differs by width is the field it reveals, so above 720px the button has
+   nothing to reveal. The class stays because `App.tsx`'s "/" shortcut clicks
+   it to open the field when the field is hidden and cannot take focus. */
 
-@media (max-width: 720px) {
-  /* The icon carries it. `aria-label` is on every one of these buttons, so
-     dropping the text costs the sighted reader nothing and the screen-reader
-     user nothing either. */
-  .btn-labelled .btn-label { display: none; }
-  .btn-labelled { padding: 0 10px; }
-
-  .search-toggle { display: inline-flex; }
+@media (max-width: 899px) {
   /* Hidden rather than narrow. Squeezing it into whatever space was left is
      what produced a field showing two characters. */
   .search-input { display: none; }
@@ -1245,10 +1320,13 @@ kbd {
   }
 }
 
-@media (max-width: 720px) {
-  .sidebar-tools,
-  .theme-picker { display: contents; }
-}
+/* A `@media (max-width: 899px)` rule used to unbox `.sidebar-tools` and
+   `.theme-picker` with `display: contents` on a phone. `.sidebar-tools` was
+   already dead -- nothing has rendered it for a long time -- and the theme
+   picker only survived it because a more specific `.sidebar-section
+   .theme-picker` put the flex box back. That section is gone, so the rule is
+   deleted rather than re-overridden: unboxed, the radiogroup has no layout
+   box at all and stops being a visible group. */
 
 /* The threshold controls: a field and up to three buttons that must not wrap
    into a column on a phone-width dialog. */
@@ -1267,37 +1345,289 @@ kbd {
   margin: 8px 0 12px;
 }
 
-/* Row two: everything you might act on, on one line, with the vote buttons
-   pushed to the far edge. `clear: both` so it starts below the photo rather
-   than wrapping around it -- this is a row, not part of the story. */
-.article-meta-row {
-  clear: both;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  padding-top: 4px;
-}
-.article-meta-row .article-actions-inline {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-/* Row three: the tags get the full width, so they are never truncated by a
-   contest with the buttons. */
-.article-row .topic-chips {
-  clear: both;
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin: 6px 0 0;
-}
-
 /* Photos off. The card falls back to plain block flow with nothing floated, so
    the headline simply starts at the left edge -- no reserved column, nothing to
    collapse. The reader's lead image goes too: a reader who turned photos off
    did not mean "except the big one". */
 [data-photos='off'] .article-thumb,
 [data-photos='off'] .modal-lead { display: none; }
+
+/* ── Desktop ─────────────────────────────────────────────────────────────
+   Everything above is written for a phone and is the base; this is the only
+   block that widens it, and below 900px none of it applies -- which is what
+   makes the collapse back to the phone layout a deletion rather than a second
+   set of overrides. 900px is the redesign's one breakpoint for the reading
+   column. Above 720px the drawer is already in flow rather than an overlay;
+   this block is what makes it the redesign's 262px column. */
+@media (min-width: 900px) {
+  /* The same element as the phone's drawer, permanently in the page. It sits
+     on the surface colour instead of behind a rule -- the article list is what
+     lifts in front of it -- and `transform: none` is not decoration: the
+     overlay slides in on a transform below 720px, and a stray one here would
+     park the permanent column off the left edge of the window. */
+  .sidebar {
+    width: 262px;
+    flex: none;
+    background: var(--color-surface);
+    border-right: 0;
+    padding: 30px 26px 26px;
+    transform: none;
+  }
+  .sidebar-scroll { gap: 30px; }
+  .drawer-head { padding: 0; }
+  .drawer-wordmark { font-size: 19px; }
+  .drawer-groups { padding: 0; gap: 34px; }
+  .drawer-item,
+  .sidebar-feed { font-size: 14px; }
+  .drawer-item.is-all { font-size: 15px; }
+  .sidebar-feed-nested { font-size: 13px; }
+  .drawer-children { padding-left: 14px; }
+  /* `margin-top: auto` goes on the divider, not the footer: with it on the
+     footer the rule stayed behind under the last group and only the links
+     dropped, which reads as a stray line across the middle of the column. */
+  .drawer-divider { margin: auto 0 0; }
+  .drawer-footer { padding: 0; font-size: 12px; }
+  .drawer-link { font-size: 12px; }
+
+  /* A reading measure, not a column of full-window text: 760px including the
+     48px gutters. The bottom padding is the base's, kept rather than zeroed --
+     the list is a surface, and a surface that stops flush against its last
+     card reads as cut off. */
+  #article-list {
+    max-width: 760px;
+    gap: 40px;
+    padding: 34px 48px 24px;
+  }
+  /* Held to the list's own text measure so the strip and the cards share a
+     left and a right edge: 760 less the two 48px gutters. */
+  .missed-strip {
+    margin: 16px 48px 0;
+    max-width: 664px;
+    padding: 16px 20px;
+  }
+
+  .article-head { gap: 22px; }
+  .article-title { font-size: 20px; line-height: 1.3; }
+  .article-thumb { width: 104px; height: 78px; }
+  .article-meta { font-size: 11.5px; }
+  .article-actions { gap: 20px; }
+  .article-actions .action-open { display: inline; }
+  .meta-tag, .meta-dot-tag { display: inline; }
+
+  /* Held to the same 760px as the list below it. Left to the full width of
+     the content column the header's right edge -- the actions and the filter
+     field -- floated 260px past the right edge of every card under it, and the
+     toolbar stopped reading as this column's toolbar. */
+  .app-header { max-width: 760px; padding: 26px 48px 0; gap: 28px; }
+  .header-actions { gap: 24px; }
+  /* The field is simply there at this width, so the button that reveals it has
+     nothing left to reveal -- it would toggle something already open. Hidden,
+     never unrendered: App.tsx's "/" shortcut clicks it when the field cannot
+     take focus, and it asks the element, not the viewport. */
+  .search-toggle { display: none; }
+  .search-input {
+    margin-left: auto;
+    max-width: 280px;
+    width: 100%;
+  }
+}
+
+/* Hover is an affordance for a pointer, and never a background fill: a tint
+   behind a row is exactly what the whitespace redesign took out. Guarded by
+   `hover: hover` so a phone does not keep the last-tapped state. */
+@media (hover: hover) {
+  .header-action:hover { color: var(--color-ink); }
+  /* `:not([aria-pressed='true'])` leaves Saved and a cast vote in the accent
+     they earned; hovering must not read as un-saving. */
+  .article-actions .action:not([aria-pressed='true']):hover,
+  .article-actions .action-open:hover { color: var(--color-ink); }
+  .meta-tag:hover { color: var(--color-ink); }
+  .article-title:hover { text-decoration: underline; }
+}
+
+/* ── Single-story mode (task 11) ────────────────────────────────────────────
+   Triage one story at a time: a dark shell that stays dark in both themes
+   (`--color-shell-story` is a near-black value in both the light and dark
+   blocks of index.css, on purpose), one card that follows the theme like any
+   other surface, three actions. It is an alternative to the reading list, not
+   a replacement -- reached from the drawer's "One at a time" button, and left
+   again through `Feeds` here or through voting/advancing past the last story. */
+.single-story {
+  background: var(--color-shell-story);
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.single-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 52px 24px 0;
+}
+
+/* Muted on purpose, and `--color-placeholder-label` rather than the usual
+   ink tokens: those flip with the theme, but the shell behind this text does
+   not, so a token that reads as "muted" against a permanently dark ground is
+   the one this needs. */
+.single-counter {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-placeholder-label);
+}
+
+.single-exit {
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--color-placeholder-label);
+  cursor: pointer;
+}
+
+.single-card {
+  margin: 34px 24px 0;
+  border-radius: var(--radius-story);
+  background: var(--color-surface-story);
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  /* The only property this mode animates. 250ms matches the JS timeout that
+     advances the index once the exit finishes, so the counter never jumps
+     ahead of what the reader watched leave the screen. */
+  transition: transform 250ms cubic-bezier(.2, .8, .2, 1);
+}
+.single-card.leaving-right { transform: translateX(120%); }
+.single-card.leaving-left { transform: translateX(-120%); }
+
+.single-image {
+  width: 100%;
+  height: 220px;
+  object-fit: cover;
+  flex: none;
+}
+
+.single-body {
+  padding: 30px 26px 26px;
+  gap: 18px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.single-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--color-ink-muted);
+}
+
+/* The pill is retained here and nowhere else -- the list card deliberately
+   shows a bare gold number, see ArticleCard's `.meta-score`. */
+.score-pill {
+  padding: 4px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--color-gold-pill-surface);
+  color: var(--color-gold-pill-ink);
+  font-weight: 600;
+}
+
+.single-headline {
+  font-family: var(--font-serif);
+  font-size: 27px;
+  line-height: 1.18;
+  font-weight: 600;
+  letter-spacing: -0.4px;
+  color: var(--color-ink);
+}
+
+.single-summary {
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--color-ink-secondary);
+}
+
+/* Plain text joined by middots, no chips -- the same call the list card made
+   for its own single topic. */
+.single-tags {
+  margin-top: auto;
+  font-size: 12px;
+  color: var(--color-ink-muted);
+}
+
+.single-actions {
+  padding: 26px 4px 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.single-vote {
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-placeholder-label);
+  background: none;
+  color: var(--color-placeholder-label);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.single-open {
+  flex: 1;
+  height: 52px;
+  margin: 0 16px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* The slide-off is the one thing this mode animates, and it is exactly what
+   a reduced-motion preference asks to lose -- the story still advances on
+   the same 250ms clock in App.tsx, only the motion is skipped. */
+@media (prefers-reduced-motion: reduce) {
+  .single-card.leaving-right,
+  .single-card.leaving-left {
+    transform: none;
+  }
+}
+
+/* Single-story at desktop width. This lives at the end of the file on purpose:
+   `.single-card`'s base rule sets `margin` as a shorthand, and a media query
+   adds no specificity -- so an override placed earlier in the source is simply
+   overwritten by that shorthand, and the card silently stays left-aligned.
+   The design has no desktop artboard for this screen (both its options are
+   iPhone frames), so without a cap the card stretched to 955px and put a 27px
+   serif headline over a measure nobody can read. */
+@media (min-width: 900px) {
+  .single-card,
+  .single-top,
+  .single-actions {
+    max-width: 420px;
+    margin-left: auto;
+    margin-right: auto;
+    width: 100%;
+  }
+  .single-card { margin-top: 34px; }
+}
+
+/* The briefing is a header action on a desktop and the strip on a phone. That
+   is the design's own split -- "on mobile the 'what you missed' affordance is
+   the strip below instead of a toolbar item" -- and it is load-bearing, not
+   cosmetic: four actions do not fit 390px. With this one in, the unread count
+   ran flush into Refresh with no gap at all ("139Refresh"), every action
+   wrapped, and the header stood 127px tall against the 61px the redesign was
+   built to reclaim. Screenshot coverage caught it; nothing else could. */
+#digest-btn { display: none; }
+@media (min-width: 900px) {
+  #digest-btn { display: inline; }
+}

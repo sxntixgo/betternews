@@ -13,24 +13,6 @@ import { api } from '../api/client';
  * It polls /status instead and only settles once last_pipeline_run_at advances,
  * which is what the server-rendered UI does.
  */
-/** 24-box stroke icons, same family as the sidebar's `IconButton`. */
-function Icon({ d }: { d: string }) {
-  return (
-    <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
-      <path fill="none" stroke="currentColor" strokeWidth="1.8"
-            strokeLinecap="round" strokeLinejoin="round" d={d} />
-    </svg>
-  );
-}
-
-const ICON = {
-  refresh: 'M21 12a9 9 0 1 1-2.6-6.4 M21 3v6h-6',
-  dismiss: 'm2 12 5 5L17 7 M22 7l-8.5 8.5',
-  digest: 'M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Z'
-        + ' M4 22a2 2 0 0 1-2-2v-9h4 M18 14h-8 M15 18h-5 M10 6h8v4h-8Z',
-  search: 'm21 21-4.3-4.3 M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16Z',
-};
-
 export function Toolbar({
   search,
   onSearch,
@@ -38,6 +20,10 @@ export function Toolbar({
   onDigest,
   onRefreshed,
   canPoll,
+  title,
+  unread,
+  onOpenDrawer,
+  drawerOpen,
 }: {
   search: string;
   onSearch: (q: string) => void;
@@ -45,6 +31,11 @@ export function Toolbar({
   onDigest: () => void;
   onRefreshed: () => void;
   canPoll: boolean;
+  title: string;
+  unread: number;
+  onOpenDrawer: () => void;
+  /** The drawer is a disclosure; its toggle has to say which state it is in. */
+  drawerOpen: boolean;
 }) {
   const [polling, setPolling] = useState(false);
   const [text, setText] = useState(search);
@@ -87,62 +78,69 @@ export function Toolbar({
   }
 
   return (
-    <>
-      {/* Icon plus label, and the phone hides the label. Three word-buttons and
-          a field wrapped onto three rows there: 173px of a 664px screen, a
-          quarter of the viewport spent before the first headline, with the
-          search box crushed to 53px and reading "Fi". The label carries the
-          accessible name on a desktop; `aria-label` carries it either way, so
-          hiding the text never leaves a nameless button. */}
-      {canPoll && (
-        <button
-          id="poll-btn"
-          className={`btn-loadable btn-labelled ${polling ? 'is-loading' : ''}`}
-          disabled={polling}
-          onClick={refresh}
-          aria-label="Refresh"
-          title="Refresh — poll the feeds now"
-        >
-          <Icon d={ICON.refresh} />
-          <span className="btn-label">Refresh</span>
-        </button>
-      )}
-      <button
-        id="dismiss-all-btn"
-        className="btn-labelled"
-        aria-label="Dismiss all"
-        title="Mark every shown article as dealt with"
-        onClick={onDismissAll}
-      >
-        <Icon d={ICON.dismiss} />
-        <span className="btn-label">Dismiss all</span>
-      </button>
-      {/* The briefing, on request. It used to sit above the list and push the
-          first article below the fold on every screen. */}
-      <button
-        id="digest-btn"
-        className="btn-labelled"
-        aria-label="What you missed"
-        title="What you missed — a briefing over your unread articles"
-        onClick={onDigest}
-      >
-        <Icon d={ICON.digest} />
-        <span className="btn-label">What you missed</span>
-      </button>
+    <header className="app-header">
+      {/* One header, not two. The redesign's whole claim is reclaimed vertical
+          space, so an icon toolbar stacked under a text header would spend
+          exactly what it set out to save -- and render Refresh, Search and
+          dismiss twice each, with two accessible names apiece.
 
-      {/* On a phone the field is behind this button; on a desktop the button is
-          not rendered at all and the field is simply there. One markup, and the
-          open state only ever means anything at phone width -- which is why it
-          is CSS that decides, not a viewport read in JavaScript. */}
-      <button
-        className="search-toggle"
-        aria-label="Search articles"
-        aria-expanded={searchOpen}
-        title="Search articles"
-        onClick={() => setSearchOpen((o) => !o)}
-      >
-        <Icon d={ICON.search} />
-      </button>
+          The ids are the old row's, deliberately. Several specs drive
+          `#poll-btn`, `#dismiss-all-btn` and `#digest-btn` directly, and those
+          are the same three actions doing the same three jobs; renaming them
+          would have churned the suite to no end. `.drawer-toggle` survives for
+          the same reason -- it is the control other specs open the drawer by,
+          restyled from a three-line icon to the two-bar one. */}
+      <div className="header-row">
+        <div className="header-title">
+          <button
+              className="drawer-toggle"
+              aria-label="Open menu"
+              aria-expanded={drawerOpen}
+              onClick={onOpenDrawer}
+            >
+            <span /><span />
+          </button>
+          <span className="header-name">{title}</span>
+          <span className="unread-count">{unread}</span>
+        </div>
+
+        <div className="header-actions">
+          {canPoll && (
+            <button
+              id="poll-btn"
+              className="header-action"
+              disabled={polling}
+              onClick={refresh}
+            >
+              {polling ? 'Refreshing…' : 'Refresh'}
+            </button>
+          )}
+          <button
+            id="dismiss-all-btn"
+            className="header-action"
+            onClick={onDismissAll}
+          >
+            Mark all read
+          </button>
+          <button
+            id="digest-btn"
+            className="header-action"
+            onClick={onDigest}
+          >
+            What you missed
+          </button>
+          <button
+            className="header-action is-ink search-toggle"
+            aria-expanded={searchOpen}
+            onClick={() => setSearchOpen((o) => !o)}
+          >
+            Search
+          </button>
+        </div>
+      </div>
+
+      {/* On a phone the field is behind the button above; on a desktop it is
+          simply there. CSS decides, not a viewport read in JavaScript. */}
       <input
         ref={field}
         id="search"
@@ -154,7 +152,6 @@ export function Toolbar({
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => { if (e.key === 'Escape' && !text) setSearchOpen(false); }}
       />
-
-    </>
+    </header>
   );
 }

@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Article, FeedList, ListQuery, Me } from '@shared/api';
+import { isNetworkError } from '@shared/api';
+import type { Article, DigestMeta, FeedList, ListQuery, Me } from '@shared/api';
 import { api, setAuthFailureHandler } from './api/client';
 import { useArticles } from './api/useArticles';
 import { ArticleCard } from './components/ArticleCard';
+import { SingleStory } from './components/SingleStory';
 import { Reader } from './components/Reader';
 import { CommandPalette, type Command } from './components/CommandPalette';
 import { Digest } from './components/Digest';
@@ -15,7 +17,7 @@ import { applyTheme, loadTheme, setTheme, watchSystemTheme, type ThemePreference
 import { applyDensity, loadDensity, setDensity, type Density } from './density';
 import { applyPhotos, loadPhotos, setPhotos, type Photos } from './photos';
 import { Toolbar } from './components/Toolbar';
-import { Sidebar } from './components/Sidebar';
+import { Drawer } from './components/Drawer';
 import { ManageFeeds } from './screens/ManageFeeds';
 import { Profile } from './screens/Profile';
 import { Settings } from './screens/Settings';
@@ -30,14 +32,27 @@ export default function App() {
   // The cookie is HttpOnly, so the page cannot tell whether it is signed in by
   // looking. Ask the server once instead.
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
+  // Distinct from `signedIn === false`. A server this browser cannot reach is
+  // not a signed-out reader, and conflating the two is how an untrusted
+  // certificate on a phone presented itself as a rejected password: /me failed
+  // at the transport layer, the shell concluded "signed out", and the sign-in
+  // form it offered could not reach the server either.
+  const [unreachable, setUnreachable] = useState(false);
+  const [retries, setRetries] = useState(0);
   useEffect(() => {
     // Re-runs when signedIn flips, not just on mount: the first call 401s while
     // signed out, and without asking again after login the app never learns who
     // the reader is -- so admin-only controls stay hidden for an admin.
     if (signedIn === false) return;
-    api.me().then((u) => { setMe(u); setSignedIn(true); }).catch(() => setSignedIn(false));
-  }, [signedIn]);
+    api.me()
+      .then((u) => { setMe(u); setSignedIn(true); setUnreachable(false); })
+      .catch((e: unknown) => {
+        if (isNetworkError(e)) setUnreachable(true);
+        else { setUnreachable(false); setSignedIn(false); }
+      });
+  }, [signedIn, retries]);
   const [feeds, setFeeds] = useState<FeedList | null>(null);
+  const [digestMeta, setDigestMeta] = useState<DigestMeta | null>(null);
   const [feed, setFeed] = useState<number | undefined>();
   const [saved, setSaved] = useState(false);
   const [sort, setSort] = useState<'date' | 'score'>('date');
@@ -63,6 +78,11 @@ export default function App() {
   const [photos, setPhotosState] = useState<Photos>(() => loadPhotos());
   useEffect(() => applyPhotos(photos), [photos]);
   const [reading, setReading] = useState<number | null>(null);
+  // Single-story mode: App.tsx owns both the switch and the index, per the
+  // task 11 brief -- SingleStory itself holds no state about which story it
+  // is showing.
+  const [singleStoryMode, setSingleStoryMode] = useState(false);
+  const [singleIndex, setSingleIndex] = useState(0);
   // At <=720px the carried-over stylesheet parks the sidebar off-screen and
   // waits for `.open`. Carrying CSS across does not carry the JavaScript its
   // rules assume, so without this the sidebar was not merely hidden on a phone
@@ -143,6 +163,15 @@ export default function App() {
   useEffect(() => {
     if (signedIn) void api.feeds().then(setFeeds).catch(() => {});
   }, [signedIn, articles.length, reloads]);
+
+  useEffect(() => {
+    // Once per sign-in, not on every reload: `/digest/meta` records the visit
+    // (`repo.users.touch_last_seen`) as a side effect of being asked, so
+    // calling it repeatedly would keep pushing "since Friday" toward "since
+    // now". It never generates the briefing itself -- that's still only
+    // `GET /digest`, opened on demand -- so this is cheap on every page load.
+    if (signedIn) void api.digestMeta().then(setDigestMeta).catch(() => {});
+  }, [signedIn]);
 
   useEffect(() => {
     if (feeds) drawFavicon(feeds.unread);
@@ -300,6 +329,24 @@ export default function App() {
     })),
   ], [feeds, me, density]);
 
+  // Checked before "signed out", because a page served from the service
+  // worker's cache looks identical to a live one: `navigator.onLine` is true on
+  // a phone that has wifi but cannot reach *this* server, so nothing else here
+  // would say the app is talking to no one.
+  if (unreachable) {
+    return (
+      <div className="unreachable" role="alert">
+        <h1>Can't reach Better News</h1>
+        <p>
+          This page loaded from an offline copy. Signing in, and everything
+          else, needs a working connection to the server.
+        </p>
+        <button type="button" onClick={() => setRetries((n) => n + 1)}>
+          Try again
+        </button>
+      </div>
+    );
+  }
   if (signedIn === null) return <p className="loading">Loading…</p>;
   if (!signedIn) return <SignIn onDone={() => setSignedIn(true)} />;
   // Before anything else a reset account can reach. The server used to enforce
@@ -341,198 +388,53 @@ export default function App() {
     setDrawerOpen(false);
   };
 
+  // What the compact header calls the current list -- the same choice the
+  // sidebar highlights, spelled out for a reader who has not opened it.
+  const headerTitle = saved
+    ? 'Saved articles'
+    : hidden
+      ? 'Hidden'
+      : feed
+        ? (feeds?.feeds.find((f) => f.id === feed)?.title ?? 'Feed')
+        : 'All feeds';
+
   return (
     <div className="site-layout">
-      <button
-        className="drawer-toggle"
-        aria-label="Feeds"
-        aria-expanded={drawerOpen}
-        onClick={() => setDrawerOpen((v) => !v)}
-      >
-        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-          <path stroke="currentColor" strokeWidth="2" strokeLinecap="round"
-                d="M4 7h16 M4 12h16 M4 17h16" />
-        </svg>
-      </button>
       <div
         className={`drawer-scrim ${drawerOpen ? 'visible' : ''}`}
         onClick={() => setDrawerOpen(false)}
       />
 
-      {/* Five sections, in the order a reader reaches for them: what to read,
-          what they kept, how it looks, who they are, and what only an
-          administrator touches. It used to be one undivided list of feeds with
-          an unlabelled tray of icons underneath, so "where do I change the
-          theme" had no answer you could arrive at by looking. */}
-      <aside className={`sidebar ${drawerOpen ? 'open' : ''}`}>
-        <div className="sidebar-brand">Better News</div>
-        <div className="sidebar-scroll">
-
-          <section className="sidebar-section">
-            <h2 className="sidebar-section-title">Feeds</h2>
-            <Sidebar
-              feeds={feeds}
-              feed={feed}
-              saved={saved}
-              hidden={hidden}
-              onAll={() => choose(() => { setFeed(undefined); setSaved(false); setHidden(false); })}
-              onFeed={(id) => choose(() => { setFeed(id); setSaved(false); setHidden(false); })}
-              onHidden={() => choose(() => { setHidden(true); setSaved(false); setFeed(undefined); })}
-              onHiddenFeed={(id) => choose(() => { setHidden(true); setSaved(false); setFeed(id); })}
-              onManageFeeds={me?.role === 'admin' ? () => setShowFeeds(true) : undefined}
-            />
-          </section>
-
-          <section className="sidebar-section">
-            <h2 className="sidebar-section-title">Saved</h2>
-            <button
-              className={`sidebar-feed ${saved ? 'active' : ''}`}
-              onClick={() => choose(() => { setSaved(true); setFeed(undefined); setHidden(false); })}
-            >
-              <span className="sidebar-feed-title">Saved articles</span>
-              {feeds && feeds.saved > 0 && (
-                <span className="pill sidebar-feed-count">{feeds.saved}</span>
-              )}
-            </button>
-          </section>
-
-          {/* Display preferences, and all of them per-device on purpose: the
-              right density on a phone is not the right one on a desktop. These
-              two toggles used to live in the top bar, where on a 390px screen
-              they cost a whole second row of a header that was already a
-              quarter of the viewport. */}
-          <section className="sidebar-section">
-            <h2 className="sidebar-section-title">Settings</h2>
-
-            <div className="sidebar-row">
-              <span className="switch-label">Compact</span>
-              <button
-                className="switch"
-                role="switch"
-                aria-checked={density === 'compact'}
-                aria-label="Compact list"
-                title="Compact list — hides summaries and tags"
-                onClick={() => {
-                  const next = density === 'compact' ? 'comfortable' : 'compact';
-                  setDensity(next); setDensityState(next);
-                }}
-              >
-                <span className="switch-track"><span className="switch-knob" /></span>
-              </button>
-            </div>
-
-            {/* One control with two states, not two buttons that happen to be
-                adjacent. Date is the default and the left-hand position, so the
-                knob resting at "off" means newest-first. */}
-            <div className="sidebar-row">
-              <span className="switch-label">Photos</span>
-              <button
-                className="switch"
-                role="switch"
-                aria-checked={photos === 'on'}
-                aria-label="Show photos"
-                title="Show article photos"
-                onClick={() => {
-                  const next = photos === 'on' ? 'off' : 'on';
-                  setPhotos(next); setPhotosState(next);
-                }}
-              >
-                <span className="switch-track"><span className="switch-knob" /></span>
-              </button>
-            </div>
-
-            {/* "Date" used to sit hard left with the knob and "Score" pushed to
-                the right edge, so the row read as three separate things. The
-                two state names belong beside the knob that moves between
-                them; "Sort" is the row's label, like every other row here. */}
-            <div className="sidebar-row">
-              <span className="switch-label">Sort</span>
-              <button
-                className="switch"
-                role="switch"
-                aria-checked={sort === 'score'}
-                aria-label="Sort by score instead of date"
-                onClick={() => setSort(sort === 'score' ? 'date' : 'score')}
-              >
-                <span className="switch-label">Date</span>
-                <span className="switch-track"><span className="switch-knob" /></span>
-                <span className="switch-label">Score</span>
-              </button>
-            </div>
-
-            {/* Three icons, not a dropdown: it is a three-state preference used
-                often enough that opening a menu to change it is a step too many.
-                System is a monitor, not "auto", because what it follows is the
-                machine's setting. */}
-            {/* Labelled like the toggles above it. As a bare row of three icons
-                in a list of named settings, the one thing it did not say was
-                what it was for. */}
-            <div className="sidebar-row">
-            <span className="switch-label">Theme</span>
-            <div className="theme-picker" role="radiogroup" aria-label="Theme">
-              {THEMES.map(({ value, label, d }) => (
-                <button
-                  key={value}
-                  className={`btn-icon ${theme === value ? 'active' : ''}`}
-                  role="radio"
-                  aria-checked={theme === value}
-                  title={label}
-                  aria-label={label}
-                  onClick={() => { setTheme(value); setThemeState(value); }}
-                >
-                  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-                    <path fill="none" stroke="currentColor" strokeWidth="1.8"
-                          strokeLinecap="round" strokeLinejoin="round" d={d} />
-                  </svg>
-                </button>
-              ))}
-            </div>
-            </div>
-
-            <button className="sidebar-item" onClick={() => setShowShortcuts(true)}>
-              Keyboard shortcuts
-            </button>
-          </section>
-
-          <section className="sidebar-section">
-            <h2 className="sidebar-section-title">You</h2>
-            <button className="sidebar-item" onClick={() => setShowProfile(true)}>
-              {me?.username ? `Profile — ${me.username}` : 'Profile'}
-            </button>
-            {/* Ranking accuracy: how often the score agreed with the reader.
-                Filed here rather than under Admin because it is a statement
-                about this reader's taste, not about the server -- though the
-                endpoint is still admin-only, so a plain reader is not offered
-                a button that would answer 403. */}
-            {me?.role === 'admin' && (
-              <button className="sidebar-item" onClick={() => setShowInsights(true)}>
-                Your stats
-              </button>
-            )}
-            <button
-              className="sidebar-item"
-              onClick={() => { void api.logout().finally(() => setSignedIn(false)); }}
-            >
-              Sign out
-            </button>
-          </section>
-
-          {/* Hiding a control is not gating an endpoint -- every one of these is
-              behind `@api_admin` as well, and `tests/test_api.py` asserts a
-              plain reader gets a JSON 403 from each. This is only about not
-              offering a button that cannot work. */}
-          {me?.role === 'admin' && (
-            <section className="sidebar-section">
-              <h2 className="sidebar-section-title">Admin</h2>
-              <button className="sidebar-item" onClick={() => setShowUsers(true)}>Users</button>
-              <button className="sidebar-item" onClick={() => setShowSettings(true)}>
-                Server settings
-              </button>
-              <button className="sidebar-item" onClick={() => setShowLog(true)}>Ollama log</button>
-            </section>
-          )}
-        </div>
-      </aside>
+      <Drawer
+        drawerOpen={drawerOpen}
+        me={me}
+        feeds={feeds}
+        feed={feed}
+        saved={saved}
+        hidden={hidden}
+        photos={photos}
+        density={density}
+        sort={sort}
+        theme={theme}
+        choose={choose}
+        setFeed={setFeed}
+        setSaved={setSaved}
+        setHidden={setHidden}
+        setSingleStoryMode={setSingleStoryMode}
+        setSingleIndex={setSingleIndex}
+        setShowFeeds={setShowFeeds}
+        setShowInsights={setShowInsights}
+        setPhotosState={setPhotosState}
+        setDensityState={setDensityState}
+        setSort={setSort}
+        setThemeState={setThemeState}
+        setShowProfile={setShowProfile}
+        setShowUsers={setShowUsers}
+        setShowSettings={setShowSettings}
+        setShowLog={setShowLog}
+        setShowShortcuts={setShowShortcuts}
+        setSignedIn={setSignedIn}
+      />
 
       <main className="site-content">
         {!online && (
@@ -541,92 +443,137 @@ export default function App() {
             until you reconnect.
           </div>
         )}
-        <header className="site-header">
-          <Toolbar
-            search={search}
-            onSearch={setSearch}
-            canPoll={me?.role === 'admin'}
-            onRefreshed={() => setReloads((n) => n + 1)}
-            onDigest={() => setShowDigest(true)}
-            onDismissAll={async () => {
-              await api.dismissAll({ feed, saved: saved || undefined,
-                                     hidden: hidden || undefined, topic });
-              setReloads((n) => n + 1);
-            }}
+        {/* Single-story mode replaces the header, the missed strip and the
+            list with one full-height dark shell -- an alternative to the
+            list, not layered on top of it. The drawer and its "One at a
+            time" entry point are untouched, so `Feeds` here (or running out
+            of stories) is the only way back. */}
+        {singleStoryMode ? (
+          <SingleStory
+            articles={rows}
+            index={singleIndex}
+            feedName={(a) => feeds?.feeds.find((f) => f.id === a.feed_id)?.title}
+            onAdvance={setSingleIndex}
+            onVote={vote}
+            onOpen={(a) => setReading(a.id)}
+            onExit={() => setSingleStoryMode(false)}
           />
-        </header>
+        ) : (
+          <>
+            <header className="site-header">
+              <Toolbar
+                drawerOpen={drawerOpen}
+                search={search}
+                onSearch={setSearch}
+                canPoll={me?.role === 'admin'}
+                onRefreshed={() => setReloads((n) => n + 1)}
+                onDigest={() => setShowDigest(true)}
+                onDismissAll={async () => {
+                  await api.dismissAll({ feed, saved: saved || undefined,
+                                         hidden: hidden || undefined, topic });
+                  setReloads((n) => n + 1);
+                }}
+                title={headerTitle}
+                unread={feeds?.unread ?? 0}
+                onOpenDrawer={() => setDrawerOpen((v) => !v)}
+              />
+            </header>
 
-        <div id="article-list">
-          {error && <p className="error">{error}</p>}
-          {articles.map((a, i) => (
-            <ArticleCard
-              key={a.id}
-              article={a}
-              focused={i === focused}
-              onOpen={(x) => setReading(x.id)}
-              onVote={vote}
-              onSave={save}
-              onTopic={(t) => { setTopic(t); setSearch(''); }}
-              // The shell already holds the feed list for the sidebar; the article
-              // itself only carries feed_id.
-              feedName={feeds?.feeds.find((f) => f.id === a.feed_id)?.title}
-            />
-          ))}
-          {loading && <p className="loading">Loading…</p>}
-          {!loading && articles.length === 0 && !error && (
-            // The server says why. "Nothing to read" on its own is how a
-            // misconfigured model went unnoticed three times.
-            diagnosis ? (
-              <div className={`empty diagnosis diagnosis-${diagnosis.kind}`}>
-                <h2>{diagnosis.title}</h2>
-                <p>{diagnosis.detail}</p>
-                {/* Withheld from a plain reader: there is nothing they can do
-                    about an unreachable Ollama, and a button that 403s reads
-                    as breakage rather than as a permission. */}
-                {diagnosis.action && (!diagnosis.admin_only || me?.role === 'admin') && (
-                  <button onClick={() => runDiagnosisAction(diagnosis.kind)}>
-                    {diagnosis.action}
-                  </button>
-                )}
+            {/* The briefing's trigger, not the briefing itself -- Digest still
+                fetches the briefing body only when opened. The subtitle comes from
+                `digestMeta` (`GET /digest/meta`), which answers counts and the
+                previous-visit weekday without generating anything; that's a
+                separate endpoint from `GET /digest` specifically so this strip
+                never costs an LLM call. Hidden with nothing missed: `since_label`
+                is null before the first visit ever recorded one, in which case the
+                subtitle falls back to a plain unread count. */}
+            {digestMeta && digestMeta.story_count > 0 && (
+              <div className="missed-strip">
+                <div className="missed-text">
+                  <div className="missed-title">What you missed</div>
+                  <div className="missed-sub">
+                    {digestMeta.since_label
+                      ? `${digestMeta.story_count} stories since ${digestMeta.since_label} · ${digestMeta.read_minutes} min summary`
+                      : `${digestMeta.story_count} unread`}
+                  </div>
+                </div>
+                <button className="missed-cta" onClick={() => setShowDigest(true)}>Read</button>
               </div>
-            ) : (
-              <p className="empty">Nothing to read.</p>
-            )
-          )}
-          {/* The dismissed pile, under everything else and behind a press.
-              Only offered once the unread list has actually run out -- a
-              button to load more of what you have dealt with, above things you
-              have not, would be in the way. */}
-          {offersDismissed && !hasMore && !loading && (
-            showDismissed ? (
-              <>
-                <h2 className="pile-heading">Dismissed</h2>
-                {pile.articles.map((a) => (
-                  <ArticleCard
-                    key={a.id}
-                    article={a}
-                    onOpen={(x) => setReading(x.id)}
-                    onVote={vote}
-                    onSave={save}
-                    onTopic={(t) => { setTopic(t); setSearch(''); }}
-                    // The shell already holds the feed list for the sidebar; the article
-                    // itself only carries feed_id.
-                    feedName={feeds?.feeds.find((f) => f.id === a.feed_id)?.title}
-                  />
-                ))}
-                {pile.loading && <p className="loading">Loading…</p>}
-                {!pile.loading && pile.articles.length === 0 && (
-                  <p className="empty">Nothing dismissed.</p>
-                )}
-              </>
-            ) : (
-              <button className="pile-toggle" onClick={() => setShowDismissed(true)}>
-                Show dismissed articles
-              </button>
-            )
-          )}
-          <div ref={sentinel} />
-        </div>
+            )}
+
+            <div id="article-list">
+              {error && <p className="error">{error}</p>}
+              {articles.map((a, i) => (
+                <ArticleCard
+                  key={a.id}
+                  article={a}
+                  focused={i === focused}
+                  onOpen={(x) => setReading(x.id)}
+                  onVote={vote}
+                  onSave={save}
+                  onTopic={(t) => { setTopic(t); setSearch(''); }}
+                  // The shell already holds the feed list for the sidebar; the article
+                  // itself only carries feed_id.
+                  feedName={feeds?.feeds.find((f) => f.id === a.feed_id)?.title}
+                />
+              ))}
+              {loading && <p className="loading">Loading…</p>}
+              {!loading && articles.length === 0 && !error && (
+                // The server says why. "Nothing to read" on its own is how a
+                // misconfigured model went unnoticed three times.
+                diagnosis ? (
+                  <div className={`empty diagnosis diagnosis-${diagnosis.kind}`}>
+                    <h2>{diagnosis.title}</h2>
+                    <p>{diagnosis.detail}</p>
+                    {/* Withheld from a plain reader: there is nothing they can do
+                        about an unreachable Ollama, and a button that 403s reads
+                        as breakage rather than as a permission. */}
+                    {diagnosis.action && (!diagnosis.admin_only || me?.role === 'admin') && (
+                      <button onClick={() => runDiagnosisAction(diagnosis.kind)}>
+                        {diagnosis.action}
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <p className="empty">Nothing to read.</p>
+                )
+              )}
+              {/* The dismissed pile, under everything else and behind a press.
+                  Only offered once the unread list has actually run out -- a
+                  button to load more of what you have dealt with, above things you
+                  have not, would be in the way. */}
+              {offersDismissed && !hasMore && !loading && (
+                showDismissed ? (
+                  <>
+                    <h2 className="pile-heading">Dismissed</h2>
+                    {pile.articles.map((a) => (
+                      <ArticleCard
+                        key={a.id}
+                        article={a}
+                        onOpen={(x) => setReading(x.id)}
+                        onVote={vote}
+                        onSave={save}
+                        onTopic={(t) => { setTopic(t); setSearch(''); }}
+                        // The shell already holds the feed list for the sidebar; the article
+                        // itself only carries feed_id.
+                        feedName={feeds?.feeds.find((f) => f.id === a.feed_id)?.title}
+                      />
+                    ))}
+                    {pile.loading && <p className="loading">Loading…</p>}
+                    {!pile.loading && pile.articles.length === 0 && (
+                      <p className="empty">Nothing dismissed.</p>
+                    )}
+                  </>
+                ) : (
+                  <button className="pile-toggle" onClick={() => setShowDismissed(true)}>
+                    Show dismissed articles
+                  </button>
+                )
+              )}
+              <div ref={sentinel} />
+            </div>
+          </>
+        )}
       </main>
 
       {reading !== null && <Reader id={reading} onClose={() => setReading(null)} />}
@@ -659,15 +606,3 @@ export default function App() {
   );
 }
 
-
-/** System, light and dark. `d` is the icon path; the label is both tooltip and
- *  accessible name. */
-const THEMES: { value: ThemePreference; label: string; d: string }[] = [
-  { value: 'system', label: 'Follow the system',
-    d: 'M3 4h18v12H3z M8 20h8 M12 16v4' },
-  { value: 'light', label: 'Light',
-    d: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z M12 2v2 M12 20v2 M2 12h2 M20 12h2 '
-       + 'M4.9 4.9l1.4 1.4 M17.7 17.7l1.4 1.4 M4.9 19.1l1.4-1.4 M17.7 6.3l1.4-1.4' },
-  { value: 'dark', label: 'Dark',
-    d: 'M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z' },
-];

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { DETAIL, article, mockApi, openDrawer, openSearch, signedIn } from './fixtures';
+import { DETAIL, article, mockApi, openDrawer, openSearch, signedIn , openDigest } from './fixtures';
 
 /**
  * The reading features the server-rendered UI has and the SPA did not:
@@ -99,7 +99,7 @@ test('the digest is behind a button, not above the list', async ({ page }) => {
   // article below the fold on every screen for prose you read once.
   await expect(page.locator('.digest-body')).toHaveCount(0);
 
-  await page.locator('#digest-btn').click();
+  await openDigest(page);
   const dialog = page.getByRole('dialog', { name: 'What you missed' });
   await expect(dialog).toContainText('Argentina');
 
@@ -115,23 +115,14 @@ test('the digest is behind a button, not above the list', async ({ page }) => {
 });
 
 test('closing the digest does not drop the briefing', async ({ page }) => {
-  await page.locator('#digest-btn').click();
+  await openDigest(page);
   await expect(page.getByRole('dialog', { name: 'What you missed' })).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog', { name: 'What you missed' })).toBeHidden();
   // Still there to reopen -- Close and Dismiss are different verbs.
-  await page.locator('#digest-btn').click();
+  await openDigest(page);
   await expect(page.getByRole('dialog', { name: 'What you missed' }))
     .toContainText('Argentina');
-});
-
-test('a topic chip filters to that topic', async ({ page }) => {
-  const asked: string[] = [];
-  page.on('request', (r) => {
-    if (r.url().includes('/api/v1/articles?')) asked.push(r.url());
-  });
-  await page.locator('.topic-chip').first().click();
-  await expect.poll(() => asked.some((u) => u.includes('topic='))).toBe(true);
 });
 
 test('refresh kicks the pipeline and reloads when it finishes', async ({ page }) => {
@@ -152,7 +143,9 @@ test('refresh kicks the pipeline and reloads when it finishes', async ({ page })
   await page.locator('#poll-btn').click();
   await expect.poll(() => polled).toBe(true);
   // The button reports progress rather than looking inert for two minutes.
-  await expect(page.locator('#poll-btn')).toHaveClass(/is-loading/);
+  // The redesign says that inline on the label rather than with a spinner
+  // overlay, so the evidence is the word, not a class.
+  await expect(page.locator('#poll-btn')).toHaveText('Refreshing…');
 });
 
 test('refresh is offered to an admin and withheld from a plain reader', async ({ page }) => {
@@ -406,20 +399,19 @@ test.describe('opening an article', () => {
     }
 
     const row = page.locator('.article-row').first();
-    for (const sel of ['.btn-save', '.btn-like', '.btn-dislike']) {
-      await row.locator(sel).click();
+    for (const name of ['Save', 'Up', 'Down']) {
+      await row.getByRole('button', { name }).click();
       await expect(page.getByRole('dialog')).toBeHidden();
     }
     expect(calls.sort()).toEqual(['save', 'vote', 'vote']);
-
-    // A topic chip filters the list; it must not also open what it filtered.
-    await row.locator('.topic-chip').first().click();
-    await expect(page.getByRole('dialog')).toBeHidden();
   });
 
   test('opening in the browser does not also open the reader', async ({ page, isMobile }) => {
     test.skip(isMobile, 'the external link is hidden on a phone');
-    const link = page.locator('.article-row .btn-external').first();
+    // Deleted with the four-row card and restored here: the same claim against
+    // the desktop layout's `.action-open`, which is the same link doing the
+    // same job in the redesign's meta line.
+    const link = page.locator('.article-row .action-open').first();
     await expect(link).toHaveAttribute('target', '_blank');
     // Neutralised rather than clicked: a real click opens a tab Playwright
     // then has to chase, and the question here is only whether the card's

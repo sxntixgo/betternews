@@ -101,7 +101,7 @@ test.describe('theme', () => {
     // Only UI preferences in localStorage, never a credential. This list is
     // the allowlist: anything new here should be a display choice with no auth
     // meaning, and adding to it should feel like a decision.
-    const ALLOWED = ['theme', 'sidebar-collapsed', 'density'];
+    const ALLOWED = ['theme', 'sidebar-collapsed', 'density', 'photos'];
     const keys = await page.evaluate(() => Object.keys(localStorage).sort());
     expect(keys).toContain('theme');
     const unexpected = keys.filter((k) => !ALLOWED.includes(k));

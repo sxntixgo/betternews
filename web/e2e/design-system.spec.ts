@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
-import { article, mockAdmin, mockApi, openDrawer, signedIn } from './fixtures';
+import { mockAdmin, mockApi, openDrawer, signedIn } from './fixtures';
 
 // ── the token discipline ──────────────────────────────────────────────────────
 
@@ -88,8 +88,10 @@ test('closing a modal returns focus to what opened it', async ({ page }) => {
 
   // A keyboard user who closes a dialog should not be dumped at the top of the
   // document with their place in the page lost.
-  // The footer tray is gone; the drawer is labelled sections now.
-  const opener = page.locator('.sidebar-item').first();
+  // `.sidebar-item` was the labelled sections' row class and went with them;
+  // the drawer's footer links are the same kind of opener, so this holds the
+  // same claim against the shape that replaced it.
+  const opener = page.locator('.drawer-footer button').first();
   await opener.focus();
   const before = await page.evaluate(() => document.activeElement?.className ?? '');
   await page.keyboard.press('Control+k');
@@ -143,7 +145,10 @@ test.describe('nothing is command-palette-only', () => {
 
   test('every icon-only control has an accessible name', async ({ page }) => {
     // An icon with no name is a mystery to a screen reader and to a tooltip.
-    const nameless = await page.locator('.sidebar-section button, .sidebar-manage')
+    // The whole drawer, not one section of it: `.sidebar-section` is gone, and
+    // scoping to a class that no longer exists would have made this pass by
+    // matching nothing at all.
+    const nameless = await page.locator('.sidebar button, .sidebar-manage')
       .evaluateAll((els) => els
         .filter((el) => !el.textContent?.trim() && !el.getAttribute('aria-label'))
         .length);
@@ -161,21 +166,17 @@ test.describe('the shared pill', () => {
     await page.waitForSelector('.article-row');
   });
 
-  test('every pill is the same height, on touch too', async ({ page, isMobile }) => {
-    // Topic chips are buttons, and a blanket 40px touch target turned an 11px
-    // inline chip into the tallest thing on the card. They were three separate
-    // near-misses before this — three radii and three paddings.
-    const heights = await page.evaluate(() => {
-      const h = (s: string) => document.querySelector(s)?.getBoundingClientRect().height ?? null;
-      return { chip: h('.topic-chip'), count: h('.sidebar-feed-count'), badge: h('.score-badge') };
+  test('the unread count is plain text, not a pill', async ({ page }) => {
+    // It carried `.pill` while the card had pills to match. Nothing rendered
+    // that border or that radius, so the shape was decoration on a number.
+    const el = page.locator('.sidebar-feed-count').first();
+    await expect(el).toHaveCount(1);
+    const style = await el.evaluate((n) => {
+      const cs = getComputedStyle(n);
+      return { radius: cs.borderTopLeftRadius, border: cs.borderTopWidth };
     });
-    expect(new Set(Object.values(heights)).size, JSON.stringify(heights)).toBe(1);
-    // The size floor is a touch-target rule, so it only applies on a coarse
-    // pointer -- 22px is right for a mouse and would be mean on a thumb.
-    if (isMobile) {
-      expect(heights.chip!).toBeGreaterThanOrEqual(24);   // WCAG 2.5.8
-      expect(heights.chip!).toBeLessThanOrEqual(30);      // and not a button
-    }
+    expect(style.radius).toBe('0px');
+    expect(style.border).toBe('0px');
   });
 
   test('no ad-hoc pill radii survive in App.css', () => {
@@ -184,23 +185,28 @@ test.describe('the shared pill', () => {
   });
 });
 
-test('sort is one switch defaulting to date', async ({ page }) => {
+test('sort is a segmented control defaulting to Date', async ({ page }) => {
   await signedIn(page);
   await mockApi(page);
   await page.goto('/');
   await page.waitForSelector('.article-row');
 
-  // It lives in the drawer's Settings section now, not the top bar.
+  // It lives in the drawer's Settings section now, not the top bar. Task 9
+  // replaced the ambiguous Date<->Score switch with a 2-up radiogroup: Date
+  // and Score are two positions, not an on/off state.
   await openDrawer(page);
-  // One control with two states, not two buttons that happen to be adjacent.
-  const sw = page.getByRole('switch', { name: /sort by score/i });
-  await expect(sw).toBeVisible();
-  await expect(sw).toHaveAttribute('aria-checked', 'false');
+  const group = page.getByRole('radiogroup', { name: 'Sort' });
+  await expect(group).toBeVisible();
+  const date = group.getByRole('radio', { name: 'Date' });
+  const score = group.getByRole('radio', { name: 'Score' });
+  await expect(date).toHaveAttribute('aria-checked', 'true');
+  await expect(score).toHaveAttribute('aria-checked', 'false');
 
   const sorted = page.waitForRequest((r) => r.url().includes('sort=score'));
-  await sw.click();
+  await score.click();
   await sorted;
-  await expect(sw).toHaveAttribute('aria-checked', 'true');
+  await expect(score).toHaveAttribute('aria-checked', 'true');
+  await expect(date).toHaveAttribute('aria-checked', 'false');
 });
 
 test('theme is three icons, and the current one is marked', async ({ page }) => {
@@ -234,53 +240,37 @@ test('on a phone the list is not flush against the screen edge', async ({ page, 
   expect(x).toBeGreaterThanOrEqual(8);
 });
 
-test('on a desktop the card is three rows, not columns', async ({ page, isMobile }) => {
+test('on a desktop the card is two rows, not columns', async ({ page, isMobile }) => {
   test.skip(isMobile, 'desktop only');
   await signedIn(page);
   await mockApi(page);
   await page.goto('/');
   await page.waitForSelector('.article-row');
 
-  // This asserted the old shape: a 72px column holding the reading time, the
-  // source, the age and the Open link beside the thumbnail. The card is block
-  // flow now -- a floated photo the headline wraps, then a meta row, then the
-  // tags -- so the thing to hold is that the middle row stays one line. It
-  // carries six items, and it wrapped to three lines the first time it did.
-  const meta = (await page.locator('.article-row .article-meta-row').first().boundingBox())!;
+  // Two rows now, not three: the story, then one line carrying the facts a
+  // reader reads and the buttons they press. That line is the thing to hold --
+  // it collapsed four separate rows into one, and it must not wrap back out.
+  const meta = (await page.locator('.article-row .article-meta').first().boundingBox())!;
   expect(meta.height, 'the meta row wrapped').toBeLessThan(48);
 
-  // And the rows are in order, none of them overlapping.
-  const title = (await page.locator('.article-row .article-title').first().boundingBox())!;
-  const chips = (await page.locator('.article-row .topic-chips').first().boundingBox())!;
-  expect(title.y).toBeLessThan(meta.y);
-  expect(meta.y + meta.height).toBeLessThanOrEqual(chips.y + 1);
+  // And the rows are in order, not overlapping.
+  const head = (await page.locator('.article-row .article-head').first().boundingBox())!;
+  expect(head.y).toBeLessThan(meta.y);
+  expect(head.y + head.height).toBeLessThanOrEqual(meta.y + 1);
 });
 
-test('compact drops the tags at every width', async ({ page, isMobile }) => {
-  test.skip(isMobile, 'desktop only');
-  await signedIn(page);
-  await mockApi(page);
-  // The default fixture has no `kind`, and `news` is deliberately not rendered.
-  await page.route('**/api/v1/articles?*', (r) => r.fulfill({ json: {
-    articles: [article(1, { kind: 'fixture', topics: ['boca-juniors', 'football'] })],
-    next_offset: null, diagnosis: null,
-  } }));
-  await page.goto('/');
-  await page.waitForSelector('.article-row');
-  await page.evaluate(() => document.documentElement.setAttribute('data-density', 'compact'));
 
-  // The reverse of what this asserted. Keeping desktop tags in compact was
-  // right when the tags shared a line with the vote buttons and only a phone
-  // ran out of room; now they have a row of their own at every width, so
-  // hiding them is a whole line back -- two on a six-topic article -- and that
-  // is what compact is for.
-  await expect(page.locator('.article-row .article-summary').first()).toBeHidden();
-  await expect(page.locator('.article-row .topic-chip').first()).toBeHidden();
-  // The kind survives: one short word, and the one that explains the score.
-  await expect(page.locator('.article-row .kind-chip').first()).toBeVisible();
-});
-
-test.describe('the drawer is five labelled sections', () => {
+/**
+ * The drawer.
+ *
+ * It was five all-caps labelled sections -- FEEDS / SAVED / SETTINGS / YOU /
+ * ADMIN -- and is three unlabelled groups, a settings block and a footer. Two
+ * of the three tests here described the labels themselves and one described a
+ * claim that outlived them; see the note on each. The *shape* is asserted in
+ * redesign.spec's `drawer` block. What stays here is the contract this file is
+ * for: a control for every action, and none of the admin ones for a reader.
+ */
+test.describe('the drawer', () => {
   test.beforeEach(async ({ page }) => {
     await signedIn(page);
     await mockApi(page);
@@ -290,27 +280,33 @@ test.describe('the drawer is five labelled sections', () => {
     await openDrawer(page);
   });
 
-  test('in the order a reader reaches for them', async ({ page }) => {
-    // It used to be one undivided list of feeds with an unlabelled tray of
-    // icons underneath, so "where do I change the theme" had no answer you
-    // could arrive at by looking.
-    await expect(page.locator('.sidebar-section-title'))
-      .toHaveText(['Feeds', 'Saved', 'Settings', 'You', 'Admin']);
-  });
+  // Deleted with the labels: "in the order a reader reaches for them" asserted
+  // `.sidebar-section-title` read exactly Feeds / Saved / Settings / You /
+  // Admin. The redesign removes the headers entirely, so its subject is gone
+  // rather than moved. redesign.spec asserts the count is now zero.
 
-  test('the display preferences are all in Settings', async ({ page }) => {
+  test('the display preferences are all in the drawer, not the header', async ({ page }) => {
     // Density and sort were in the top bar, where on a 390px screen they cost
     // a whole row of a header that was already a quarter of the viewport.
-    const settings = page.locator('.sidebar-section').filter({ hasText: 'Settings' });
+    // The section that held them is gone; the block that replaced it is
+    // `.drawer-settings`, and the claim -- these belong here and nowhere else
+    // -- is unchanged. Photos is asserted too: it is in the same block and was
+    // simply missing from the list before.
+    const settings = page.locator('.drawer-settings');
+    await expect(settings.getByRole('switch', { name: 'Show photos' })).toBeVisible();
     await expect(settings.getByRole('switch', { name: 'Compact list' })).toBeVisible();
-    await expect(settings.getByRole('switch', { name: /sort by score/i })).toBeVisible();
+    await expect(settings.getByRole('radiogroup', { name: 'Sort' })).toBeVisible();
     await expect(settings.getByRole('radiogroup', { name: 'Theme' })).toBeVisible();
 
     // And gone from the top bar, or they would be in two places at once.
     await expect(page.locator('.site-header').getByRole('switch')).toHaveCount(0);
   });
 
-  test('a plain reader gets four sections and no Admin', async ({ page }) => {
+  test('a plain reader gets the drawer without the admin links', async ({ page }) => {
+    // Was "a plain reader gets four sections and no Admin", counted off the
+    // section headers. There are no sections to count now, so it asserts the
+    // thing the count stood for: the admin screens have no entry point, and
+    // everything that is theirs still does.
     await page.route('**/api/v1/me', (r) => r.fulfill({
       json: { id: 2, username: 'plain', role: 'user', must_change_password: false,
               declickbait: false, content_filter_mode: 'off' },
@@ -319,10 +315,18 @@ test.describe('the drawer is five labelled sections', () => {
     await page.waitForSelector('.article-row');
     await openDrawer(page);
 
-    await expect(page.locator('.sidebar-section-title'))
-      .toHaveText(['Feeds', 'Saved', 'Settings', 'You']);
-    // Their own account and the way out stay theirs.
+    for (const name of ['Users', 'Server settings', 'Ollama log', 'Your stats',
+                        'Manage feeds']) {
+      await expect(page.locator('.sidebar').getByRole('button', { name, exact: true }))
+        .toHaveCount(0);
+    }
+    // Their own account and the way out stay theirs, and so do the feeds, the
+    // lists and every display preference.
     await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Keyboard shortcuts' })).toBeVisible();
+    await expect(page.locator('.drawer-groups')).toContainText('All feeds');
+    await expect(page.locator('.drawer-groups')).toContainText('Saved articles');
+    await expect(page.locator('.drawer-groups')).toContainText('Hidden');
     await expect(page.getByRole('switch', { name: 'Compact list' })).toBeVisible();
   });
 });

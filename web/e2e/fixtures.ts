@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import type { Article, ArticleDetail, FeedList, Me } from '../../shared/api';
+import type { Article, ArticleDetail, DigestMeta, FeedList, Me } from '../../shared/api';
 
 /** Shapes mirror shared/api.ts, so a contract change breaks these too. */
 export const ME: Me = {
@@ -61,8 +61,23 @@ export const DIGEST = {
   articles: [{ id: 1, url: 'https://example.com/1' }],
 };
 
+export const DIGEST_META: DigestMeta = {
+  story_count: 32, since_label: 'Friday', read_minutes: 2,
+};
+
 /** 25 articles over two pages, so infinite scroll has something to do. */
-export async function mockApi(page: Page) {
+export const ARTICLES: Article[] = Array.from({ length: 25 }, (_, i) => article(i + 1));
+
+/**
+ * The whole API, stubbed.
+ *
+ * `articles` is a parameter rather than a constant because a card test usually
+ * cares about one article with one field set -- a duplicate count, a
+ * thumbnail -- and building that by overriding a 25-article list from the
+ * outside is harder to read than passing the list in. Omit it and the default
+ * is exactly what it always was: 25 stories, ten to a page.
+ */
+export async function mockApi(page: Page, articles: Article[] = ARTICLES) {
   await page.route('**/api/v1/feeds/manage', (r) => r.fulfill({
     json: { feeds: [
       { id: 7, url: 'https://verge.example/rss', title: 'The Verge', paused: false,
@@ -112,6 +127,7 @@ export async function mockApi(page: Page) {
   }));
   await page.route('**/api/v1/topics/*/stance', (r) => r.fulfill({ json: { topic: 'x', stance: 'more' } }));
   await page.route('**/api/v1/digest', (r) => r.fulfill({ json: DIGEST }));
+  await page.route('**/api/v1/digest/meta', (r) => r.fulfill({ json: DIGEST_META }));
   await page.route('**/api/v1/digest/dismiss', (r) => r.fulfill({ json: { ok: true } }));
   await page.route('**/api/v1/status', (r) => r.fulfill({
     json: {
@@ -144,13 +160,13 @@ export async function mockApi(page: Page) {
     if (wantsPile !== allDismissed) {
       return r.fulfill({ json: { articles: [], next_offset: null } });
     }
-    const ids = Array.from({ length: 10 }, (_, i) => offset + i + 1).filter((n) => n <= 25);
+    const page_ = articles.slice(offset, offset + 10);
     r.fulfill({
       json: {
-        articles: ids.map((n) => article(n, wantsPile
-          ? { state: { read: false, saved: false, dismissed: true, opinion: null } }
-          : {})),
-        next_offset: offset + 10 <= 25 ? offset + 10 : null,
+        articles: page_.map((a) => (wantsPile
+          ? { ...a, state: { ...a.state, dismissed: true } }
+          : a)),
+        next_offset: offset + 10 <= articles.length ? offset + 10 : null,
       },
     });
   });
@@ -504,8 +520,49 @@ export async function openSearch(page: Page) {
  */
 export async function openDrawer(page: Page) {
   const toggle = page.locator('.drawer-toggle');
+  // Wait for the shell before asking whether the toggle is showing.
+  // `isVisible()` samples once and does not wait, so on a page still rendering
+  // it answers false, this function quietly does nothing, and every later click
+  // aims at a drawer parked off-screen -- the control's box sits at a negative
+  // x and Playwright reports "element is outside of the viewport", which reads
+  // as a mysterious flake rather than as a drawer that never opened. It bit
+  // hardest under parallel load and on WebKit, where first paint is slowest.
+  await page.locator('.app-header').waitFor();
   if (await toggle.isVisible() && !(await page.locator('.sidebar.open').count())) {
     await toggle.click();
-    await page.locator('.sidebar.open').waitFor();
+    const sidebar = page.locator('.sidebar.open');
+    await sidebar.waitFor();
+    // `.open` is set when the transition *starts*, not when it ends: the drawer
+    // slides in over 0.18s, so for that whole window the class is present and
+    // the drawer is still arriving. A control clicked in that window fails with
+    // "element is outside of the viewport" -- Playwright scrolls the inner
+    // scroller, then measures against a box that has since moved. It only bites
+    // under the parallel load of a full run, which is why it read as a flake
+    // rather than as the race it is.
+    //
+    // Waiting on `transitionend` rather than on a position: the drawer arrives
+    // at x=0 before the transition is finished settling, so polling the box
+    // reports success early and the race survives.
+    await sidebar.evaluate((el) => new Promise<void>((resolve) => {
+      if (getComputedStyle(el).transitionDuration === '0s') return resolve();
+      const done = () => { el.removeEventListener('transitionend', done); resolve(); };
+      el.addEventListener('transitionend', done, { once: true });
+      // Safety net: a dropped transitionend must not hang the suite.
+      setTimeout(done, 500);
+    }));
   }
+}
+
+/**
+ * Open the briefing, from wherever this width offers it.
+ *
+ * A desktop has it as a header action; a phone has it as the "Read" button on
+ * the what-you-missed strip, because four actions do not fit a 390px header.
+ * A test that hard-codes `#digest-btn` therefore passes on one project and
+ * fails on two.
+ */
+export async function openDigest(page: Page) {
+  const header = page.locator('#digest-btn');
+  if (await header.isVisible()) return header.click();
+  return page.locator('.missed-cta').click();
 }

@@ -1,14 +1,41 @@
+/* Self-hosted, never linked. A LAN-only box should not phone home, and a
+   Google Fonts <link> hangs first paint whenever the WAN is down -- which on
+   this stack is a normal condition, not an outage. The redesign handoff asks
+   for Google Fonts; this file already ruled that out and the ruling stands.
+   `swap` so the fallback renders immediately and the serif swaps in when it
+   lands, rather than blocking text on a 20KB download. */
+@font-face {
+  font-family: 'Source Serif 4';
+  src: url('/fonts/source-serif-4-400.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Source Serif 4';
+  src: url('/fonts/source-serif-4-600.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* The design tokens. Every colour, font and radius in the app resolves here.
  *
- * Taken from `job-application-tracker`'s `index.css` — its structure *and* its
- * palette, because the ask was for this app to look like that one. Warm
- * neutrals rather than pure white and pure black: #faf9f6 over #ffffff, ink at
- * #1f1d1a rather than #000, hairlines that are warm grey rather than blue-grey.
+ * The palette is the 2026-09 whitespace redesign's: warm cream and gold, not
+ * the blue-grey it replaced. Structure still follows `job-application-tracker`
+ * — the file it was originally lifted from — but none of that palette's values
+ * survive, so do not read hex here as shared with it.
  *
- * What is not taken: the seven `--stage-*` Kanban accents, which have no
- * analogue in a reader, and the priority/badge chips. What is added:
- * `--color-like-surface`, `--color-dislike-surface` and `--color-saved`, which
- * are this app's own vocabulary and have no counterpart there.
+ * Three theme blocks, and they must agree: light `:root`, `[data-theme=dark]`,
+ * and a `prefers-color-scheme` fallback that repeats the dark declarations
+ * verbatim. The repetition is deliberate — the fallback covers first paint,
+ * before `theme.ts` stamps `data-theme`, and a token present in one block and
+ * missing from the other flashes the wrong colour.
+ *
+ * Names outlive values when something still references them: `--color-surface-2`
+ * is genuinely used (`App.css` paints the focused row with it), so it stays.
+ * A token name kept on a rationale that had already stopped being true is dead
+ * weight, so unreferenced tokens are deleted when the rationale expires.
  *
  * `App.css` contains no hex literal at all, and a test asserts that, because
  * this is the kind of thing that decays one merge at a time. If a component
@@ -16,86 +43,113 @@
  */
 
 :root {
-  /* ---------- Light palette (default) ---------- */
+  /* ---------- Light palette (redesign) ---------- */
+  --color-bg: #faf9f7;
+  --color-surface: #f4f2ec;
+  --color-surface-2: #ece8de;
+  --color-surface-accent: #f3efe4;
+  --color-surface-story: #faf8f3;
+  --color-shell-story: #16160f;
+  --color-segment-selected: #ffffff;
 
-  /* Surfaces, back to front. The old stylesheet had one background and faked
-     every card with a border; a real surface layer is what lets a modal, a
-     card and the page read as different depths. */
-  --color-bg: #faf9f6;
-  --color-surface: #ffffff;
-  --color-surface-2: #f4f2ec;
+  --color-ink: #16160f;
+  --color-ink-secondary: #4c4740;
+  --color-ink-body: #7d776d;
+  --color-ink-muted: #8f897f;
+  --color-ink-meta: #a8a29a;
+  --color-ink-faint: #b3ada3;
+  --color-ink-disabled: #cfc9bf;
 
-  --color-ink: #1f1d1a;
-  --color-ink-muted: #6b6558;
+  --color-hairline: #e8e3d9;
+  --color-hairline-strong: #ddd7cb;
+  --color-field-underline: #ddd7cb;
+  --color-divider: #eee9e0;
+  --color-indent-active: #ede6d6;
+  --color-indent-inactive: #e3ddd0;
+  --color-track: #eae6dc;
+  --color-track-2: #f0ede6;
+  --color-toggle-off: #e6e1d6;
 
-  /* Two weights. `hairline` separates rows inside a card; `strong` bounds the
-     card itself, and is what a button uses so it reads as pressable. */
-  --color-hairline: #e2ddd2;
-  --color-hairline-strong: #cfc8b8;
+  --color-accent: #8a6d2f;
+  --color-on-accent: #fdfbf5;
+  --color-gold-strong: #4a3a12;
+  --color-gold-soft: #8a7c58;
+  --color-gold-pill-surface: #f0e7d2;
+  --color-gold-pill-ink: #7d6224;
 
-  /* Semantic. Named for meaning, so a component says "danger" and not the
-     particular red that was to hand -- #d14343 appeared 13 times before this. */
-  --color-danger: #a8432f;
-  --color-danger-surface: #fdf5f4;
+  --color-saved: #8a6d2f;
+  --color-focus: #8a6d2f;
+
+  --color-danger: #8a3a2a;
+  --color-danger-surface: #f7ecea;
   --color-success: #2d7a3a;
   --color-success-surface: #e8f3ea;
   --color-warning: #7d4e00;
-  --color-warning-surface: #fff3cd;
-  --color-focus: #3d6b8c;
+  --color-warning-surface: #f3efe4;
 
-  --color-accent: #3d6b8c;
-  /* Text on an accent fill. Not `--color-bg`: those coincide in light mode and
-     diverge in dark, which is exactly the bug this prevents. */
-  --color-on-accent: #ffffff;
-
-  /* Reading-specific. A voted card is tinted rather than badged, so these are
-     surfaces and not text colours. */
-  --color-like-surface: #e8f3ea;
-  --color-dislike-surface: #fdf5f4;
-  --color-saved: #c98a3a;
-
-  /* The bar shown when the browser goes offline. Dark amber on both themes:
-     it must read as "degraded", never as an error. */
   --color-offline-surface: #7d4e00;
-  --color-offline-ink: #ffffff;
+  --color-offline-ink: #fdfbf5;
 
-  --overlay-bg: rgba(31, 29, 26, 0.35);
+  --color-placeholder-label: #a8a094;
+  --placeholder-stripes: repeating-linear-gradient(135deg, #eae5db 0 6px, #f4f0e8 6px 12px);
+
+  --overlay-bg: rgba(22, 22, 15, 0.38);
 
   color-scheme: light;
 }
 
 /* ---------- Dark palette ---------- */
 [data-theme='dark'] {
-  --color-bg: #18181b;
-  --color-surface: #1f1f23;
-  --color-surface-2: #27272c;
+  --color-bg: #141310;
+  --color-surface: #1b1a15;
+  --color-surface-2: #242219;
+  --color-surface-accent: #211f19;
+  --color-surface-story: #1b1a15;
+  --color-shell-story: #0f0e0b;
+  --color-segment-selected: #332f26;
 
-  --color-ink: #e8e6e1;
-  --color-ink-muted: #908d84;
+  --color-ink: #f4f1e9;
+  --color-ink-secondary: #cec8ba;
+  --color-ink-body: #918a7d;
+  --color-ink-muted: #7c766a;
+  --color-ink-meta: #7c766a;
+  --color-ink-faint: #6d6659;
+  --color-ink-disabled: #5d574c;
 
-  --color-hairline: #2e2e33;
-  --color-hairline-strong: #3e3e45;
+  --color-hairline: #26241d;
+  --color-hairline-strong: #2e2b23;
+  --color-field-underline: #2e2b23;
+  --color-divider: #26241d;
+  --color-indent-active: #4a4128;
+  --color-indent-inactive: #2b2922;
+  --color-track: #211f19;
+  --color-track-2: #211f19;
+  --color-toggle-off: #2e2b23;
+
+  --color-accent: #c8a34e;
+  --color-on-accent: #1a1509;
+  --color-gold-strong: #e8dcbd;
+  --color-gold-soft: #928968;
+  --color-gold-pill-surface: #3a3323;
+  --color-gold-pill-ink: #e8dcbd;
+
+  --color-saved: #c8a34e;
+  --color-focus: #c8a34e;
 
   --color-danger: #d9604a;
   --color-danger-surface: #2a1410;
   --color-success: #52c46a;
   --color-success-surface: #16281a;
   --color-warning: #d4a055;
-  --color-warning-surface: #302210;
-  --color-focus: #5a8fb5;
-
-  --color-accent: #5a8fb5;
-  /* Ink, not white: text on a light-blue fill in dark mode needs to be dark. */
-  --color-on-accent: #18181b;
-
-  --color-like-surface: #16281a;
-  --color-dislike-surface: #2a1410;
-  --color-saved: #d4a055;
+  --color-warning-surface: #211f19;
 
   --color-offline-surface: #5a4310;
-  --color-offline-ink: #e8e6e1;
+  --color-offline-ink: #f4f1e9;
 
-  --overlay-bg: rgba(0, 0, 0, 0.55);
+  --color-placeholder-label: #6d6659;
+  --placeholder-stripes: repeating-linear-gradient(135deg, #26241d 0 6px, #2e2b23 6px 12px);
+
+  --overlay-bg: rgba(0, 0, 0, 0.6);
 
   color-scheme: dark;
 }
@@ -107,28 +161,57 @@
    rule that needs to differ per theme must key off [data-theme], never this. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
-    --color-bg: #18181b;
-    --color-surface: #1f1f23;
-    --color-surface-2: #27272c;
-    --color-ink: #e8e6e1;
-    --color-ink-muted: #908d84;
-    --color-hairline: #2e2e33;
-    --color-hairline-strong: #3e3e45;
+    --color-bg: #141310;
+    --color-surface: #1b1a15;
+    --color-surface-2: #242219;
+    --color-surface-accent: #211f19;
+    --color-surface-story: #1b1a15;
+    --color-shell-story: #0f0e0b;
+    --color-segment-selected: #332f26;
+
+    --color-ink: #f4f1e9;
+    --color-ink-secondary: #cec8ba;
+    --color-ink-body: #918a7d;
+    --color-ink-muted: #7c766a;
+    --color-ink-meta: #7c766a;
+    --color-ink-faint: #6d6659;
+    --color-ink-disabled: #5d574c;
+
+    --color-hairline: #26241d;
+    --color-hairline-strong: #2e2b23;
+    --color-field-underline: #2e2b23;
+    --color-divider: #26241d;
+    --color-indent-active: #4a4128;
+    --color-indent-inactive: #2b2922;
+    --color-track: #211f19;
+    --color-track-2: #211f19;
+    --color-toggle-off: #2e2b23;
+
+    --color-accent: #c8a34e;
+    --color-on-accent: #1a1509;
+    --color-gold-strong: #e8dcbd;
+    --color-gold-soft: #928968;
+    --color-gold-pill-surface: #3a3323;
+    --color-gold-pill-ink: #e8dcbd;
+
+    --color-saved: #c8a34e;
+    --color-focus: #c8a34e;
+
     --color-danger: #d9604a;
     --color-danger-surface: #2a1410;
     --color-success: #52c46a;
     --color-success-surface: #16281a;
     --color-warning: #d4a055;
-    --color-warning-surface: #302210;
-    --color-focus: #5a8fb5;
-    --color-accent: #5a8fb5;
-    --color-on-accent: #18181b;
-    --color-like-surface: #16281a;
-    --color-dislike-surface: #2a1410;
-    --color-saved: #d4a055;
+    --color-warning-surface: #211f19;
+
     --color-offline-surface: #5a4310;
-    --color-offline-ink: #e8e6e1;
-    --overlay-bg: rgba(0, 0, 0, 0.55);
+    --color-offline-ink: #f4f1e9;
+
+    --color-placeholder-label: #6d6659;
+    --placeholder-stripes: repeating-linear-gradient(135deg, #26241d 0 6px, #2e2b23 6px 12px);
+
+    --overlay-bg: rgba(0, 0, 0, 0.6);
+
     color-scheme: dark;
   }
 }
@@ -139,14 +222,24 @@
      below is what renders. Self-hosting the woff2 is a follow-up -- linking
      Google Fonts is not an option on a LAN-only box that should not phone
      home, and would hang the page whenever the WAN is down. */
-  --font-ui: 'IBM Plex Sans', system-ui, -apple-system, BlinkMacSystemFont,
-    'Segoe UI', Roboto, sans-serif;
+  --font-ui: 'Helvetica Neue', Helvetica, -apple-system, BlinkMacSystemFont,
+    'Segoe UI', Roboto, Arial, sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas,
     monospace;
+
+  /* Wordmark and long-form headlines only -- never body or UI. Self-hosted
+     above; Georgia is the fallback because it is the one serif present on
+     effectively every device this app is read on. */
+  --font-serif: 'Source Serif 4', Georgia, 'Times New Roman', serif;
 
   --radius-sm: 3px;
   --radius-md: 6px;
   --radius-lg: 10px;
+  /* Redesign radii. `sm`/`md`/`lg` stay for the screens outside this work. */
+  --radius-thumb: 8px;
+  --radius-strip: 12px;
+  --radius-window: 14px;
+  --radius-story: 20px;
   /* Fully round. Its own token because "pill" is a shape decision, not a step
      on the scale -- every ad-hoc `border-radius: 999px` was one of these. */
   --radius-pill: 999px;

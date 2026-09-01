@@ -79,7 +79,7 @@ test.describe('losing the session', () => {
     // exists -- which is exactly how this passed locally and failed in CI.
     await page.route('**/api/v1/articles/*/vote', (r) =>
       r.fulfill({ status: 401, json: { error: 'revoked', status: 401 } }));
-    await page.locator('.btn-like').first().click();
+    await page.getByRole('button', { name: 'Up' }).first().click();
 
     await expect(page.locator('.signin')).toBeVisible();
     // Nothing to clear: the credential was never in the page's reach.

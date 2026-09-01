@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { isNetworkError } from '@shared/api';
 import { api } from '../api/client';
 
 /**
@@ -25,7 +26,14 @@ export function SignIn({ onDone }: { onDone: () => void }) {
       // message -- this used to point at a server UI that no longer exists.
       onDone();
     } catch (err) {
-      setError((err as Error).message);
+      // Never the engine's own words. WebKit rejects an unreachable server with
+      // "Load failed", which this screen printed verbatim under a password
+      // field -- so a certificate the phone did not trust read as a typo.
+      setError(
+        isNetworkError(err)
+          ? 'Could not reach the server. Check your connection, then try again.'
+          : (err as Error).message,
+      );
     } finally {
       setBusy(false);
     }
@@ -33,29 +41,42 @@ export function SignIn({ onDone }: { onDone: () => void }) {
 
   return (
     <form className="signin" onSubmit={submit}>
-      <h1>Better News</h1>
-      <input
-        name="username"
-        value={username}
-        onChange={(e) => setUsername(e.target.value)}
-        placeholder="Username"
-        autoComplete="username"
-        autoFocus
-        required
-      />
-      <input
-        name="password"
-        type="password"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        placeholder="Password"
-        autoComplete="current-password"
-        required
-      />
-      {error && <p className="error">{error}</p>}
-      <button type="submit" disabled={busy || !username.trim() || !password}>
-        {busy ? 'Signing in…' : 'Sign in'}
-      </button>
+      <div className="signin-head">
+        <h1 className="signin-wordmark">Better News</h1>
+        <p className="signin-tagline">Your feeds, ranked and quiet.</p>
+      </div>
+
+      <div className="signin-fields">
+        <label className="field">
+          <span className="field-label">Username</span>
+          <input
+            name="username"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            autoComplete="username"
+            autoFocus
+            required
+          />
+        </label>
+        <label className="field">
+          <span className="field-label">Password</span>
+          <input
+            name="password"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
+            required
+          />
+        </label>
+        {error && <p className="error field-error">{error}</p>}
+      </div>
+
+      <div className="signin-cta">
+        <button type="submit" disabled={busy || !username.trim() || !password}>
+          {busy ? 'Signing in…' : 'Sign in'}
+        </button>
+      </div>
     </form>
   );
 }

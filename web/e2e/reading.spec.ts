@@ -125,15 +125,6 @@ test('closing the digest does not drop the briefing', async ({ page }) => {
     .toContainText('Argentina');
 });
 
-test('a topic chip filters to that topic', async ({ page }) => {
-  const asked: string[] = [];
-  page.on('request', (r) => {
-    if (r.url().includes('/api/v1/articles?')) asked.push(r.url());
-  });
-  await page.locator('.topic-chip').first().click();
-  await expect.poll(() => asked.some((u) => u.includes('topic='))).toBe(true);
-});
-
 test('refresh kicks the pipeline and reloads when it finishes', async ({ page }) => {
   let stamp = '2026-08-01T10:00:00+00:00';
   await page.route('**/api/v1/status', (r) => r.fulfill({
@@ -406,28 +397,11 @@ test.describe('opening an article', () => {
     }
 
     const row = page.locator('.article-row').first();
-    for (const sel of ['.btn-save', '.btn-like', '.btn-dislike']) {
-      await row.locator(sel).click();
+    for (const name of ['Save', 'Up', 'Down']) {
+      await row.getByRole('button', { name }).click();
       await expect(page.getByRole('dialog')).toBeHidden();
     }
     expect(calls.sort()).toEqual(['save', 'vote', 'vote']);
-
-    // A topic chip filters the list; it must not also open what it filtered.
-    await row.locator('.topic-chip').first().click();
-    await expect(page.getByRole('dialog')).toBeHidden();
-  });
-
-  test('opening in the browser does not also open the reader', async ({ page, isMobile }) => {
-    test.skip(isMobile, 'the external link is hidden on a phone');
-    const link = page.locator('.article-row .btn-external').first();
-    await expect(link).toHaveAttribute('target', '_blank');
-    // Neutralised rather than clicked: a real click opens a tab Playwright
-    // then has to chase, and the question here is only whether the card's
-    // handler stayed out of the way.
-    await link.evaluate((a: HTMLAnchorElement) => a.removeAttribute('target'));
-    await page.route('https://**', (r) => r.fulfill({ body: 'ok' }));
-    await link.click();
-    await expect(page.getByRole('dialog')).toBeHidden();
   });
 });
 

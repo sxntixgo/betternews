@@ -70,16 +70,16 @@ test.describe('live stack', () => {
     await signIn(page);
 
     // Pin the row by id before clicking. Filtering on
-    // `.btn-like:not([disabled])` is fine for *finding* one, but voting
+    // An enabled Up button is fine for *finding* a row, but voting
     // disables that button, so the same locator silently re-resolves to a
     // different row and the assertion checks the wrong article.
     const candidate = page.locator('.article-row')
-      .filter({ has: page.locator('.btn-like:not([disabled])') }).first();
+      .filter({ has: page.getByRole('button', { name: 'Up' }) }).first();
     const id = await candidate.getAttribute('id');
     const title = (await candidate.locator('.article-title').innerText()).trim();
     const row = page.locator(`#${id}`);
 
-    await row.locator('.btn-like').click();
+    await row.getByRole('button', { name: 'Up' }).click();
     await expect(row).toHaveClass(/liked/);
 
     // Persisted, not just optimistic: the whole point of the round trip.

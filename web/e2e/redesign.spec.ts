@@ -1,0 +1,51 @@
+import { expect, test } from '@playwright/test';
+import { article, mockApi, signedIn } from './fixtures';
+
+test.describe('story row', () => {
+  test('is one meta+actions line, not four rows', async ({ page }) => {
+    await signedIn(page);
+    await mockApi(page);
+    await page.goto('/');
+    const row = page.locator('#card-1');
+    await expect(row.locator('.article-meta')).toHaveCount(1);
+    // The pill, the topic chips and the Open link were the other three rows.
+    await expect(row.locator('.score-badge')).toHaveCount(0);
+    await expect(row.locator('.topic-chips')).toHaveCount(0);
+  });
+
+  test('shows the score as a bare number in gold, no percent sign', async ({ page }) => {
+    await signedIn(page);
+    await mockApi(page);
+    await page.goto('/');
+    // fixtures' article() scores 0.8.
+    await expect(page.locator('#card-1 .meta-score')).toHaveText('80');
+  });
+
+  test('actions are text labels, never emoji', async ({ page }) => {
+    await signedIn(page);
+    await mockApi(page);
+    await page.goto('/');
+    const actions = page.locator('#card-1 .article-actions');
+    await expect(actions.getByRole('button', { name: 'Save' })).toBeVisible();
+    await expect(actions.getByRole('button', { name: 'Up' })).toBeVisible();
+    await expect(actions.getByRole('button', { name: 'Down' })).toBeVisible();
+    await expect(actions).not.toContainText(/[👍👎★☆]/);
+  });
+
+  test('saving switches the label to its active form', async ({ page }) => {
+    await signedIn(page);
+    await mockApi(page);
+    await page.goto('/');
+    await page.locator('#card-1 .article-actions').getByRole('button', { name: 'Save' }).click();
+    await expect(
+      page.locator('#card-1 .article-actions').getByRole('button', { name: 'Saved' }),
+    ).toBeVisible();
+  });
+
+  test('duplicate count fills the slot the mock labelled comments', async ({ page }) => {
+    await signedIn(page);
+    await mockApi(page, [article(1, { duplicate_count: 3 })]);
+    await page.goto('/');
+    await expect(page.locator('#card-1 .meta-dupes')).toHaveText('3');
+  });
+});

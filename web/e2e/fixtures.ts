@@ -62,7 +62,18 @@ export const DIGEST = {
 };
 
 /** 25 articles over two pages, so infinite scroll has something to do. */
-export async function mockApi(page: Page) {
+export const ARTICLES: Article[] = Array.from({ length: 25 }, (_, i) => article(i + 1));
+
+/**
+ * The whole API, stubbed.
+ *
+ * `articles` is a parameter rather than a constant because a card test usually
+ * cares about one article with one field set -- a duplicate count, a
+ * thumbnail -- and building that by overriding a 25-article list from the
+ * outside is harder to read than passing the list in. Omit it and the default
+ * is exactly what it always was: 25 stories, ten to a page.
+ */
+export async function mockApi(page: Page, articles: Article[] = ARTICLES) {
   await page.route('**/api/v1/feeds/manage', (r) => r.fulfill({
     json: { feeds: [
       { id: 7, url: 'https://verge.example/rss', title: 'The Verge', paused: false,
@@ -144,13 +155,13 @@ export async function mockApi(page: Page) {
     if (wantsPile !== allDismissed) {
       return r.fulfill({ json: { articles: [], next_offset: null } });
     }
-    const ids = Array.from({ length: 10 }, (_, i) => offset + i + 1).filter((n) => n <= 25);
+    const page_ = articles.slice(offset, offset + 10);
     r.fulfill({
       json: {
-        articles: ids.map((n) => article(n, wantsPile
-          ? { state: { read: false, saved: false, dismissed: true, opinion: null } }
-          : {})),
-        next_offset: offset + 10 <= 25 ? offset + 10 : null,
+        articles: page_.map((a) => (wantsPile
+          ? { ...a, state: { ...a.state, dismissed: true } }
+          : a)),
+        next_offset: offset + 10 <= articles.length ? offset + 10 : null,
       },
     });
   });

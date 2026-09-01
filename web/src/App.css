@@ -360,11 +360,15 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 .article-row {
   border-bottom: 1px solid var(--color-hairline);
   padding: 10px 0;
-  /* Block flow, not a grid. The photo floats and the headline and summary wrap
-     around it; the meta and the tags are rows below. The grid reserved a photo
-     column down the whole card whether or not there was a photo in it, and that
-     reservation is where the white space came from. */
+  /* Two rows, and only two: the story, then one line carrying every fact a
+     reader reads and every control they press. The float this replaced was
+     bought by a card whose lower rows had to wrap around the photo; with one
+     short meta line there is nothing left for a float to buy. */
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   position: relative;
+  cursor: pointer;
 }
 .article-row.leaving {
   opacity: 0;
@@ -391,12 +395,15 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
   filter: grayscale(0.8);
 }
 .article-row.dismissed:hover { opacity: 0.75; }
-.article-row.dismissed .btn-save { opacity: 1; filter: none; }
 .article-row.focused  { background: var(--color-surface-2); }
 .article-row.read .article-title { color: var(--color-ink-muted); font-weight: 500; }
 .article-row.read .article-summary { opacity: 0.7; }
 .article-row.read .article-thumb { opacity: 0.6; }
-.article-row.saved .btn-save { color: var(--color-saved); }
+/* Saved has its own colour, not the accent the votes use: it is a keep, not
+   an opinion, and it is the one state that outlives retention. */
+.article-row.saved .article-actions .action[aria-pressed='true'] {
+  color: var(--color-saved);
+}
 .article-row.hidden { opacity: 0.65; border-left: 3px solid var(--color-ink-muted); padding-left: 8px; }
 .article-row.hidden .article-title { font-style: italic; }
 .hidden-reason {
@@ -406,103 +413,81 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
   font-style: italic;
 }
 
-.article-row-header {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
+/* The story: text in a column, the photo beside it. */
+.article-head { display: flex; gap: 16px; align-items: flex-start; }
+.article-text { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 
-.score-badge {
-  font-weight: 600;
-  color: var(--color-ink-muted);
-  background: var(--color-hairline);
-  flex-shrink: 0;
-}
-
-/* A <button>, so a keyboard can reach the reader without the card being one
-   giant control. Everything here is undoing the user-agent button: it has to
-   read as the headline it is, not as a control. */
+/* A span with role="button", never a <button>: a button is an atomic
+   inline-level box in every engine, so it can never wrap around anything and
+   `font: inherit` has to be undone by hand. Everything here is type. */
 .article-title {
-  /* Inline, so its line boxes wrap around the floated photo. As the default
-     inline-block it is an atomic box: floats push it down whole, and the photo
-     ended up with a column of empty space beside it. */
-  display: inline;
-  appearance: none;
-  background: none;
-  border: 0;
-  padding: 0;
-  margin: 0;
-  font: inherit;
-  text-align: left;
+  font-size: 19px;
+  line-height: 1.32;
   font-weight: 600;
+  letter-spacing: -0.35px;
   color: var(--color-ink);
-  font-size: 15px;
-  flex: 1;
-  line-height: 1.3;
+  text-wrap: pretty;
   cursor: pointer;
 }
+.article-summary {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+  font-weight: 400;
+  color: var(--color-ink-body);
+  text-wrap: pretty;
+}
+.article-thumb {
+  width: 76px;
+  height: 76px;
+  flex: none;
+  border-radius: var(--radius-thumb);
+  object-fit: cover;
+  /* Stripes rather than a flat grey: a slow or missing image reads as a
+     placeholder rather than as an empty box the layout forgot to fill. */
+  background: var(--placeholder-stripes);
+}
+
+/* One line, and the whole of what used to be three: score, source, age and
+   duplicates on the left, the actions on the right. */
+.article-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  color: var(--color-ink-meta);
+}
+.meta-facts { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.meta-score { color: var(--color-accent); font-weight: 600; }
+
+.article-actions { display: flex; gap: 18px; flex: none; }
+.article-actions .action {
+  background: none;
+  border: 0;
+  /* Padding widens the touch target; the negative margin hands the space back,
+     so the designed 18px gap and every glyph position are unchanged. "Up" is
+     15px of text -- below the 24px WCAG 2.5.8 floor -- and this is what lifts
+     it over without touching the layout. */
+  padding: 0 5px;
+  margin: 0 -5px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--color-ink-faint);
+  cursor: pointer;
+}
+.article-actions .action[aria-pressed='true'] { color: var(--color-accent); }
+.article-actions .action:disabled { cursor: default; }
+
 .article-row:hover .article-title { color: var(--color-accent); }
 /* The whole card opens the reader, so the whole card says so -- except the
    controls on it, which do their own thing and keep the arrow. */
-.article-row { cursor: pointer; }
 .article-row button,
 .article-row a { cursor: default; }
-.article-row .article-title,
-.article-row .topic-chip,
-.article-row .btn-icon,
-.article-row .btn-external { cursor: pointer; }
 
-/* A column of .article-row, sitting to the right of the whole card. It used to
-   live inside .article-row-header, where only the title made room for it and
-   the summary ran on underneath -- so the right edge of the card was ragged. */
-.article-actions-inline {
-  display: flex;
-  gap: 2px;
-  flex-shrink: 0;
-  align-items: center;
-  align-self: flex-start;
-}
-
-.article-summary {
-  font-size: 13px;
-  color: var(--color-ink-muted);
-  margin-top: 3px;
-}
-
-.reading-time {
-  display: block;
-  font-size: 11px;
-  color: var(--color-ink-muted);
-  margin-top: 4px;
-}
-
-.article-left {
-  grid-area: meta;
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  min-width: 0;
-}
-
-.article-thumb {
-  /* Floated: the headline and summary wrap around it, and it only takes width
-     while there is an image to take it for. The grid column it replaced was
-     reserved on every card, photo or not. */
-  float: left;
-  width: 88px;
-  height: 88px;
-  object-fit: cover;
-  object-position: center;
-  border-radius: var(--radius-sm);
-  margin: 2px 12px 4px 0;
-}
-
-.article-content {
-  flex: 1;
-  min-width: 0;
-}
 
 
 /* Buttons */
@@ -560,7 +545,6 @@ button:disabled { opacity: 0.4; cursor: default; }
   }
   .pill { min-height: 26px; }
   .btn-icon, .sidebar-collapse, .sidebar-manage { min-width: 40px; }
-  .article-actions-inline .btn-icon { padding: 8px 10px; }
 }
 
 .btn-external {
@@ -716,7 +700,6 @@ dialog[open] { display: flex; flex-direction: column; }
 }
 .topic-chip:hover { color: var(--color-ink); border-color: var(--color-ink); }
 
-.dup-note { margin: 2px 0 0; font-size: 11px; color: var(--color-ink-muted); }
 .histogram { width: 100%; max-width: 460px; height: auto; margin: 8px 0; }
 
 /* "What you missed" briefing. A dialog now, not a card above the list --
@@ -1108,98 +1091,29 @@ kbd {
 }
 
 @media (max-width: 720px) {
-  /* The card is one block-flow layout at every width now: a floated photo with
-     the headline and summary wrapping it, then a meta row, then the tags. The
-     four-column grid that used to live here is gone with the column it
-     positioned -- what remains are the phone-sized adjustments. */
+  /* Almost nothing left here. The card's type and metrics are the phone's own
+     now -- 19px headline, 76px photo, one 11px meta line -- so the desktop no
+     longer needs undoing at this width; the tuning that used to live here was
+     all for the four-row card and went with it. */
   .article-row { padding: 8px 0; }
-  /* Smaller here, and it earns its place: it is the thing that makes a story
-     recognisable at a glance while scrolling. */
-  .article-thumb {
-    width: 72px;
-    height: 72px;
-    margin: 2px 10px 4px 0;
-  }
+  /* The rewritten headline is shown under the original in the reader, where
+     there is room for it. */
+  .original-title { display: none; }}
 
-  /* Tags are no longer truncated. The 13ch cap and the two-chip limit were both
-     bought by the old single-line layout, where they competed with the vote
-     buttons for the same 356px; with a row of their own they wrap and fit
-     whole. "copa-libertadores" was rendering as "copa-libert…". */
-  /* The kind earns more room: it is one of nine known words, and it is the one
-     that says why the article scored what it did. */
-
-
-  /* One line. The clock glyph and the number were wrapping onto separate
-     lines, which made this the tallest thing in the meta row. */
-  .reading-time {
-    display: inline-flex;
-    align-items: center;
-    margin-top: 0;
-    white-space: nowrap;
-    flex: none;
-  }
-  /* Still 40px. Shrinking these would buy 8px a card and cost the tap target
-     someone deliberately set; the height came from stacking them, not their
-     size. */
-  .article-actions-inline .btn-icon {
-    min-height: 40px;
-    min-width: 40px;
-    padding: 4px 6px;
-  }
-
-  
-  /* Two lines each. A third line of either is rarely what decides whether to
-     open something, and it costs ~20px per card every time. */
-  /* No `-webkit-box` clamp here any more. It is the only way to line-clamp,
-     and it makes the element atomic -- an atomic box does not wrap around a
-     float, it is pushed below it, which left the photo with a column of empty
-     space beside it. The summary is two or three sentences from the model, so
-     the clamp was rarely doing anything anyway. */
-  .article-summary { overflow: hidden; }
-  /* Tighter leading on a phone. At 1.45 two lines of title and two of summary
-     spend 12px purely on the gaps between them. */
-  .article-title { -webkit-line-clamp: 2; line-height: 1.28; }
-  .article-summary { -webkit-line-clamp: 2; line-height: 1.32; margin-top: 3px; }
-  .article-row-header { align-items: baseline; }
-
-  /* Chips join the meta line rather than claiming a row of their own. */
-  .topic-chips { margin: 0; gap: 4px; }
-  .topic-chips .pill { --pill-padding: 1px 6px; --pill-font-size: 10px; }
-  .original-title, .dup-note { display: none; }}
-
-/* Compact list. Measured on a 664px phone viewport: 139px per card to 101px,
-   4.79 stories on screen to 6.55.
-
-   The summary is the whole saving. Hiding the tags saves nothing vertically --
-   they share the meta line with the action buttons, whose 40px tap target sets
-   that row's height either way -- so they go for a different reason: at this
-   size a truncated "copa-libert…" is clutter rather than information.
-
-   `kind` survives in both modes. It is one short word from a closed vocabulary
-   and it is what explains the score: a fixture listing and a transfer story are
-   the same subject and opposite value to the reader. */
+/* Compact list. The summary is the whole saving, and now the only one: the
+   tags and the kind that compact also used to hide have gone from the card
+   entirely, and the meta line is one line in either mode. */
 [data-density='compact'] .article-summary { display: none; }
-/* Compact drops the tags at every width. They have a row of their own now, so
-   hiding them saves a real line -- two, on an article with six topics. The kind
-   survives: it is one short word and it is what explains the score, which is
-   the thing you are still deciding by when the summary is gone. */
-[data-density='compact'] .topic-chips .topic-chip { display: none; }
 [data-density='compact'] .article-row { padding: 6px 0; }
 
-/* Source and age, on the meta line. Both are muted and small: they qualify the
-   headline rather than competing with it. */
-.article-source,
-.article-age {
-  font-size: 11px;
-  color: var(--color-ink-muted);
-  white-space: nowrap;
-  flex: none;
-}
-.article-source {
+/* The source is the one item on the meta line with no length limit, so it is
+   the one that gives way when the line is short of room. */
+.meta-source {
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 14ch;
+  white-space: nowrap;
 }
+.meta-age, .meta-dot, .meta-dupes { flex: none; }
 
 /* The dismissed pile: a divider you have to cross on purpose. It sits below
    the unread list, so it needs to read as a different section rather than as
@@ -1281,34 +1195,6 @@ kbd {
   object-fit: cover;
   border-radius: var(--radius-md);
   margin: 8px 0 12px;
-}
-
-/* Row two: everything you might act on, on one line, with the vote buttons
-   pushed to the far edge. `clear: both` so it starts below the photo rather
-   than wrapping around it -- this is a row, not part of the story. */
-.article-meta-row {
-  clear: both;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  padding-top: 4px;
-}
-.article-meta-row .article-actions-inline {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-/* Row three: the tags get the full width, so they are never truncated by a
-   contest with the buttons. */
-.article-row .topic-chips {
-  clear: both;
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin: 6px 0 0;
 }
 
 /* Photos off. The card falls back to plain block flow with nothing floated, so

@@ -6,9 +6,9 @@ import { swipeJustHandled } from '../useSwipe';
  * One row of the reading list.
  *
  * Everything shown here was decided by the server: `title` is already the
- * de-clickbaited headline, `original_title` is non-null only when it really was
- * rewritten, and `reading_time` is parsed upstream. Nothing is re-derived, so
- * this and the HTML card cannot drift.
+ * de-clickbaited headline and `duplicate_count` is how many other feeds carried
+ * the same story. Nothing is re-derived, so this and the API's own idea of an
+ * article cannot drift.
  */
 export function ArticleCard({
   article,
@@ -47,6 +47,12 @@ export function ArticleCard({
     onOpen(article);
   }
 
+  // Declared, deliberately unused. The desktop layout puts one topic back on
+  // the meta line as plain text and reaches for this; dropping the prop now
+  // would mean threading it back through the list screen later, and nothing on
+  // a phone-width card has room for a tag.
+  void onTopic;
+
   const s = article.state;
   const classes = [
     'article-row',
@@ -59,120 +65,98 @@ export function ArticleCard({
     .filter(Boolean)
     .join(' ');
 
+  const score = article.score === null ? null : Math.round(article.score * 100);
+
   return (
     // Same id the server-rendered card uses, so anchoring, deep links and tests
     // can address a row without depending on its position in the list.
     <article className={classes} id={`card-${article.id}`} onClick={openFromBody}>
-      {/* Three rows, in the order a reader uses them.
-          1. The story: photo, headline, summary, with the text wrapping the
-             photo rather than sitting in a column beside it. A column reserves
-             its width down the whole card, which is where the empty space came
-             from; a float only takes width while there is an image to take it
-             for.
-          2. Everything you might act on.
-          3. The tags, on a line of their own, so they stop competing with the
-             buttons for a 356px row. That contest is why a phone showed tags
-             truncated to "f…" -- with a row to themselves they fit whole. */}
-      {article.thumbnail_url && (
-        <img className="article-thumb" src={article.thumbnail_url} alt="" loading="lazy" />
-      )}
-
-      {/* A span, not a <button>. A button is an atomic inline-level box in every
-          engine -- `display: inline` does not change that -- so it can never
-          wrap its text around a float; it gets pushed below one whole. The
-          headline has to flow as text for the photo to sit inside it.
-          `role`, `tabIndex` and the key handler give back exactly what the
-          button element was providing: reachable by Tab, activated by Enter or
-          Space. `Modal.focusableIn` already selects `[tabindex]`. */}
-      <span
-        className="article-title"
-        role="button"
-        tabIndex={0}
-        onClick={() => onOpen(article)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            onOpen(article);
-          }
-        }}
-      >
-        {article.title}
-      </span>
-
-      {article.original_title && (
-        <p className="original-title">Originally: {article.original_title}</p>
-      )}
-      {article.duplicate_count > 0 && (
-        <p className="dup-note">
-          + {article.duplicate_count} other feed{article.duplicate_count === 1 ? '' : 's'}
-        </p>
-      )}
-      {article.summary && <p className="article-summary">{article.summary}</p>}
-      {/* Visible text, not a tooltip on the score badge. The hidden list is
-          reviewed on a phone, where there is no hover. */}
-      {article.hidden && article.score_reason && (
-        <p className="hidden-reason">Hidden: {article.score_reason}</p>
-      )}
-
-      <div className="article-meta-row">
-        {article.score !== null && (
-          <span className="pill score-badge" title={article.score_reason ?? ''}>
-            {Math.round(article.score * 100)}%
+      {/* Two rows now, not four. The story, then one line carrying everything
+          a reader reads *and* everything they press. The four-row card put the
+          score, the buttons, the source and the tags on separate lines, which
+          is most of the vertical space this redesign reclaims. */}
+      <div className="article-head">
+        <div className="article-text">
+          {/* Still a span, not a <button>: a button is an atomic inline-level
+              box in every engine, so it cannot wrap around a float and gets
+              pushed below one whole. role/tabIndex/onKeyDown give back exactly
+              what <button> provided. */}
+          <span
+            className="article-title"
+            role="button"
+            tabIndex={0}
+            onClick={() => onOpen(article)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onOpen(article);
+              }
+            }}
+          >
+            {article.title}
           </span>
+          {article.summary && <p className="article-summary">{article.summary}</p>}
+          {article.hidden && article.score_reason && (
+            <p className="hidden-reason">Hidden: {article.score_reason}</p>
+          )}
+        </div>
+        {article.thumbnail_url && (
+          <img className="article-thumb" src={article.thumbnail_url} alt="" loading="lazy" />
         )}
-        {article.reading_time && <span className="reading-time">🕐 {article.reading_time}</span>}
-        <a className="btn-external" href={article.url} target="_blank" rel="noopener noreferrer">
-          ↗ Open
-        </a>
+      </div>
 
-        <div className="article-actions-inline">
+      <div className="article-meta">
+        <div className="meta-facts">
+          {score !== null && (
+            <span className="meta-score" title={article.score_reason ?? ''}>
+              {score}
+            </span>
+          )}
+          {feedName && <span className="meta-source">{feedName}</span>}
+          {relativeTime(article.published_at) && (
+            <>
+              <span className="meta-dot">·</span>
+              <span className="meta-age">{relativeTime(article.published_at)}</span>
+            </>
+          )}
+          {article.duplicate_count > 0 && (
+            <>
+              <span className="meta-dot">·</span>
+              {/* The mock's "comment count" slot. Better News has no comments;
+                  this is how many other feeds carried the same story. */}
+              <span className="meta-dupes" title="Other feeds carrying this story">
+                {article.duplicate_count}
+              </span>
+            </>
+          )}
+        </div>
+
+        <div className="article-actions">
           <button
-            className="btn-icon btn-save"
+            className="action"
             aria-pressed={s.saved}
-            title={s.saved ? 'Unsave' : 'Save for later'}
             onClick={() => onSave(article)}
           >
-            {s.saved ? '★' : '☆'}
+            {s.saved ? 'Saved' : 'Save'}
           </button>
           <button
-            className="btn-icon btn-like"
+            className="action"
+            aria-pressed={s.opinion === 'liked'}
             disabled={s.opinion === 'liked'}
-            title="Like"
             onClick={() => onVote(article, 1)}
           >
-            👍
+            Up
           </button>
           <button
-            className="btn-icon btn-dislike"
+            className="action"
+            aria-pressed={s.opinion === 'disliked'}
             disabled={s.opinion === 'disliked'}
-            title="Dislike"
             onClick={() => onVote(article, -1)}
           >
-            👎
+            Down
           </button>
         </div>
       </div>
-
-      {/* Source and age lead the last row rather than the middle one. Six items
-          would not fit 356px -- the meta row wrapped to three lines, 94px --
-          and these two are the ones a reader reads rather than presses. */}
-      <p className="topic-chips">
-        {feedName && <span className="article-source">{feedName}</span>}
-        {relativeTime(article.published_at) && (
-          <span className="article-age">{relativeTime(article.published_at)}</span>
-        )}
-        {/* The kind reads differently from a topic: it is the shape of the
-            story, and the reader may want one shape of a subject and not
-            another. */}
-        {article.kind && article.kind !== 'news' && (
-          <span className="pill kind-chip">{article.kind}</span>
-        )}
-        {article.topics.map((t) => (
-          <button className="pill topic-chip" key={t} onClick={() => onTopic?.(t)}>
-            {t}
-          </button>
-        ))}
-      </p>
     </article>
   );
 }

@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
-import { article, mockAdmin, mockApi, openDrawer, signedIn } from './fixtures';
+import { mockAdmin, mockApi, openDrawer, signedIn } from './fixtures';
 
 // ── the token discipline ──────────────────────────────────────────────────────
 
@@ -162,19 +162,18 @@ test.describe('the shared pill', () => {
   });
 
   test('every pill is the same height, on touch too', async ({ page, isMobile }) => {
-    // Topic chips are buttons, and a blanket 40px touch target turned an 11px
-    // inline chip into the tallest thing on the card. They were three separate
-    // near-misses before this — three radii and three paddings.
-    const heights = await page.evaluate(() => {
-      const h = (s: string) => document.querySelector(s)?.getBoundingClientRect().height ?? null;
-      return { chip: h('.topic-chip'), count: h('.sidebar-feed-count'), badge: h('.score-badge') };
-    });
-    expect(new Set(Object.values(heights)).size, JSON.stringify(heights)).toBe(1);
-    // The size floor is a touch-target rule, so it only applies on a coarse
-    // pointer -- 22px is right for a mouse and would be mean on a thumb.
+    // The card's two pills -- the topic chip and the score badge -- were removed
+    // by the whitespace redesign, so the sidebar's unread count is the only pill
+    // left in the app. The rule it was protecting still holds for the survivor:
+    // one pill shape, and on a coarse pointer a touch-safe one.
+    const count = await page.evaluate(
+      () => document.querySelector('.sidebar-feed-count')?.getBoundingClientRect().height ?? null,
+    );
+    expect(count, 'the sidebar count is the last pill; if it goes, delete this test')
+      .not.toBeNull();
     if (isMobile) {
-      expect(heights.chip!).toBeGreaterThanOrEqual(24);   // WCAG 2.5.8
-      expect(heights.chip!).toBeLessThanOrEqual(30);      // and not a button
+      expect(count!).toBeGreaterThanOrEqual(24);   // WCAG 2.5.8
+      expect(count!).toBeLessThanOrEqual(30);      // and not a button
     }
   });
 
@@ -234,51 +233,25 @@ test('on a phone the list is not flush against the screen edge', async ({ page, 
   expect(x).toBeGreaterThanOrEqual(8);
 });
 
-test('on a desktop the card is three rows, not columns', async ({ page, isMobile }) => {
+test('on a desktop the card is two rows, not columns', async ({ page, isMobile }) => {
   test.skip(isMobile, 'desktop only');
   await signedIn(page);
   await mockApi(page);
   await page.goto('/');
   await page.waitForSelector('.article-row');
 
-  // This asserted the old shape: a 72px column holding the reading time, the
-  // source, the age and the Open link beside the thumbnail. The card is block
-  // flow now -- a floated photo the headline wraps, then a meta row, then the
-  // tags -- so the thing to hold is that the middle row stays one line. It
-  // carries six items, and it wrapped to three lines the first time it did.
-  const meta = (await page.locator('.article-row .article-meta-row').first().boundingBox())!;
+  // Two rows now, not three: the story, then one line carrying the facts a
+  // reader reads and the buttons they press. That line is the thing to hold --
+  // it collapsed four separate rows into one, and it must not wrap back out.
+  const meta = (await page.locator('.article-row .article-meta').first().boundingBox())!;
   expect(meta.height, 'the meta row wrapped').toBeLessThan(48);
 
-  // And the rows are in order, none of them overlapping.
-  const title = (await page.locator('.article-row .article-title').first().boundingBox())!;
-  const chips = (await page.locator('.article-row .topic-chips').first().boundingBox())!;
-  expect(title.y).toBeLessThan(meta.y);
-  expect(meta.y + meta.height).toBeLessThanOrEqual(chips.y + 1);
+  // And the rows are in order, not overlapping.
+  const head = (await page.locator('.article-row .article-head').first().boundingBox())!;
+  expect(head.y).toBeLessThan(meta.y);
+  expect(head.y + head.height).toBeLessThanOrEqual(meta.y + 1);
 });
 
-test('compact drops the tags at every width', async ({ page, isMobile }) => {
-  test.skip(isMobile, 'desktop only');
-  await signedIn(page);
-  await mockApi(page);
-  // The default fixture has no `kind`, and `news` is deliberately not rendered.
-  await page.route('**/api/v1/articles?*', (r) => r.fulfill({ json: {
-    articles: [article(1, { kind: 'fixture', topics: ['boca-juniors', 'football'] })],
-    next_offset: null, diagnosis: null,
-  } }));
-  await page.goto('/');
-  await page.waitForSelector('.article-row');
-  await page.evaluate(() => document.documentElement.setAttribute('data-density', 'compact'));
-
-  // The reverse of what this asserted. Keeping desktop tags in compact was
-  // right when the tags shared a line with the vote buttons and only a phone
-  // ran out of room; now they have a row of their own at every width, so
-  // hiding them is a whole line back -- two on a six-topic article -- and that
-  // is what compact is for.
-  await expect(page.locator('.article-row .article-summary').first()).toBeHidden();
-  await expect(page.locator('.article-row .topic-chip').first()).toBeHidden();
-  // The kind survives: one short word, and the one that explains the score.
-  await expect(page.locator('.article-row .kind-chip').first()).toBeVisible();
-});
 
 test.describe('the drawer is five labelled sections', () => {
   test.beforeEach(async ({ page }) => {

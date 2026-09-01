@@ -35,15 +35,26 @@ test.describe('phone layout', () => {
     // They are a row on the meta line now, below the text, which serves the
     // same goal better. The test asserts the goal.
     const title = (await page.locator('.article-title').first().boundingBox())!;
-    const actions = (await page.locator('.article-actions-inline').first().boundingBox())!;
+    const actions = (await page.locator('.article-actions').first().boundingBox())!;
     expect(actions.y, 'actions belong below the headline, not beside it')
       .toBeGreaterThanOrEqual(title.y + title.height - 1);
   });
 
-  test('tap targets stay at least 40px', async ({ page }) => {
-    for (const btn of await page.locator('.article-actions-inline .btn-icon').all()) {
+  test('tap targets clear the WCAG floor', async ({ page }) => {
+    // 24, not the old 40. That 40 was the icon buttons' own spec; the redesign
+    // replaced them with text labels, and "Up" is 15px of glyphs. 24x24 is
+    // WCAG 2.5.8, and `.action` earns it with padding plus a negative margin
+    // rather than by growing.
+    //
+    // This asserted `.btn-icon` for one commit after the card was rewritten.
+    // That class had stopped existing, so `.all()` returned nothing, the loop
+    // never ran, and the test passed while checking nothing at all.
+    const boxes = await page.locator('.article-actions .action').all();
+    expect(boxes.length, 'no actions found -- this test is asserting nothing')
+      .toBeGreaterThan(0);
+    for (const btn of boxes) {
       const box = (await btn.boundingBox())!;
-      expect(Math.min(box.width, box.height)).toBeGreaterThanOrEqual(40);
+      expect(Math.min(box.width, box.height)).toBeGreaterThanOrEqual(24);
     }
   });
 
@@ -124,55 +135,14 @@ test.describe('phone layout', () => {
         const n = el.querySelector(s) as HTMLElement | null;
         return n ? n.getBoundingClientRect().height : 0;
       };
-      return { left: g('.article-left'), chips: g('.topic-chips'),
-               actions: g('.article-actions-inline') };
+      return { meta: g('.article-meta'), actions: g('.article-actions') };
     });
-    // 41, not 40: the action buttons are deliberately 40px tap targets, so a
-    // single row of them is exactly 40 and only a wrap exceeds it.
+    // 41, not 40: the actions set the line's height at exactly 40, so only a
+    // genuine wrap exceeds it. `.article-head` is excluded on purpose -- it
+    // holds the headline and summary and is supposed to be tall.
     for (const [name, h] of Object.entries(heights)) {
       expect(h, `${name} wrapped onto a second line`).toBeLessThan(41);
     }
-  });
-  test('a long tag is shown whole, and a long list wraps', async ({ page }) => {
-    // The opposite of what this asserted before. The 13ch cap and the two-tag
-    // limit were both bought by the old single-line layout, where the tags
-    // competed with the vote buttons for the same 356px and "copa-libertadores"
-    // rendered as "copa-libert…". They have a row to themselves now.
-    await page.route('**/api/v1/articles?*', (r) => r.fulfill({ json: {
-      articles: [
-        article(1, { kind: 'match-report',
-                     topics: ['copa-libertadores', 'boca-juniors', 'argentina', 'football'] }),
-        article(2, { kind: 'analysis',
-                     topics: ['immigration', 'us', 'politics', 'democracy', 'conflict', 'economy'] }),
-      ],
-      next_offset: null, diagnosis: null } }));
-    await page.reload();
-    await page.waitForSelector('.article-row');
-
-    const rows = await page.evaluate(() =>
-      Array.from(document.querySelectorAll('.article-row')).map((row) => {
-        const chips = row.querySelector('.topic-chips') as HTMLElement;
-        const shown = Array.from(chips.querySelectorAll('.pill'))
-          .filter((c) => getComputedStyle(c).display !== 'none') as HTMLElement[];
-        return {
-          height: Math.round(row.getBoundingClientRect().height),
-          shown: shown.length,
-          // Ellipsis rather than a slice: the box is narrower than the text.
-          truncated: shown.some((c) => c.scrollWidth > c.clientWidth + 1),
-          rowClipped: chips.scrollWidth > chips.clientWidth + 1,
-        };
-      }));
-
-    for (const r of rows) {
-      expect(r.rowClipped, 'the row must not clip a tag mid-word').toBe(false);
-      // Nothing is ellipsised any more: the row wraps instead, which is what
-      // having a row of its own buys.
-      expect(r.truncated, 'a tag was truncated despite having room').toBe(false);
-    }
-    // Every tag, not a capped two. The five- and six-topic articles are the
-    // ordinary case here, not the edge.
-    expect(rows[0].shown).toBe(5);      // 4 topics + the kind
-    expect(rows[1].shown).toBe(7);      // 6 topics + the kind
   });
 
   test('compact mode trades summaries for stories on screen', async ({ page }) => {
@@ -194,22 +164,8 @@ test.describe('phone layout', () => {
     expect(perScreen).toBeGreaterThan(4.5);
 
     await expect(page.locator('.article-summary').first()).toBeHidden();
-    await expect(page.locator('.topic-chip').first()).toBeHidden();
   });
 
-  test('the kind survives compact, because it explains the score', async ({ page }) => {
-    await page.route('**/api/v1/articles?*', (r) => r.fulfill({ json: {
-      articles: [article(1, { kind: 'fixture', topics: ['boca-juniors'] })],
-      next_offset: null, diagnosis: null } }));
-    await page.reload();
-    await page.waitForSelector('.article-row');
-    await openDrawer(page);
-    await page.getByRole('switch', { name: 'Compact list' }).click();
-    // A fixture listing and a transfer story are the same subject and opposite
-    // value; dropping that word would hide the reason for the score.
-    await expect(page.locator('.kind-chip')).toHaveText('fixture');
-    await expect(page.locator('.topic-chip')).toBeHidden();
-  });
 
   test('the density choice survives a reload', async ({ page }) => {
     await openDrawer(page);
@@ -222,11 +178,11 @@ test.describe('phone layout', () => {
       .toHaveAttribute('aria-checked', 'true');
   });
 
-  test('the last row leads with the source and the age', async ({ page }) => {
-    // They led the *meta* row until the card became three rows. Six items would
-    // not fit 356px -- that row wrapped to three lines -- and these two are the
-    // ones a reader reads rather than presses, so they moved down to sit with
-    // the tags.
+  test('the meta line leads with the source and the age', async ({ page }) => {
+    // They moved down to the tags row when the card became three rows, and back
+    // up again now that there is one line for everything. Same claim either
+    // way: these are the items a reader reads rather than presses, so they come
+    // first, and a missing date renders as nothing rather than "NaN".
     const now = Date.now();
     await page.route('**/api/v1/articles?*', (r) => r.fulfill({ json: {
       articles: [
@@ -239,39 +195,28 @@ test.describe('phone layout', () => {
     await page.waitForSelector('.article-row');
 
     const rows = page.locator('.article-row');
-    await expect(rows.nth(0).locator('.article-source')).toHaveText('LA NACION');
-    await expect(rows.nth(0).locator('.article-age')).toHaveText('2h');
-    await expect(rows.nth(1).locator('.article-age')).toHaveText('now');
+    await expect(rows.nth(0).locator('.meta-source')).toHaveText('LA NACION');
+    await expect(rows.nth(0).locator('.meta-age')).toHaveText('2h');
+    await expect(rows.nth(1).locator('.meta-age')).toHaveText('now');
     // No date is common in feeds; it renders as nothing rather than "NaN".
-    await expect(rows.nth(2).locator('.article-age')).toHaveCount(0);
+    await expect(rows.nth(2).locator('.meta-age')).toHaveCount(0);
 
-    // They lead the tags row, ahead of the pills, and that row stays one line
-    // for an article with few tags.
-    const chips = rows.nth(0).locator('.topic-chips');
-    await expect(chips.locator('.article-source')).toHaveCount(1);
-    expect((await chips.boundingBox())!.height).toBeLessThan(30);
+    // They lead the meta line, and it stays one line -- collapsing four rows
+    // into one is the whole point, and it must not wrap back out.
+    const meta = rows.nth(0).locator('.article-meta');
+    await expect(meta.locator('.meta-source')).toHaveCount(1);
+    // 48, not 30: the actions on this line stand 40px tall, so anything under
+    // 48 is one line and only a wrap clears it.
+    expect((await meta.boundingBox())!.height).toBeLessThan(48);
   });
 
   test('the source and age survive compact mode', async ({ page }) => {
     await openDrawer(page);
     await page.getByRole('switch', { name: 'Compact list' }).click();
-    await expect(page.locator('.article-source').first()).toBeVisible();
-    await expect(page.locator('.article-age').first()).toBeVisible();
+    await expect(page.locator('.meta-source').first()).toBeVisible();
+    await expect(page.locator('.meta-age').first()).toBeVisible();
   });
 
-  test('the meta row does not overlap itself', async ({ page }) => {
-    // The left column keeps a fixed 72px width on desktop; as a row that made
-    // the Open link overflow and sit on top of the tags.
-    const boxes = await page.locator('.article-row').first().evaluate((el) => {
-      const b = (s: string) => {
-        const n = el.querySelector(s) as HTMLElement | null;
-        return n ? n.getBoundingClientRect() : null;
-      };
-      const left = b('.article-left'); const chips = b('.topic-chips');
-      return left && chips ? { leftRight: left.right, chipsLeft: chips.left } : null;
-    });
-    if (boxes) expect(boxes.leftRight).toBeLessThanOrEqual(boxes.chipsLeft + 1);
-  });
 });
 
 test.describe('desktop keeps its layout', () => {
@@ -283,7 +228,7 @@ test.describe('desktop keeps its layout', () => {
     await page.goto('/');
     await page.waitForSelector('.article-row');
 
-    await expect(page.locator('.article-actions-inline').first())
+    await expect(page.locator('.article-actions').first())
       .toHaveCSS('flex-direction', 'row');
     expect((await page.locator('.sidebar').boundingBox())!.x).toBeGreaterThanOrEqual(0);
     await expect(page.locator('.drawer-toggle')).toBeHidden();
@@ -400,49 +345,20 @@ test.describe('photos', () => {
 
   test('the headline sits beside the photo, not under it', async ({ page, isMobile }) => {
     test.skip(!isMobile, 'phone only');
-    // "Costs no height" is not the claim any more and would be false: the photo
-    // floats, so on a short headline it is the tallest thing on the card and it
-    // does set the height. What it must not do is take a row of its own, which
-    // is what the old grid column did -- reserving width down the whole card
-    // whether or not a photo was in it.
+    // The photo sits to the *right* of the text in the redesign, where it used
+    // to float on the left. The claim is unchanged: it must not take a row of
+    // its own. Only the side it sits on moved.
     const thumb = (await page.locator('.article-row .article-thumb').first().boundingBox())!;
-    expect(thumb.width).toBe(72);
+    expect(thumb.width).toBe(76);
 
     const title = (await page.locator('.article-row .article-title').first().boundingBox())!;
-    expect(title.x, 'the headline was pushed below the photo')
-      .toBeGreaterThanOrEqual(thumb.x + thumb.width);
+    expect(title.x, 'the headline was pushed under the photo')
+      .toBeLessThan(thumb.x);
     expect(title.y, 'the headline starts level with the photo, not after it')
       .toBeLessThan(thumb.y + thumb.height);
   });
 
-  test('compact drops the tags but keeps the kind', async ({ page }) => {
-    // The photo used to displace the tags, because both wanted the same 356px
-    // line. They have a row of their own now, so nothing displaces them -- but
-    // compact still drops them, which on a six-topic article is two lines back.
-    // The kind stays: one short word, and the one that explains the score.
-    const row = page.locator('.article-row').first();
-    await expect(row.locator('.topic-chip').first()).toBeVisible();
 
-    await openDrawer(page);
-    await page.getByRole('switch', { name: 'Compact list' }).click();
-
-    await expect(row.locator('.topic-chip').first()).toBeHidden();
-    await expect(row.locator('.kind-chip')).toBeVisible();
-    await expect(row.locator('.article-summary')).toBeHidden();
-  });
-
-  test('a card with no photo keeps its tags', async ({ page, isMobile }) => {
-    test.skip(!isMobile, 'phone only');
-    // The trade above is bought by `:has()`, so it applies only where a photo
-    // actually takes the width.
-    await page.route('**/api/v1/articles?*', (r) => r.fulfill({ json: {
-      articles: [article(1, { thumbnail_url: null, topics: ['economy'] })],
-      next_offset: null, diagnosis: null,
-    } }));
-    await page.reload();
-    await page.waitForSelector('.article-row');
-    await expect(page.locator('.article-row .topic-chip').first()).toBeVisible();
-  });
 
   test('the reader leads with the photo', async ({ page }) => {
     // The detail endpoint is its own fixture; the list mock above does not
@@ -479,16 +395,16 @@ test.describe('the photos toggle', () => {
     // drops the only thing on a card fetched from a third party.
     const thumb = page.locator('.article-row .article-thumb').first();
     await expect(thumb).toBeVisible();
-    const indented = (await page.locator('.article-row .article-title').first().boundingBox())!.x;
+    const narrow = (await page.locator('.article-row .article-title').first().boundingBox())!.width;
 
     await openDrawer(page);
     await page.getByRole('switch', { name: 'Show photos' }).click();
 
     await expect(thumb).toBeHidden();
-    // The headline reclaims the space rather than leaving a hole where the
-    // photo was -- the point of a float over a reserved column.
-    const flush = (await page.locator('.article-row .article-title').first().boundingBox())!.x;
-    expect(flush).toBeLessThan(indented);
+    // The photo sits to the right now, so the headline reclaims the space by
+    // growing wider rather than by moving left. The hole must not simply stay.
+    const wide = (await page.locator('.article-row .article-title').first().boundingBox())!.width;
+    expect(wide).toBeGreaterThan(narrow);
   });
 
   test('the choice survives a reload', async ({ page }) => {

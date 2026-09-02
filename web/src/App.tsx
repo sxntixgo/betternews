@@ -460,24 +460,22 @@ export default function App() {
           />
         ) : (
           <>
-            <header className="site-header">
-              <Toolbar
-                drawerOpen={drawerOpen}
-                search={search}
-                onSearch={setSearch}
-                canPoll={me?.role === 'admin'}
-                onRefreshed={() => setReloads((n) => n + 1)}
-                onDigest={() => setShowDigest(true)}
-                onDismissAll={async () => {
-                  await api.dismissAll({ feed, saved: saved || undefined,
-                                         hidden: hidden || undefined, topic });
-                  setReloads((n) => n + 1);
-                }}
-                title={headerTitle}
-                unread={feeds?.unread ?? 0}
-                onOpenDrawer={() => setDrawerOpen((v) => !v)}
-              />
-            </header>
+            <Toolbar
+              drawerOpen={drawerOpen}
+              search={search}
+              onSearch={setSearch}
+              canPoll={me?.role === 'admin'}
+              onRefreshed={() => setReloads((n) => n + 1)}
+              onDigest={() => setShowDigest(true)}
+              onDismissAll={async () => {
+                await api.dismissAll({ feed, saved: saved || undefined,
+                                       hidden: hidden || undefined, topic });
+                setReloads((n) => n + 1);
+              }}
+              title={headerTitle}
+              unread={feeds?.unread ?? 0}
+              onOpenDrawer={() => setDrawerOpen((v) => !v)}
+            />
 
             {/* The briefing's trigger, not the briefing itself -- Digest still
                 fetches the briefing body only when opened. The subtitle comes from

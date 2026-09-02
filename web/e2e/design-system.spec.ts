@@ -302,7 +302,11 @@ test.describe('the drawer', () => {
     await expect(settings.getByRole('radiogroup', { name: 'Theme' })).toBeVisible();
 
     // And gone from the top bar, or they would be in two places at once.
-    await expect(page.locator('.site-header').getByRole('switch')).toHaveCount(0);
+    // `.app-header`, not the `.site-header` wrapper that used to hold it: that
+    // class is gone, and a locator matching nothing would satisfy
+    // `toHaveCount(0)` no matter where the switches ended up.
+    await expect(page.locator('.app-header')).toHaveCount(1);
+    await expect(page.locator('.app-header').getByRole('switch')).toHaveCount(0);
   });
 
   test('a plain reader gets the drawer without the admin links', async ({ page }) => {

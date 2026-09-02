@@ -35,10 +35,7 @@ body {
    stickied ancestor's context, no z-index on the toggle could out-rank a
    sibling stacking context at all. The missed strip below is unpinned for
    the same family of reason, just simpler: it scrolls with the list. */
-.site-header {
-  border-bottom: 1px solid var(--color-hairline);
-  background: var(--color-bg);
-}
+
 
 nav { display: flex; align-items: center; gap: 12px; flex-shrink: 0; margin-left: auto; }
 nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
@@ -228,8 +225,7 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
    instead of the old three-line icon -- but it still needs to sit above the
    open drawer, not behind it: the sidebar overlays at z-index 25 while open,
    and its own descendants clicked through, so an in-flow copy inside
-   `.app-header` (which is `.site-header`'s own, much lower, stacking
-   context) would go dead the moment the drawer covered it. Fixed and above
+   `.app-header` (a much lower stacking context) would go dead the moment the drawer covered it. Fixed and above
    both keeps `photos toggle > it takes the reader lead image with it`
    (mobile.spec.ts) able to close the drawer by tapping this same control a
    second time. `.header-title` reserves the matching space below so the
@@ -1237,6 +1233,13 @@ kbd {
    the field-behind-a-button search: those have no home up here and stay
    exactly as they were. */
 .app-header {
+  /* The hairline lives here, not on a wrapper. `.site-header` was a <header>
+     nested inside this one whose only remaining job was to draw this line --
+     and it drew it across the whole window while the column beneath it is
+     capped at 760px, so the rule ran past every card it was meant to close
+     off. On this element it ends where the reading measure does. */
+  border-bottom: 1px solid var(--color-hairline);
+  background: var(--color-bg);
   display: flex;
   flex-direction: column;
   gap: 18px;

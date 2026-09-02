@@ -346,7 +346,17 @@ class-name or text assertion could not see. It screenshots the four surfaces
 that redesign touched (reading list, drawer open, sign-in, single-story), at
 phone and desktop width, in light and dark, masking `.meta-age` /
 `.single-age` since relative timestamps ("2h", "now") change between runs and
-would fail every snapshot within the hour. Regenerate a baseline with
+would fail every snapshot within the hour. **It has one blind spot worth knowing.** `toHaveScreenshot`'s default
+`threshold` is 0.2 of YIQ difference *per pixel*, and this palette's hairline
+(`#e8e3d9`) against the page ground (`#faf9f7`) is about 0.085 — under it. So a
+rule that moves, lengthens or disappears does not register: when `.site-header`
+was removed and its full-window hairline became a 760px one aligned to the
+reading column, all sixteen snapshots still passed, and `--update-snapshots`
+rewrote nothing because nothing was judged different. The baselines had to be
+deleted and rebuilt to catch up. If you change something low-contrast, verify
+it by measuring rather than by watching this suite stay green.
+
+Regenerate a baseline with
 `npx playwright test visual.spec.ts --update-snapshots` — but only after a
 human has looked at the new image. Regenerating to make red go away, without
 looking, is how this kind of suite quietly becomes decoration: green whether

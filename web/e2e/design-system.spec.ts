@@ -381,3 +381,70 @@ test.describe('the drawer', () => {
     await expect(page.getByRole('switch', { name: 'Compact list' })).toBeVisible();
   });
 });
+
+// ── contrast ──────────────────────────────────────────────────────────────────
+
+/**
+ * Every rendered text node clears WCAG AA, in both themes.
+ *
+ * Added after an audit found 16 classes below 4.5:1 in light and 15 in dark,
+ * the worst at 2.12:1 -- the action buttons on every card. Two of them were
+ * token mix-ups rather than palette choices: the offline bar coloured itself
+ * with the *gold* accent's ink, and a cleanup swapped the what-you-missed
+ * button's `--color-on-accent` for `--color-offline-ink`, putting near-white on
+ * gold. Both are "light ink", which is why the swap read as harmless and why
+ * nothing caught it -- the screenshots cannot see contrast, and no assertion
+ * looked at colour at all.
+ *
+ * This measures rather than naming tokens, so it fails however the regression
+ * arrives.
+ */
+for (const theme of ['light', 'dark'] as const) {
+  test(`text clears WCAG AA in ${theme}`, async ({ page }) => {
+    await page.addInitScript((t) => localStorage.setItem('theme', t), theme);
+    await signedIn(page);
+    await mockApi(page);
+    await page.goto('/');
+    await page.locator('.article-row').first().waitFor();
+    await openDrawer(page);
+
+    const failures = await page.evaluate(() => {
+      const lum = (c: number[]) => {
+        const s = c.map((v) => { const x = v / 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; });
+        return 0.2126 * s[0] + 0.7152 * s[1] + 0.0722 * s[2];
+      };
+      const parse = (v: string) => (v.match(/[\d.]+/g) || []).map(Number);
+      // The nearest ancestor that actually paints: a transparent parent tells
+      // you nothing about what the text sits on.
+      const bgOf = (el: Element): number[] => {
+        let n: Element | null = el;
+        while (n) {
+          const b = parse(getComputedStyle(n).backgroundColor);
+          if (b.length >= 3 && (b[3] === undefined || b[3] > 0.5)) return b.slice(0, 3);
+          n = n.parentElement;
+        }
+        return [255, 255, 255];
+      };
+      const out: string[] = [];
+      document.querySelectorAll('*').forEach((el) => {
+        const hasText = Array.from(el.childNodes).some((n) => n.nodeType === 3 && n.textContent?.trim());
+        if (!hasText) return;
+        const cs = getComputedStyle(el);
+        if (cs.visibility === 'hidden' || cs.display === 'none' || Number(cs.opacity) < 0.3) return;
+        const l1 = lum(parse(cs.color).slice(0, 3));
+        const l2 = lum(bgOf(el));
+        const ratio = (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+        const size = parseFloat(cs.fontSize);
+        const large = size >= 24 || (size >= 18.66 && Number(cs.fontWeight) >= 700);
+        const need = large ? 3 : 4.5;
+        if (ratio < need) {
+          const cls = (el as HTMLElement).className?.toString().split(' ')[0] || el.tagName;
+          out.push(`${cls} ${ratio.toFixed(2)}:1 (needs ${need}) ${cs.color} on ${getComputedStyle(el).backgroundColor}`);
+        }
+      });
+      return [...new Set(out)];
+    });
+
+    expect(failures, `below WCAG AA in ${theme}:\n  ${failures.join('\n  ')}`).toEqual([]);
+  });
+}

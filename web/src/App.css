@@ -1240,7 +1240,10 @@ kbd {
   border: 0;
   border-radius: var(--radius-pill);
   background: var(--color-accent);
-  color: var(--color-offline-ink);
+  /* On-accent, not offline-ink. A cleanup pass swapped these and put near-white
+     on gold -- 2.11:1 in dark. They are both "light ink", which is exactly why
+     the swap looked harmless. */
+  color: var(--color-on-accent);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;

@@ -52,12 +52,21 @@
   --color-shell-story: #16160f;
   --color-segment-selected: #ffffff;
 
+
+  /* These muted rungs were darkened on 2026-09-02 to clear WCAG AA (4.5:1) for
+     small text. An audit of every rendered text node found 16 classes below it
+     in light and 15 in dark, worst at 2.12:1 -- the redesign's "quiet" palette
+     was quiet past the point of legibility, and almost all of it is 11-13px
+     type, where the requirement is strictest. Each value is the least change
+     that clears 4.62:1 against every background it actually sits on, hue and
+     saturation held. `design-system.spec.ts` measures this now, so it cannot
+     drift back. */
   --color-ink: #16160f;
   --color-ink-secondary: #4c4740;
-  --color-ink-body: #7d776d;
-  --color-ink-muted: #8f897f;
-  --color-ink-meta: #a8a29a;
-  --color-ink-faint: #b3ada3;
+  --color-ink-body: #767167;
+  --color-ink-muted: #6f6a61;
+  --color-ink-meta: #736c63;
+  --color-ink-faint: #746c60;
   /* Unused today -- the ink scale's disabled rung. Every button/action that
      disables today does it with `opacity: 0.4`, not a distinct colour, so
      nothing resolves this yet. Kept as the sanctioned name for the day
@@ -75,15 +84,15 @@
   --color-track-2: #f0ede6;
   --color-toggle-off: #e6e1d6;
 
-  --color-accent: #8a6d2f;
+  --color-accent: #85692d;
   --color-on-accent: #fdfbf5;
   --color-gold-strong: #4a3a12;
-  --color-gold-soft: #8a7c58;
+  --color-gold-soft: #766a4b;
   --color-gold-pill-surface: #f0e7d2;
   --color-gold-pill-ink: #7d6224;
 
-  --color-saved: #8a6d2f;
-  --color-focus: #8a6d2f;
+  --color-saved: #85692d;
+  --color-focus: #85692d;
 
   --color-danger: #8a3a2a;
   /* Unused today -- no error state currently needs a tinted background, only
@@ -117,9 +126,9 @@
   --color-ink: #f4f1e9;
   --color-ink-secondary: #cec8ba;
   --color-ink-body: #918a7d;
-  --color-ink-muted: #7c766a;
-  --color-ink-meta: #7c766a;
-  --color-ink-faint: #6d6659;
+  --color-ink-muted: #8d877a;
+  --color-ink-meta: #8d877a;
+  --color-ink-faint: #8b8372;
   --color-ink-disabled: #5d574c;
 
   --color-hairline: #26241d;
@@ -173,9 +182,9 @@
     --color-ink: #f4f1e9;
     --color-ink-secondary: #cec8ba;
     --color-ink-body: #918a7d;
-    --color-ink-muted: #7c766a;
-    --color-ink-meta: #7c766a;
-    --color-ink-faint: #6d6659;
+    --color-ink-muted: #8d877a;
+    --color-ink-meta: #8d877a;
+    --color-ink-faint: #8b8372;
     --color-ink-disabled: #5d574c;
 
     --color-hairline: #26241d;

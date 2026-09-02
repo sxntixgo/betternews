@@ -39,20 +39,20 @@ Every task's requirements implicitly include this section.
 - Each task below names the **model** the subagent runs on.
 - A subagent receives only its own task section, plus this header and Global Constraints.
 
-| Task | Title | Model |
-|---|---|---|
-| 1 | Make the web toolchain runnable | haiku |
-| 2 | Self-host Source Serif 4 | haiku |
-| 3 | Repalette the design tokens | sonnet |
-| 4 | ArticleCard → one meta + actions row | opus |
-| 5 | List rhythm: no tints, no dividers | sonnet |
-| 6 | Mobile header + "What you missed" strip | sonnet |
-| 7 | Desktop measure, toolbar, responsive collapse | opus |
-| 8 | Drawer → three groups | opus |
-| 9 | Toggles and segmented controls | sonnet |
-| 10 | Sign in restyle | sonnet |
-| 11 | Single-story mode *(optional)* | opus |
-| 12 | Full verification pass | opus |
+| Task | Title | Model | Status |
+|---|---|---|---|
+| 1 | Make the web toolchain runnable | haiku | DONE (no code change) |
+| 2 | Self-host Source Serif 4 | haiku | DONE |
+| 3 | Repalette the design tokens | sonnet | DONE |
+| 4 | ArticleCard → one meta + actions row | opus | DONE |
+| 5 | List rhythm: no tints, no dividers | sonnet | DONE |
+| 6 | Mobile header + "What you missed" strip | sonnet | DONE |
+| 7 | Desktop measure, toolbar, responsive collapse | opus | DONE |
+| 8 | Drawer → three groups | opus | DONE |
+| 9 | Toggles and segmented controls | sonnet | DONE |
+| 10 | Sign in restyle | sonnet | DONE |
+| 11 | Single-story mode *(optional)* | opus | DONE |
+| 12 | Full verification pass | opus | DONE |
 
 ## Environment Gate — **RESOLVED 2026-09-01 by Task 1**
 
@@ -1533,14 +1533,9 @@ test.describe('single story', () => {
 Run: `node ./node_modules/.bin/playwright test redesign.spec.ts --project=phone -g "single story"`
 Expected: FAIL — no "One at a time" control.
 
-> **This task is deliberately not step-by-step.** It is optional, unconfirmed, and the only task that adds a feature rather than restyling one. **Expand it into full TDD steps — with the component's actual code — before dispatching a subagent.** Dispatching it as written would violate the no-placeholders rule the rest of this plan follows.
+**Status: DONE.** This task was built and shipped; `SingleStory.tsx` renders a centred card capped at 420px on mobile and centred above 900px, holds the score pill (the only place it appears in the redesign), and advances through the list via swipe-left/-right gestures. Commit: `25bda5a Add single-story reading mode`.
 
-- [ ] **Step 3–6:** Implement `SingleStory.tsx` to the spec above, add the entry-point button to the drawer's group 2 (labelled "One at a time"), style per handoff section C, run the test to green, run the full suite, and commit:
-
-```bash
-git add web/src/components/SingleStory.tsx web/src/App.tsx web/src/App.css web/e2e/redesign.spec.ts
-git commit -m "feat: single-story triage mode"
-```
+A subsequent follow-up (`89be0e0 Cap single-story at desktop width instead of letting it stretch`) had to constrain the component — without the cap it stretched to 955px, putting a 27px serif headline over an unreadable measure — so the override sits at the end of `App.css` on purpose, where specificity lets the max-width win.
 
 ---
 
@@ -1581,8 +1576,33 @@ git commit -m "docs: describe the whitespace redesign in the codebase guide"
 
 ---
 
-## Open Questions
+## Decisions Made — 2026-09-01
 
-1. **Task 11** is optional and unconfirmed. Confirm before dispatching.
-2. **"Mark all read" (mobile) vs "Dismiss all" (desktop)** — the plan wires both labels to `POST /articles/dismiss-all`, the only bulk reader action that exists. If they should be genuinely different operations, that needs a new endpoint and its own task.
-3. **The undo affordance** the handoff specifies for Dismiss all ("confirm via undo affordance, not a dialog") has no backend support — dismissal is not reversible in bulk today. Not planned; raise if wanted.
+1. **Task 11** was confirmed wanted and built. Single-story mode ships as an alternative to the list, reached from the drawer as "One at a time", advancing via swipe gestures and holding the score pill (the only place it renders in the redesign).
+
+2. **"Mark all read" vs "Dismiss all"** — both labels wire to `POST /articles/dismiss-all`. The reader chose to keep both phrasings at every width rather than unifying the label, trading consistency for clarity in context (one reads as "I'll come back" on a phone, the other as "gone" on desktop). Both call the same endpoint.
+
+3. **The undo affordance** — still not built. The handoff calls for "confirm via undo affordance, not a dialog", but dismissal is not reversible in bulk. Considered and deferred; dismissed articles can be read from `?dismissed=1` and the operation is not irreversible at the row level (`swipe-left` leaves a undo trail in the UI). Raise if a time-window undo is wanted.
+
+---
+
+## Follow-ups and Surprises
+
+**Five tasks shipped after the planned twelve:**
+
+1. **Topic filter** (`f8d562e`) — `.meta-tag` became clickable to filter the list to that topic.
+2. **Digest metadata endpoint** (`5a2f855`) — `GET /digest/meta` returns story count and estimated read time without generating the briefing, backing the strip without an LLM call on every page load.
+3. **Drawer extraction** (`1137298`) — `Drawer.tsx` was pulled out of a 751-line `App.tsx` (608 remaining) as a standalone component.
+4. **Visual coverage** (`8edb366`) — Screenshot tests over the four redesigned surfaces caught defects the regular suite missed: an invisible keyboard focus row, `--font-ui` never applying, a forced-password screen losing its styling when a sibling was restyled, and a single-story card stretching past its measure.
+5. **Dead-CSS sweep** (`89d65ef`) — Removed pill styling from count badges and deleted unused tokens from the palette.
+
+**Two briefs specified something that already existed:**
+
+- **A header stacked above the old toolbar** — Task 6 (Mobile header) created a new header but didn't remove the existing toolbar, so they rendered together until Task 7's follow-up (`2f7267d`) unified them. The old icon row is gone; the header carries all actions as text.
+- **A filter field that was nearly built twice** — Task 7 restyled the existing `#search` field as an underline input rather than creating a new `.filter-field`. The test comment in the diff reads: "It is not a new `.filter-field`: the app has had that field all along, and adding a second one is exactly the mistake the previous task had to be rescued from."
+
+**The environment assumptions were incomplete:**
+
+- The plan assumed a working `npm` on the machine. Task 1 had to install Node from source — the VS Code server ships a `node` binary but no `npm`, and there is no npm anywhere on the image.
+
+These gaps point toward a tighter planning process: confirm the build environment before writing steps, and require briefs to include a sentence on what already exists in the codebase so duplicating work surfaces as a mismatch.

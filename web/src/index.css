@@ -58,6 +58,12 @@
   --color-ink-muted: #8f897f;
   --color-ink-meta: #a8a29a;
   --color-ink-faint: #b3ada3;
+  /* Unused today -- the ink scale's disabled rung. Every button/action that
+     disables today does it with `opacity: 0.4`, not a distinct colour, so
+     nothing resolves this yet. Kept as the sanctioned name for the day
+     something needs disabled *text* specifically, rather than a dimmed
+     control -- the alternative is a hex literal, which index.css's own rule
+     above forbids. */
   --color-ink-disabled: #cfc9bf;
 
   --color-hairline: #e8e3d9;
@@ -66,7 +72,6 @@
   --color-divider: #eee9e0;
   --color-indent-active: #ede6d6;
   --color-indent-inactive: #e3ddd0;
-  --color-track: #eae6dc;
   --color-track-2: #f0ede6;
   --color-toggle-off: #e6e1d6;
 
@@ -81,11 +86,12 @@
   --color-focus: #8a6d2f;
 
   --color-danger: #8a3a2a;
+  /* Unused today -- no error state currently needs a tinted background, only
+     `--color-danger` text/borders. Kept because `-surface` pairing with an
+     ink colour is the live convention here (see `--color-gold-pill-surface`,
+     `--color-surface-accent`), and the sanctioned move when one does is this
+     token, not a hex value. */
   --color-danger-surface: #f7ecea;
-  --color-success: #2d7a3a;
-  --color-success-surface: #e8f3ea;
-  --color-warning: #7d4e00;
-  --color-warning-surface: #f3efe4;
 
   --color-offline-surface: #7d4e00;
   --color-offline-ink: #fdfbf5;
@@ -122,7 +128,6 @@
   --color-divider: #26241d;
   --color-indent-active: #4a4128;
   --color-indent-inactive: #2b2922;
-  --color-track: #211f19;
   --color-track-2: #211f19;
   --color-toggle-off: #2e2b23;
 
@@ -138,10 +143,6 @@
 
   --color-danger: #d9604a;
   --color-danger-surface: #2a1410;
-  --color-success: #52c46a;
-  --color-success-surface: #16281a;
-  --color-warning: #d4a055;
-  --color-warning-surface: #211f19;
 
   --color-offline-surface: #5a4310;
   --color-offline-ink: #f4f1e9;
@@ -183,7 +184,6 @@
     --color-divider: #26241d;
     --color-indent-active: #4a4128;
     --color-indent-inactive: #2b2922;
-    --color-track: #211f19;
     --color-track-2: #211f19;
     --color-toggle-off: #2e2b23;
 
@@ -199,10 +199,6 @@
 
     --color-danger: #d9604a;
     --color-danger-surface: #2a1410;
-    --color-success: #52c46a;
-    --color-success-surface: #16281a;
-    --color-warning: #d4a055;
-    --color-warning-surface: #211f19;
 
     --color-offline-surface: #5a4310;
     --color-offline-ink: #f4f1e9;
@@ -238,7 +234,6 @@
   /* Redesign radii. `sm`/`md`/`lg` stay for the screens outside this work. */
   --radius-thumb: 8px;
   --radius-strip: 12px;
-  --radius-window: 14px;
   --radius-story: 20px;
   /* Fully round. Its own token because "pill" is a shape decision, not a step
      on the scale -- every ad-hoc `border-radius: 999px` was one of these. */

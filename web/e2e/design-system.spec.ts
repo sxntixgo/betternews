@@ -2,6 +2,19 @@ import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 import { mockAdmin, mockApi, openDrawer, signedIn } from './fixtures';
 
+// WCAG relative luminance / contrast ratio, computed from a browser's
+// `rgb(...)` / `rgba(...)` computed-style strings.
+function relativeLuminance(rgb: string): number {
+  const [r, g, b] = (rgb.match(/[\d.]+/g) ?? []).map(Number).map((c) => c / 255);
+  const linear = (c: number) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
+}
+
+function contrastRatio(a: string, b: string): number {
+  const [lighter, darker] = [relativeLuminance(a), relativeLuminance(b)].sort((x, y) => y - x);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
 // ── the token discipline ──────────────────────────────────────────────────────
 
 test('App.css names tokens and never a hex value', () => {
@@ -186,6 +199,37 @@ test.describe('the shared pill', () => {
     const css = readFileSync(new URL('../src/App.css', import.meta.url), 'utf8');
     expect(css).not.toContain('999px');
   });
+});
+
+// ── the offline bar ───────────────────────────────────────────────────────────
+
+test('the offline bar is readable in dark mode', async ({ page, context }) => {
+  // .offline-bar's text used --color-on-accent -- text for the *gold accent*,
+  // not this bar. In dark mode that is #1a1509, near-black, on
+  // --color-offline-surface's dark amber (#5a4310): 1.94:1, against WCAG AA's
+  // 4.5:1 for normal text. --color-offline-ink exists for exactly this and
+  // gets 8.29:1. Drive it the way pwa.spec's offline test does: `watchConnectivity`
+  // reads `navigator.onLine`, not the event, so the context must actually go
+  // offline before the event fires.
+  await signedIn(page);
+  await mockApi(page);
+  await page.goto('/');
+  await page.waitForSelector('.article-row');
+  await openDrawer(page);
+  await page.getByRole('radiogroup', { name: 'Theme' }).getByRole('radio', { name: 'Dark' }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+
+  await context.setOffline(true);
+  await page.evaluate(() => window.dispatchEvent(new Event('offline')));
+  const bar = page.locator('.offline-bar');
+  await expect(bar).toBeVisible();
+
+  const { color, background } = await bar.evaluate((el) => {
+    const cs = getComputedStyle(el);
+    return { color: cs.color, background: cs.backgroundColor };
+  });
+  expect(contrastRatio(color, background), `text ${color} on background ${background}`)
+    .toBeGreaterThanOrEqual(4.5);
 });
 
 test('sort is a segmented control defaulting to Date', async ({ page }) => {

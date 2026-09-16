@@ -284,25 +284,6 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
   }
   .sidebar.open { transform: translateX(0); }
 
-  /* Reader modal goes full-bleed on small screens — the desktop margins
-     just eat real estate on a phone. */
-  dialog#reader-modal {
-    width: 100vw;
-    height: 100vh;
-    max-width: 100vw;
-    max-height: 100vh;
-    border: none;
-    box-shadow: none;
-  }
-  .modal-nav { padding: 6px 12px; }
-  /* Override the coarse-pointer 40px min-height for the modal top bar so
-     Back / Open-in-browser don't dominate the screen on mobile. */
-  .modal-nav .btn-icon,
-  .modal-nav .btn-external {
-    min-height: 32px;
-    padding: 4px 8px;
-    font-size: 13px;
-  }
   .modal-body { padding: 20px 16px; }
   /* Borders would be two stray lines at the screen edge, but the side padding
      stays: without it the thumbnail and the score badge sit flush against the
@@ -702,18 +683,27 @@ dialog {
 dialog::backdrop { background: var(--overlay-bg); }
 dialog[open] { display: flex; flex-direction: column; }
 
+/* Shaped like `.app-header`, and for the same reasons -- one hairline, the
+   page ground behind it, actions as 13px text. The side padding is the
+   modal's 20px rather than the header's 24, because this bar aligns to
+   `.modal-body` beneath it; it is the type that makes the two read as one
+   system, not the gutter. The top inset matches the list header's treatment
+   and is inert until there is a `viewport-fit=cover` to make it real. */
 .modal-nav {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 20px;
+  justify-content: space-between;
+  gap: 20px;
+  padding: max(14px, env(safe-area-inset-top)) 20px 14px;
   border-bottom: 1px solid var(--color-hairline);
+  background: var(--color-bg);
   flex-shrink: 0;
   position: sticky;
   top: 0;
-  background: var(--color-bg);
   z-index: 1;
 }
+/* `.header-action` is a <button> rule; the Open link needs the same box. */
+.modal-nav .header-action { text-decoration: none; }
 
 .modal-body {
   flex: 1;

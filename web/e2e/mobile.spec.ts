@@ -173,6 +173,29 @@ test.describe('phone layout', () => {
     await expect(page.locator('.article-summary').first()).toBeHidden();
   });
 
+  test('compact mode drops the hidden-reason with the summary', async ({ page }) => {
+    // Compact hid `.article-summary` and nothing else, so on the Hidden list it
+    // traded one paragraph of prose for another -- the reason is longer than
+    // some summaries. It is still on the score's `title` attribute, so nothing
+    // is lost by dropping it from the row.
+    await page.route('**/api/v1/articles?*', (r) => r.fulfill({ json: {
+      articles: [article(1, {
+        hidden: true,
+        score_reason: 'No stated interest in municipal parking policy.',
+      })],
+      next_offset: null, diagnosis: null,
+    } }));
+    await page.reload();
+    await page.waitForSelector('.article-row');
+    await expect(page.locator('.hidden-reason')).toBeVisible();
+
+    await openDrawer(page);
+    await page.getByRole('switch', { name: 'Compact list' }).click();
+    await expect(page.locator('.hidden-reason')).toBeHidden();
+    // Still reachable, just not as a second paragraph.
+    await expect(page.locator('.meta-score').first())
+      .toHaveAttribute('title', 'No stated interest in municipal parking policy.');
+  });
 
   test('the density choice survives a reload', async ({ page }) => {
     await openDrawer(page);

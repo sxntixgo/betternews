@@ -1155,10 +1155,14 @@ kbd {
      there is room for it. */
   .original-title { display: none; }}
 
-/* Compact list. The summary is the whole saving, and now the only one: the
-   tags and the kind that compact also used to hide have gone from the card
-   entirely, and the meta line is one line in either mode. */
-[data-density='compact'] .article-summary { display: none; }
+/* Compact list. The summary was the whole saving, and the reason a hidden
+   article was hidden has to go with it: on the Hidden list it is a second
+   paragraph of prose, often longer than the summary compact just dropped. It
+   is still the `title` on `.meta-score`, so nothing is lost. The tags and the
+   kind that compact also used to hide have gone from the card entirely, and
+   the meta line is one line in either mode. */
+[data-density='compact'] .article-summary,
+[data-density='compact'] .hidden-reason { display: none; }
 [data-density='compact'] .article-row { padding: 6px 0; }
 
 /* The source is the one item on the meta line with no length limit, so it is

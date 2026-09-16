@@ -347,16 +347,61 @@ test.describe('the top bar and the drawer fit the screen', () => {
       });
     };
 
-    for (const selector of ['.header-name', '#poll-btn', '#dismiss-all-btn', '.search-toggle']) {
-      const { text, height, lineHeight } = await oneLine(selector);
-      expect(height, `"${text}" (${selector}) wrapped: ${height}px of ${lineHeight}px line-height`)
-        .toBeLessThanOrEqual(lineHeight * 1.4);
-    }
+    const fits = async () => {
+      for (const selector of ['.header-name', '#poll-btn', '#dismiss-all-btn', '.search-toggle']) {
+        const { text, height, lineHeight } = await oneLine(selector);
+        expect(height, `"${text}" (${selector}) wrapped: ${height}px of ${lineHeight}px line-height`)
+          .toBeLessThanOrEqual(lineHeight * 1.4);
+      }
 
-    const count = (await page.locator('.unread-count').boundingBox())!;
-    const actionsBox = (await page.locator('.header-actions').boundingBox())!;
-    expect(actionsBox.x - (count.x + count.width),
-      'the unread count is flush against the first action').toBeGreaterThan(0);
+      const count = (await page.locator('.unread-count').boundingBox())!;
+      const actionsBox = (await page.locator('.header-actions').boundingBox())!;
+      expect(actionsBox.x - (count.x + count.width),
+        'the unread count is flush against the first action').toBeGreaterThan(0);
+
+      // One line and no overflow was the whole assertion, and both were true
+      // at 375px while the title read "All fee...". `.header-name` ellipsises
+      // rather than wrapping, and it is the only flexible item in the row, so
+      // it absorbs any shortfall in silence: nothing wraps, `document`'s
+      // scrollWidth never exceeds the viewport, and the feed name is the thing
+      // that pays. Reading the element's own overflow is what sees it.
+      const title = await page.locator('.header-name').evaluate((node) => ({
+        text: node.textContent ?? '',
+        scrollWidth: node.scrollWidth,
+        clientWidth: node.clientWidth,
+      }));
+      expect(title.scrollWidth,
+        `"${title.text}" is ellipsised: ${title.scrollWidth}px of name in ${title.clientWidth}px of box`)
+        .toBeLessThanOrEqual(title.clientWidth);
+    };
+
+    await fits();
+
+    // 375, not only the project's 390. The iPhone SE 2/3, the 8 and the 13
+    // mini all render 375 and all three are current; at that width the header
+    // had 15px less than "All feeds" needs.
+    await page.setViewportSize({ width: 375, height: 667 });
+    await expect(page.locator('.app-header')).toBeVisible();
+    await fits();
+  });
+
+  test('a scroll the browser performs lands clear of the pinned header', async ({ page }) => {
+    // The header is `position: sticky` and opaque, so it covers whatever is
+    // under it. Find-in-page, `scrollIntoView`, `scrollIntoViewIfNeeded` and a
+    // fragment jump all scroll the *page*, not the app, and none of them knows
+    // the top ~71px is spoken for -- they put their target at y=0 and the
+    // header draws over it. `scroll-padding-top` on the scroll port is what
+    // tells them, and it has been missing since the header was pinned.
+    const header = (await page.locator('.app-header').boundingBox())!;
+    // Not the last row: at the foot of the document there is nothing left to
+    // scroll, the target stops short of the top on its own, and the assertion
+    // passes whatever the padding is. A row in the middle is the one that
+    // actually gets put at the top.
+    const row = page.locator('.article-row').nth(3);
+    await row.evaluate((el) => el.scrollIntoView());
+    const box = (await row.boundingBox())!;
+    expect(box.y, `the row landed ${header.height - box.y}px under the header`)
+      .toBeGreaterThanOrEqual(header.height);
   });
 
   test('every header action is a named control', async ({ page, isMobile }) => {
@@ -520,17 +565,29 @@ test.describe('the top bar and the drawer fit the screen', () => {
     expect(box.width / box.height, 'a switch is wider than it is tall')
       .toBeGreaterThan(1.4);
 
-    // The target is still there, it is just not the painted box.
-    const hit = await toggle.evaluate((el) => {
-      const r = getComputedStyle(el, '::after');
-      const b = el.getBoundingClientRect();
-      const grow = (v: string) => Math.abs(parseFloat(v) || 0);
-      return {
-        w: b.width + grow(r.left) + grow(r.right),
-        h: b.height + grow(r.top) + grow(r.bottom),
-      };
-    });
-    expect(Math.min(hit.w, hit.h)).toBeGreaterThanOrEqual(44);
+    // The target is still there, it is just not the painted box -- so probe
+    // the hit region rather than the declaration that draws it. Reading
+    // `getComputedStyle(el, '::after')`'s insets and adding them to the track
+    // asserts the mechanism: it stays green if `.toggle` loses
+    // `position: relative`, at which point those same insets resolve against
+    // some ancestor's padding box and the 44px lands somewhere else entirely.
+    // On screen first: the drawer is taller than an iPhone, this row sits
+    // ~980px down it, and `elementFromPoint` answers null for anything past
+    // the fold. The computed-style probe this replaces never needed the
+    // control to be visible, which is part of how it drifted off the goal.
+    await toggle.scrollIntoViewIfNeeded();
+    const onScreen = (await toggle.boundingBox())!;
+    const above = { x: onScreen.x + onScreen.width / 2, y: onScreen.y - 8 };
+    const hit = await page.evaluate(
+      (p) => document.elementFromPoint(p.x, p.y)?.getAttribute('aria-label'),
+      above,
+    );
+    expect(hit, '8px above the track is not the switch').toBe('Compact list');
+
+    // And it is a working target, not merely the topmost element there.
+    const before = await toggle.getAttribute('aria-checked');
+    await page.mouse.click(above.x, above.y);
+    await expect(toggle).not.toHaveAttribute('aria-checked', before!);
   });
 
   test('the segmented controls do not stand 40px tall', async ({ page, isMobile }) => {

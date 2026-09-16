@@ -23,15 +23,29 @@ export function applyTheme(pref: ThemePreference): void {
 }
 
 export function loadTheme(): ThemePreference {
-  const stored = localStorage.getItem(KEY);
-  return stored === 'light' || stored === 'dark' ? stored : 'system';
+  // Guarded like `density`, `photos` and `tags`, and this one mattered most:
+  // `App.tsx` calls it from a `useState` initializer, so where localStorage
+  // throws -- Safari private browsing, a browser set to block site data -- the
+  // throw came out of render and the app put nothing on the screen at all.
+  try {
+    const stored = localStorage.getItem(KEY);
+    return stored === 'light' || stored === 'dark' ? stored : 'system';
+  } catch {
+    return 'system';
+  }
 }
 
 export function setTheme(pref: ThemePreference): void {
-  // 'system' is the default, so storing it would add a key that means nothing.
-  // Removing keeps localStorage empty for anyone who never chose.
-  if (pref === 'system') localStorage.removeItem(KEY);
-  else localStorage.setItem(KEY, pref);
+  try {
+    // 'system' is the default, so storing it would add a key that means
+    // nothing. Removing keeps localStorage empty for anyone who never chose.
+    if (pref === 'system') localStorage.removeItem(KEY);
+    else localStorage.setItem(KEY, pref);
+  } catch {
+    /* private mode: the theme still applies, it just forgets */
+  }
+  // Outside the guard: applying the theme is the part the reader can see, and
+  // it does not depend on the store having accepted anything.
   applyTheme(pref);
 }
 

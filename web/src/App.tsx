@@ -304,7 +304,7 @@ export default function App() {
       run: () => document.getElementById('search')?.focus() },
     { id: 'sort-date', label: 'Sort by date', run: () => setSort('date') },
     { id: 'sort-score', label: 'Sort by score', run: () => setSort('score') },
-    { id: 'density', label: 'Toggle compact list (hides summaries and tags)',
+    { id: 'density', label: 'Toggle compact list (hides summaries)',
       run: () => {
         const next = density === 'compact' ? 'comfortable' : 'compact';
         setDensity(next);

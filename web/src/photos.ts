@@ -5,9 +5,9 @@
  * the same reason: the right answer differs between a phone on a metered
  * connection and a desktop on wifi.
  *
- * It is not the same lever as `density`. Compact drops the summary and the
- * tags, which are text the model produced; this drops the images, which are
- * the only thing on a card fetched from a third party. Turning them off makes
+ * It is not the same lever as `density`. Compact drops the summary, which is
+ * text the model produced; this drops the images, which are the only thing on
+ * a card fetched from a third party. Turning them off makes
  * the list denser *and* stops every card reaching out to a news site's CDN --
  * two reasons a reader might want it, and neither is served by the other
  * toggle.

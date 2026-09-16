@@ -215,8 +215,8 @@ both clients.
   because 34px of space between groups says the same thing and the labels were the
   loudest type in the column while saying the least. The groups are: what to read
   (feeds), the lists that are not the reading list (Saved, Hidden, Your stats), and the
-  display preferences — `.drawer-settings`, where `Toggle` gives Photos and Compact and
-  `Segmented` gives Sort and Theme as radiogroups. Sort was a "sort by score instead of
+  display preferences — `.drawer-settings`, where `Toggle` gives Photos, Compact and
+  Tags and `Segmented` gives Sort and Theme as radiogroups. Sort was a "sort by score instead of
   date" switch; two positions say it without the double negative. Everything that opens
   a dialog rather than filtering the list sits in `.drawer-footer` as small text, each
   admin entry by name rather than behind one "Admin" word. Density and sort used to sit
@@ -268,8 +268,11 @@ both clients.
   the card at all.** The redesign kept a pill only for single-story mode — it was built
   and is on `main` (`components/SingleStory.tsx`'s `.score-pill`); the card itself just
   has no styling waiting for it. Tags are down to one topic as plain text (`.meta-tag`),
-  desktop only — it is the item that would wrap the phone's single meta line — so the
-  old tag cap and 13ch truncation are gone with the row that needed them. It is a
+  behind `[data-tags='on']` at every width — the drawer's Show tags switch, off by
+  default. It was desktop-only, on a `min-width: 900px` gate, because the tag is the
+  item that would wrap the phone's single meta line; the switch replaced that gate
+  rather than adding to it, so the 13ch cap is back (`App.css` ~1195-1203) and it is
+  the cap, not a breakpoint, that holds the line to one line. It is a
   control, not decoration: clicking it filters the list to that topic, and it is a
   `<button>` so the card's own click guard (`closest('button, a, …')`) keeps it from
   also opening the reader. `.pill` would have been the wrong shape here — the design
@@ -304,13 +307,18 @@ both clients.
   becoming a second kind of card.
 - **Desktop is a reading measure, not the window**: `#article-list` is capped at 760px
   including its 48px gutters, and the header and the what-you-missed strip are held to
-  the same edges. The whole desktop layout lives in one `@media (min-width: 900px)`
-  block — below that it collapses to the phone layout, drawer overlay and all, rather
-  than to a third in-between one nobody tests.
+  the same edges. 900px is the one breakpoint, and the reading column's whole desktop
+  layout is one `@media (min-width: 900px)` block (`App.css` ~1413) — below that it
+  collapses to the phone layout, drawer overlay and all, rather than to a third
+  in-between one nobody tests. Four smaller blocks at the same width sit beside their
+  own rules rather than in it: the drawer's switch metrics, the sign-in screen, the
+  single-story cap (which must come last — see below), and `#digest-btn`. Five in the
+  file, one for the layout.
 - **Four display preferences, all per-device localStorage**: `theme`,
-  `density`, `photos`, `tags`. `density` (compact) now drops only the summary — the
-  meta line is one line in either mode. `photos` drops the images — the only thing on
-  a card fetched from a third party. `tags` shows the topic tag on the card: it
+  `density`, `photos`, `tags`. `density` (compact) drops the summary and the
+  hidden-reason line — the meta line is one line in either mode, and the tag it can
+  carry is the `tags` switch's business, not this one's. `photos` drops the images —
+  the only thing on a card fetched from a third party. `tags` shows the topic tag on the card: it
   replaced the topic tag's `min-width: 900px` gate rather than adding to it, so the
   switch means the same thing on a phone as on a desktop, and the phone's single meta
   line is held by a 13ch cap instead of by hiding the control. It defaults off. They

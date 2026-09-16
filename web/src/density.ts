@@ -6,12 +6,13 @@
  *     comfortable   139px per card   4.79 on screen
  *     compact       101px per card   6.55 on screen
  *
- * The interesting part is what compact drops and what it does not. Hiding the
- * tags saves **nothing** vertically -- they sit on the meta line beside the
- * action buttons, whose 40px tap target sets that row's height either way. The
- * summary is the whole 38px. So compact hides both, but for two different
- * reasons: the summary to stop the scrolling, the tags because a truncated
- * `copa-libert…` is clutter rather than information at this size.
+ * The interesting part is what compact drops and what it does not. It drops
+ * the summary -- that is the whole 38px -- and the hidden-reason line on the
+ * Hidden list, which is a second paragraph doing the same job there. It does
+ * **not** drop the tag, and no longer can: the tag sits on the meta line beside
+ * the action buttons, whose 40px tap target sets that row's height either way,
+ * so hiding it saved nothing vertically and cost a reader a control. That is
+ * the `tags` switch's business now, and it is one lever per reason.
  *
  * `kind` stays in either mode. It is one short word from a closed vocabulary
  * and it is the single most useful thing on the card for judging why something

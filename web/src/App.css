@@ -1256,12 +1256,39 @@ kbd {
      resolves to 0 -- and is correct the day that changes. */
   padding: max(14px, env(safe-area-inset-top)) 24px 16px;
 }
-.header-row { display: flex; align-items: center; justify-content: space-between; }
-.header-title { display: flex; align-items: center; gap: 14px; }
-.header-name { font-size: 17px; font-weight: 600; letter-spacing: -0.2px; color: var(--color-ink); }
-.unread-count { font-size: 12px; font-weight: 400; color: var(--color-ink-meta); }
+/* `gap` rather than `justify-content: space-between` alone. Space-between
+   distributes whatever slack is left, which is the right look while there is
+   slack and silently becomes zero when there is none: at 390px the unread
+   count's right edge and the first action's left edge touched exactly, and
+   "139Refresh" read as one string. The gap is a floor the row cannot spend. */
+.header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+/* `min-width: 0` so the title -- and only the title -- is what gives when a
+   feed name is long. Without it a flex item refuses to shrink below its
+   content and the actions are pushed off the right edge instead. */
+.header-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.header-name {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  color: var(--color-ink);
+  /* One line, always. Wrapped, "All feeds" stood 51px tall against a 25.5px
+     line-height and took the whole header up with it. A long feed name
+     ellipsises now rather than growing a second row. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.unread-count { font-size: 12px; font-weight: 400; color: var(--color-ink-meta); flex: none; }
 
-.header-actions { display: flex; align-items: center; gap: 20px; }
+/* `flex: none`: the three actions are the fixed half of this row. They shrink
+   to nothing useful -- a label at its wrap width is a label on two lines. */
+.header-actions { display: flex; align-items: center; gap: 14px; flex: none; }
 .header-action {
   background: none;
   border: 0;
@@ -1271,6 +1298,7 @@ kbd {
   font-weight: 400;
   color: var(--color-ink-muted);
   cursor: pointer;
+  white-space: nowrap;
 }
 .header-action.is-ink { color: var(--color-ink); }
 
@@ -1430,6 +1458,9 @@ kbd {
      field -- floated 260px past the right edge of every card under it, and the
      toolbar stopped reading as this column's toolbar. */
   .app-header { max-width: 760px; padding: 26px 48px 0; gap: 28px; }
+  /* The base 10px is the phone's budget -- there the hamburger sits in this
+     gap too, and the row has 342px to spend. Nothing is tight here. */
+  .header-title { gap: 14px; }
   .header-actions { gap: 24px; }
   /* The field is simply there at this width, so the button that reveals it has
      nothing left to reveal -- it would toggle something already open. Hidden,

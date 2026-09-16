@@ -291,6 +291,50 @@ test.describe('the top bar and the drawer fit the screen', () => {
     }
   });
 
+  test('the header row fits on one line, and the count never touches the actions',
+    async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'phone only');
+    // The sticky-header fix moved `.drawer-toggle` out of `position: fixed` and
+    // into the header's flow, which was right -- but a fixed element is out of
+    // flow and contributes no width, and the in-flow button costs ~12px the row
+    // did not have. At 390px "All feeds" wrapped to two lines (51px against a
+    // 25.5px line-height), "Mark all read" wrapped with it, and `.unread-count`
+    // ended at exactly the x `.header-actions` began: "139Refresh" as one
+    // string, because `justify-content: space-between` distributes leftover
+    // space and there was none left.
+    //
+    // Asserted as the goal and not the mechanism: line boxes against the
+    // element's own line-height, and a gap greater than zero. A pixel-width
+    // assertion here would fail the next time the type changes; these two hold
+    // whatever the fix is and whatever the font is.
+    const oneLine = async (selector: string) => {
+      const el = page.locator(selector);
+      await expect(el).toBeVisible();
+      return el.evaluate((node) => {
+        const cs = getComputedStyle(node);
+        // The text's own line boxes, not the button's box: the coarse-pointer
+        // tap floor stands every action at 40px tall whether it wrapped or not.
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        const lh = cs.lineHeight === 'normal'
+          ? parseFloat(cs.fontSize) * 1.4
+          : parseFloat(cs.lineHeight);
+        return { text: node.textContent?.trim() ?? '', height: range.getBoundingClientRect().height, lineHeight: lh };
+      });
+    };
+
+    for (const selector of ['.header-name', '#poll-btn', '#dismiss-all-btn', '.search-toggle']) {
+      const { text, height, lineHeight } = await oneLine(selector);
+      expect(height, `"${text}" (${selector}) wrapped: ${height}px of ${lineHeight}px line-height`)
+        .toBeLessThanOrEqual(lineHeight * 1.4);
+    }
+
+    const count = (await page.locator('.unread-count').boundingBox())!;
+    const actionsBox = (await page.locator('.header-actions').boundingBox())!;
+    expect(actionsBox.x - (count.x + count.width),
+      'the unread count is flush against the first action').toBeGreaterThan(0);
+  });
+
   test('every header action is a named control', async ({ page, isMobile }) => {
     // The legacy icon row this replaced lived for exactly one commit, stacked
     // under the compact header, rendering Refresh, Search and dismiss twice

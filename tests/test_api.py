@@ -2051,6 +2051,42 @@ def test_saved_survives_mark_all_read(client, app, token):
     assert client.get(f"{API}/articles", headers=auth(token)).get_json()["articles"] == []
 
 
+def test_mark_all_read_on_saved_reaches_hidden_status_saves(client, app, token):
+    """The Saved list and Mark-all-read have to agree about what is on screen.
+
+    `list_for_user(saved=True)` matches VISIBLE_STATUSES + HIDDEN_STATUSES --
+    an article saved out of the Hidden list is still a keep -- while
+    `dismiss_all(saved=True)` matched VISIBLE_STATUSES only. So Mark all read
+    on Saved skipped every hidden-status save, reported a count short of the
+    list the reader had just been looking at, and left those rows behind.
+    """
+    from app.db import get_db_direct
+    from app.repo.articles import toggle_saved
+    from app.repo.users import ensure_bootstrap_user
+    with app.app_context():
+        db = get_db_direct()
+        uid = ensure_bootstrap_user(db)
+        fid = add_feed(db, url="http://both.example/f")
+        summarized = add_article(db, fid, seq=1, guid="s1", title="Kept from the list")
+        hidden = add_article(db, fid, seq=2, guid="s2", title="Kept from Hidden",
+                             status="hidden")
+        toggle_saved(db, uid, summarized)
+        toggle_saved(db, uid, hidden)
+        db.commit()
+        db.close()
+
+    listed = client.get(f"{API}/articles?saved=1", headers=auth(token)).get_json()
+    assert len(listed["articles"]) == 2
+
+    # The number the reader is shown, and the list it was counted from.
+    assert client.post(f"{API}/articles/dismiss-all?saved=1",
+                       headers=auth(token)).get_json()["dismissed"] == 2
+    after = client.get(f"{API}/articles?saved=1", headers=auth(token)).get_json()
+    assert all(a["state"]["dismissed"] for a in after["articles"])
+    # Saved still escapes the dismissed split -- this must not empty the list.
+    assert len(after["articles"]) == 2
+
+
 def test_saved_includes_an_article_kept_from_the_hidden_list(client, app, token):
     """The Hidden list renders a Save button, so it has to mean something.
 

@@ -233,10 +233,25 @@ def dismiss_all(db, user_id: int, feed_id: int | None = None, *,
     matched VISIBLE_STATUSES, so pressing Dismiss all while viewing Hidden
     dismissed the *main* list instead: the hidden articles stayed, their count
     did not move, and the articles that did get dismissed were somewhere the
-    reader could not see. The filters here mirror `list_for_user`.
+    reader could not see.
+
+    The status filter has to mirror `list_for_user`'s, and for a while it did
+    not: the Saved list accepts HIDDEN_STATUSES as well (a Save button is
+    rendered on the Hidden list, so it has to mean something), while this
+    matched VISIBLE_STATUSES only. Mark-all-read on Saved then walked past
+    every article kept out of Hidden and reported a count short of what the
+    reader had just been looking at.
+
+    One filter is still not mirrored and is out of scope here: `list_for_user`
+    applies the reader's own topic stance (NOT_HIDDEN_SQL) and this does not,
+    so Mark all read also stamps articles muted out of the list. Noted rather
+    than claimed as intent.
     """
-    stmt = select(A.c.id).where(
-        A.c.status.in_(HIDDEN_STATUSES if hidden else VISIBLE_STATUSES))
+    if saved and not hidden:
+        statuses = VISIBLE_STATUSES + HIDDEN_STATUSES
+    else:
+        statuses = HIDDEN_STATUSES if hidden else VISIBLE_STATUSES
+    stmt = select(A.c.id).where(A.c.status.in_(statuses))
     if feed_id is not None:
         stmt = stmt.where(A.c.feed_id == feed_id)
     if topic:

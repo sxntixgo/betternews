@@ -477,6 +477,22 @@ test.describe('the top bar and the drawer fit the screen', () => {
     // WCAG 2.5.8 is 24px; this must stay above it.
     expect(Math.min(box.width, box.height)).toBeGreaterThanOrEqual(24);
   });
+
+  test('the headline is a headline, not a heading', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'phone only');
+    // 19px on a 390pt screen sat a headline within a point of the body text
+    // and, at three lines, set the height of every card. 17 keeps the weight
+    // and the hierarchy against the 14px summary and buys back a story a
+    // screen. The desktop keeps 20 -- it has a 760px measure to fill.
+    const title = page.locator('.article-title').first();
+    await expect(title).toHaveCSS('font-size', '17px');
+    const summary = page.locator('.article-summary').first();
+    const [t, s] = [
+      parseFloat(await title.evaluate((el) => getComputedStyle(el).fontSize)),
+      parseFloat(await summary.evaluate((el) => getComputedStyle(el).fontSize)),
+    ];
+    expect(t, 'the headline must still outrank the summary').toBeGreaterThan(s + 2);
+  });
 });
 
 test.describe('photos', () => {

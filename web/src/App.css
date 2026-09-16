@@ -471,10 +471,16 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
    inline-level box in every engine, so it can never wrap around anything and
    `font: inherit` has to be undone by hand. Everything here is type. */
 .article-title {
-  font-size: 19px;
-  line-height: 1.32;
+  /* 17, from 19. At 19 a headline on a 390pt screen sat within a couple of
+     points of the body text while setting the height of every card; the
+     hierarchy against the 14px summary is what carries it, not the size.
+     The desktop override below keeps 20 -- it has a 760px measure to fill.
+     Tracking relaxes with the size: -0.35px is a display-size correction and
+     reads as cramped at 17. */
+  font-size: 17px;
+  line-height: 1.35;
   font-weight: 600;
-  letter-spacing: -0.35px;
+  letter-spacing: -0.2px;
   color: var(--color-ink);
   text-wrap: pretty;
   cursor: pointer;

@@ -247,6 +247,30 @@ test.describe('phone layout', () => {
     await expect(page.locator('.meta-age').first()).toBeVisible();
   });
 
+  test('every control in the reader top bar clears the WCAG floor', async ({ page }) => {
+    // The sweep at the top of this file measures `.article-actions .action`
+    // and nothing else, so it could not see the one screen a reader spends the
+    // most time on. When the reader bar moved onto `.header-action` -- which
+    // sets `padding: 0` -- the "Open in browser" link kept its 13px text and
+    // lost every scrap of box around it: 95.4 x 19.5, against a Back button
+    // standing 40px because it is a <button> and the coarse-pointer floor
+    // catches those. An <a> matches nothing in that selector list.
+    //
+    // Swept, not named: a third control in this bar must earn a target too.
+    await page.locator('.article-title').first().click();
+    const nav = page.getByRole('dialog').locator('.modal-nav');
+    await expect(nav).toBeVisible();
+    const controls = await nav.locator('button, a, [role="button"]').all();
+    expect(controls.length, 'no controls found -- this test is asserting nothing')
+      .toBeGreaterThan(1);
+    for (const control of controls) {
+      const box = (await control.boundingBox())!;
+      const name = (await control.textContent())?.trim() ?? '';
+      expect(Math.min(box.width, box.height), `"${name}" is ${box.width}x${box.height}`)
+        .toBeGreaterThanOrEqual(24);
+    }
+  });
+
 });
 
 test.describe('desktop keeps its layout', () => {

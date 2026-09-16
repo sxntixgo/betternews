@@ -117,7 +117,13 @@ dismissal indistinguishable from an article that never arrived, so they were
 put back inline and greyed out — but with `dismiss-all` one button away, those
 rows became most of what a reader scrolled past. `repo.articles._visible` is
 where that decision lives. **Search does not apply it**: someone looking for an
-article they remember is not asking whether they dismissed it.
+article they remember is not asking whether they dismissed it. The Saved list
+does **not** apply `_visible`, and accepts `hidden` status as well as
+`summarized`. `dismiss-all` stamps everything the on-screen filter matched,
+saved articles included, so with the split on, one Mark-all-read emptied Saved
+while `sidebar_counts` — which never applied the split to `saved` — went on
+reporting a dozen. A save is a keep, and asking for your keeps is not asking
+whether you dealt with them.
 
 `articles.clean_title` / `title_was_clickbait` hold the de-clickbaited headline (Settings → Reader → Headlines). **`articles.title` is never overwritten** — the original backs the FTS index and stays visible under the rewrite. The rewrite is only displayed when the setting is on *and* `title_was_clickbait=1`; `clean_title IS NULL` means "never processed", so pre-feature articles render unchanged. `routes._resolve_title()` is the single place that decides.
 
@@ -203,7 +209,7 @@ both clients.
   `font-display: swap`, so text renders in the fallback immediately instead of waiting
   on a 20KB download. The redesign handoff asked for Google Fonts; `index.css` had
   already ruled that out and the ruling stands.
-- **`components/Modal.tsx` is the only modal.** Nine screens hand-rolled one, none with `role="dialog"`, `aria-modal`, a focus trap or focus restoration. Its focus trap filters to elements with a layout box: the OPML `<input type="file">` is `display:none`, matches the focusable selector, sorts last, and can never take focus — so the wrap never fired and Tab walked out of the dialog.
+- **`components/Modal.tsx` is the only modal.** Nine screens hand-rolled one, none with `role="dialog"`, `aria-modal`, a focus trap or focus restoration. Its focus trap filters to elements with a layout box: the OPML `<input type="file">` is `display:none`, matches the focusable selector, sorts last, and can never take focus — so the wrap never fired and Tab walked out of the dialog. `.modal-nav` uses `.header-action`, the same vocabulary as `.app-header`. `.btn-icon` / `.btn-external` remain for the other screens.
 - **The drawer is three unlabelled groups, then settings, then a footer.** It was five
   all-caps labelled sections (Feeds, Saved, Settings, You, Admin); the headers are gone,
   because 34px of space between groups says the same thing and the labels were the
@@ -230,7 +236,16 @@ both clients.
   are the old row's on purpose — `#poll-btn`, `#dismiss-all-btn`, `#digest-btn` and
   `.drawer-toggle` are what several specs drive, and they are the same controls doing
   the same jobs. A "what you missed" strip sits above the list, offering the digest
-  where the unread count is rather than behind a header button alone.
+  where the unread count is rather than behind a header button alone. The header is
+  `position: sticky` at z-index 15 and `.drawer-toggle` rides inside it. It was
+  unpinned with the toggle fixed above the drawer — circular, and it cost both
+  Mark-all-read's reachability from the foot of a long list and a clean first
+  headline. The scrim closes the drawer now.
+- **The coarse-pointer tap floor (`min-height: 40px` on every button without
+  `.pill`) is the wrong instrument for a control whose shape carries meaning.**
+  `.toggle` opts out and takes a 44px target from `::after`; `.segment` takes a 32px
+  floor. At 40px under `--radius-pill` a 42×26 switch renders as a circle — on touch
+  devices only, which is why it survived so long.
 - **`GET /api/v1/digest/meta`** backs that strip: `{ story_count, since_label,
   read_minutes }`. It does not generate the briefing — `GET /digest` does, through the
   LLM, so a strip backed by it would mean a model call on every page load;
@@ -292,16 +307,19 @@ both clients.
   the same edges. The whole desktop layout lives in one `@media (min-width: 900px)`
   block — below that it collapses to the phone layout, drawer overlay and all, rather
   than to a third in-between one nobody tests.
-- **Three display preferences, all per-device localStorage**: `theme`,
-  `density`, `photos`. `density` (compact) now drops only the summary — the tags it
-  also used to hide have gone from the card entirely, and the meta line is one line in
-  either mode. `photos` drops the images — the only thing on a card
-  fetched from a third party. They are different levers for different reasons.
+- **Four display preferences, all per-device localStorage**: `theme`,
+  `density`, `photos`, `tags`. `density` (compact) now drops only the summary — the
+  meta line is one line in either mode. `photos` drops the images — the only thing on
+  a card fetched from a third party. `tags` shows the topic tag on the card: it
+  replaced the topic tag's `min-width: 900px` gate rather than adding to it, so the
+  switch means the same thing on a phone as on a desktop, and the phone's single meta
+  line is held by a 13ch cap instead of by hiding the control. It defaults off. They
+  are different levers for different reasons.
 - **Every action needs a visible control**, not only a command-palette entry. Sign-out, Settings, Users, Insights, the Ollama log and Manage feeds were all palette-only at one point, which put the whole admin surface behind a shortcut. `design-system.spec.ts` asserts each is clickable without the palette, that a plain reader sees none of the admin ones, and that no icon-only button is nameless.
 - **The PWA is real again**: `public/manifest.webmanifest`, `public/sw.js` (app shell only — offline *reading* is still deferred, D2), and a production-only registration in `src/pwa.ts`. Registering on the dev server caches module URLs Vite is rewriting, and Playwright reuses a developer's own server.
 - Caddy sends `/api`, `/login`, `/register`, `/logout`, `/health` and `/static` to Flask; **everything else is the SPA**, so a deep link the SPA owns gets the SPA's routing rather than Flask's 404. `~/Dev/homestack/caddy/Caddyfile`.
 - `vite.config.ts` builds with `base: '/'`. It used to be `/app/` while both UIs coexisted; leaving that would emit asset URLs nothing serves.
-- **`localStorage` holds four keys, all display preferences**: `theme`, `density`, `photos` and `sidebar-collapsed`. This line claimed only `theme` for a long time, and was wrong for three of them — the claim it was reaching for is the one below it, which is the one that matters. **Nothing credential-shaped is ever stored.** Auth is an HttpOnly + `SameSite=Strict` cookie the page cannot read, which is why the shell asks `/api/v1/me` whether it is signed in rather than looking.
+- **`localStorage` holds five keys, all display preferences**: `theme`, `density`, `photos`, `tags` and `sidebar-collapsed`. This line claimed only `theme` for a long time, and was wrong for three of them — the claim it was reaching for is the one below it, which is the one that matters. **Nothing credential-shaped is ever stored.** Auth is an HttpOnly + `SameSite=Strict` cookie the page cannot read, which is why the shell asks `/api/v1/me` whether it is signed in rather than looking.
 - **An empty list says why.** `GET /api/v1/articles` carries a `diagnosis` on an empty *first* page — `no_feeds`, `ollama_unreachable`, `model_missing`, `processing`, `all_hidden`, `caught_up` and so on. A bare "Nothing to read" is how a misconfigured model went unnoticed three times. The server decides the wording and whether it is admin-only; the client decides which screen the button opens, because the server has no idea this client is modal-based.
 - Charts on `/insights` are hand-rolled SVG (`web/src/components/BarChart.tsx`). `react` and `react-dom` are the only dependencies and it stays that way — a charting library is 100 KB+ for six charts on a screen visited monthly.
 - **Article padding** (Settings → Reading → Article padding). `content_filter.classify_lines()` tags lines as `related_links` / `promo` / `older_news`; `presenters.group_blocks()` collapses consecutive tagged blocks into one foldable group. **Both `highlight` and `remove` only fold — nothing is ever dropped**, so a misclassification is one click away.

@@ -1,0 +1,1373 @@
+# iPhone Reading UI Fixes — Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Each task names the model that should implement it.
+
+**Goal:** Fix seven defects a reader hit on an iPhone 16 Pro — a top bar that scrolls away, an empty Saved list, a hamburger sitting on top of the articles, switches rendering as circles, hidden-reasons surviving compact mode, an oversized headline, and a reader top bar that does not speak the app's design language.
+
+**Architecture:** Six of the seven are front-end — `web/src/App.css` plus three components. One (Saved) is a backend read-path bug in `app/repo/articles.py`. Nothing here adds a dependency, a token, or a breakpoint. Tasks are ordered so the backend fix lands first (no CSS conflict) and the pixel-baseline regeneration lands last, once every visual change is in.
+
+**Tech Stack:** React 19 + TypeScript + Vite (`web/`), Playwright (`web/e2e/`), Flask + SQLAlchemy Core + Postgres (`app/`), pytest (`tests/`).
+
+**Spec:** This document. The defects were reported directly by the reader against the deployed stack on an iPhone 16 Pro (Safari / installed PWA); each task below records the root cause verified in the source rather than the symptom as reported.
+
+---
+
+## Global Constraints
+
+Copied from `CLAUDE.md`; every task's requirements implicitly include these.
+
+- **`App.css` contains no hex literal and no literal radius.** `e2e/design-system.spec.ts` asserts both, plus that every `var(--token)` used is actually defined. Use existing tokens from `web/src/index.css`; if a genuinely new colour is needed, define it in all **three** theme blocks (`:root`, `[data-theme=dark]`, and the `prefers-color-scheme` fallback) or it flashes the wrong colour on first paint.
+- **Never edit a CSS selector list programmatically without stripping comments first.** Prefer dropping or adding whole rules to rewriting selectors. A cleanup whose diff is mostly reformatting hides the deletions it exists to show.
+- **The whole desktop layout lives in one `@media (min-width: 900px)` block.** Below that it collapses to the phone layout, drawer overlay and all. Do not introduce a third breakpoint.
+- **Every action needs a visible control**, not only a command-palette entry.
+- **Hiding a control in the SPA is not gating an endpoint — do both.**
+- **`npm run typecheck` covers both `src/` and `e2e/`.** Run it, not just the tests.
+- **Do not drop `webkit` from the browser install.** `safari` is the only project running the engine the reader actually uses.
+- **Regenerate a visual baseline only after a human has looked at the new image.** `toHaveScreenshot`'s default per-pixel threshold (0.2 YIQ) is above this palette's hairline contrast (~0.085), so a rule that moves or disappears does not register — verify low-contrast changes by measuring, not by watching the suite stay green.
+
+### Current z-index ladder (`web/src/App.css`)
+
+Task 2 changes this; every later task must respect the result.
+
+| Layer | z-index | Before | After |
+|---|---|---|---|
+| `.app-header` | — | static (no stacking context) | **sticky, 15** |
+| `.drawer-scrim` | 18 | fixed | unchanged |
+| `.sidebar` (`@media max-width: 899px`) | 25 | fixed | unchanged |
+| `.drawer-toggle` | 30 | **fixed**, `top: 58px; left: 24px` | **in flow inside `.app-header`, no z-index** |
+| `.modal-backdrop` | 40 | fixed | unchanged |
+
+### Commands
+
+```bash
+# backend
+docker compose run --rm web pytest tests/ -q
+
+# web, mocked (runs desktop + phone + safari)
+cd web && npm run typecheck && npm run e2e
+
+# one spec / one project
+cd web && npx playwright test mobile.spec.ts --project=phone
+cd web && npx playwright test visual.spec.ts --project=phone --update-snapshots
+
+# production CSS minifier — typecheck and the dev-server e2e do not cover it
+cd web && npm run build
+```
+
+---
+
+## File Structure
+
+| File | Responsibility | Touched by |
+|---|---|---|
+| `app/repo/articles.py` | All article SQL. `list_for_user` is the read path; `_visible` is where the dismissed split is decided. | Task 1 |
+| `tests/test_api.py` | JSON API behaviour, including the Saved list. | Task 1 |
+| `web/src/App.tsx` | The shell. Owns the filter state and decides when the dismissed pile is offered. | Task 1 |
+| `web/src/App.css` | Every rule in this plan except the tokens. | Tasks 2–7 |
+| `web/src/tags.ts` | **New.** The `tags` display preference, mirroring `photos.ts`. | Task 7 |
+| `web/src/components/Drawer.tsx` | The drawer's display-preference block. | Task 7 |
+| `web/src/components/Toolbar.tsx` | The single `.app-header`. | Task 2 (comment only) |
+| `web/src/components/Reader.tsx` | The reader modal's top bar markup. | Task 6 |
+| `web/src/App.tsx` | The shell: filter state (Task 1) and the `tags` preference (Task 7). | Tasks 1, 7 |
+| `web/e2e/mobile.spec.ts` | Phone layout coverage. | Tasks 2, 3, 4, 5, 7 |
+| `web/e2e/design-system.spec.ts` | Design-system invariants. | Task 6 |
+| `web/e2e/visual.spec.ts-snapshots/` | 16 pixel baselines. | Task 7 |
+
+---
+
+## Task 1: The Saved list is empty
+
+**Model: Opus.** It is a semantics change to a shared read path with a documented, deliberate filter on it. The fix has to be argued against the reason the filter exists, and it touches the same function three other lists page through.
+
+### Root cause (verified)
+
+`app/repo/articles.py:79` — `list_for_user` starts with `_visible(_card_select(user_id), dismissed)`, which for the default `dismissed=False` adds `WHERE user_article_state.dismissed_at IS NULL`. `dismiss_all` (line 208) dismisses **every** article matching the on-screen filter, and from the default list that filter does not exclude saved articles. So one press of *Mark all read* stamps `dismissed_at` on every saved article, and `GET /api/v1/articles?saved=1` returns nothing thereafter.
+
+The drawer still shows a count, which is why this reads as "the list is broken" rather than "I dismissed them": `sidebar_counts` (line 348) counts `saved_at IS NOT NULL` with **no** dismissed condition — deliberately, because a save outlives a dismiss — so the drawer says `Saved articles 12` over an empty screen.
+
+There is a second, narrower leak in the same function: line 82 restricts to `VISIBLE_STATUSES` (`summarized`) unless `hidden=True`, so an article saved from the Hidden list can never appear under Saved either.
+
+The fix belongs on the read side, not in `dismiss_all`. Saving is an explicit keep; asking for the things you kept is not asking whether you have dealt with them — the same argument `search` already makes in its own comment two functions down.
+
+**Files:**
+- Modify: `app/repo/articles.py:79-96` (`list_for_user`)
+- Modify: `web/src/App.tsx:133` (`offersDismissed`)
+- Test: `tests/test_api.py` (append near `test_dismiss_all_respects_the_feed_and_saved_filters`, ~line 1893)
+
+**Interfaces:**
+- Consumes: nothing from other tasks.
+- Produces: `list_for_user(db, user_id, *, saved=True, ...)` now returns saved articles regardless of `dismissed_at`, and regardless of whether their pipeline status is `summarized` or `hidden`. Signature is unchanged. No other task depends on this.
+
+- [ ] **Step 1: Write the failing tests**
+
+Append to `tests/test_api.py`:
+
+```python
+def test_saved_survives_mark_all_read(client, app, token):
+    """Saving is a keep, and Mark-all-read is not a question about keeps.
+
+    `dismiss-all` stamps `dismissed_at` on everything the list showed, saved
+    articles included, and the Saved list filtered on `dismissed_at IS NULL` --
+    so one press emptied it. The drawer's count kept saying otherwise, because
+    `sidebar_counts` never applied that filter, which is what made this read as
+    breakage rather than as something the reader had done.
+    """
+    from app.db import get_db_direct
+    from app.repo.articles import toggle_saved
+    from app.repo.users import ensure_bootstrap_user
+    with app.app_context():
+        db = get_db_direct()
+        fid = add_feed(db, url="http://keep.example/f")
+        aid = add_article(db, fid, seq=1, guid="k1", title="Worth keeping")
+        add_article(db, fid, seq=2, guid="k2", title="Just read it")
+        toggle_saved(db, ensure_bootstrap_user(db), aid)
+        db.commit()
+        db.close()
+
+    assert client.post(f"{API}/articles/dismiss-all",
+                       headers=auth(token)).get_json()["dismissed"] == 2
+
+    saved = client.get(f"{API}/articles?saved=1", headers=auth(token)).get_json()
+    assert [a["title"] for a in saved["articles"]] == ["Worth keeping"]
+    # The drawer's count and the list must agree, in both directions.
+    assert client.get(f"{API}/feeds", headers=auth(token)).get_json()["saved"] == 1
+    # And the main list is still emptied -- this must not un-dismiss anything.
+    assert client.get(f"{API}/articles", headers=auth(token)).get_json()["articles"] == []
+
+
+def test_saved_includes_an_article_kept_from_the_hidden_list(client, app, token):
+    """The Hidden list renders a Save button, so it has to mean something.
+
+    `list_for_user` restricted every non-hidden query to status 'summarized',
+    so an article saved out of Hidden was saved into a list that could not
+    show it.
+    """
+    from app.db import get_db_direct
+    from app.repo.articles import toggle_saved
+    from app.repo.users import ensure_bootstrap_user
+    with app.app_context():
+        db = get_db_direct()
+        fid = add_feed(db, url="http://hid.example/f")
+        aid = add_article(db, fid, seq=1, guid="h1", title="Low score, kept anyway",
+                          status="hidden")
+        toggle_saved(db, ensure_bootstrap_user(db), aid)
+        db.commit()
+        db.close()
+
+    saved = client.get(f"{API}/articles?saved=1", headers=auth(token)).get_json()
+    assert [a["title"] for a in saved["articles"]] == ["Low score, kept anyway"]
+```
+
+- [ ] **Step 2: Run them to verify they fail**
+
+Run: `docker compose run --rm web pytest tests/test_api.py -k "saved_survives or kept_from_the_hidden" -v`
+Expected: both FAIL — `assert [] == ['Worth keeping']` and `assert [] == ['Low score, kept anyway']`.
+
+- [ ] **Step 3: Make the read path treat a save as a keep**
+
+In `app/repo/articles.py`, replace the opening of `list_for_user` (currently lines 79-92, from `stmt = _visible(...)` down to the `if saved:` block) with:
+
+```python
+def list_for_user(db, user_id: int, *, hidden: bool = False, saved: bool = False,
+                  feed_id: int | None = None, sort: str = "date",
+                  topic: str | None = None, limit: int = 50, offset: int = 0,
+                  dismissed: bool = False):
+    # Saved is the one list the dismissed split does not apply to, for the same
+    # reason `search` below opts out of it: saving is an explicit keep, and
+    # asking for the things you kept is not asking whether you have dealt with
+    # them. `dismiss-all` stamps every article the current filter matched --
+    # saved ones included -- so with the split on, one press of Mark all read
+    # emptied this list while `sidebar_counts` (which has never applied the
+    # split to `saved`) went on reporting a dozen of them.
+    if not saved:
+        stmt = _visible(_card_select(user_id), dismissed)
+    else:
+        stmt = _card_select(user_id)
+
+    if saved and not hidden:
+        # A Save button is rendered on the Hidden list, so it has to mean
+        # something. Restricting to `summarized` here saved articles into a
+        # list that could not show them.
+        stmt = stmt.where(A.c.status.in_(VISIBLE_STATUSES + HIDDEN_STATUSES))
+    else:
+        stmt = stmt.where(
+            A.c.status.in_(HIDDEN_STATUSES if hidden else VISIBLE_STATUSES))
+
+    if topic:
+        # An explicit topic filter is a deliberate request, so it overrides the
+        # user's own hide stance for that topic.
+        stmt = stmt.where(A.c.topics.any(topic))
+    else:
+        stmt = stmt.where(NOT_HIDDEN_SQL)
+    if saved:
+        # Something you saved is something you asked to keep.
+        stmt = stmt.where(S.c.saved_at.isnot(None))
+    if feed_id is not None:
+        stmt = stmt.where(A.c.feed_id == feed_id)
+```
+
+Leave the rest of the function — `effective`, `cluster_expr`, `duplicates`, the `DISTINCT ON` collapse and the paging — exactly as it is.
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `docker compose run --rm web pytest tests/test_api.py -k "saved_survives or kept_from_the_hidden" -v`
+Expected: PASS.
+
+- [ ] **Step 5: Run the whole backend suite**
+
+Run: `docker compose run --rm web pytest tests/ -q`
+Expected: PASS. Pay attention to `test_dismiss_all_respects_the_feed_and_saved_filters` and `test_the_dismissed_pile_is_its_own_paged_list` — neither asks for `saved=1`, so neither should move. If one does, the change leaked outside the `saved` branch.
+
+- [ ] **Step 6: Stop offering the dismissed pile under Saved**
+
+With the split off for Saved, `?saved=1` and `?saved=1&dismissed=1` would return overlapping sets and the pile would duplicate rows already on screen. `web/src/App.tsx:133`:
+
+```tsx
+  // Searching, the Hidden view and Saved are each their own answer to "what
+  // should I look at"; a dismissed pile underneath them is noise. Saved is the
+  // newest of the three and the strictest: it no longer applies the dismissed
+  // split at all, so a pile under it would be the same rows a second time.
+  const offersDismissed = !search && !hidden && !saved;
+```
+
+- [ ] **Step 7: Verify the web suite still passes**
+
+Run: `cd web && npm run typecheck && npm run e2e`
+Expected: PASS, all three projects.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add app/repo/articles.py tests/test_api.py web/src/App.tsx
+git commit -m "fix: Mark all read no longer empties the Saved list
+
+Saving is an explicit keep, so the Saved list stops applying the dismissed
+split -- and stops restricting to status 'summarized', which made a Save
+button on the Hidden list mean nothing."
+```
+
+---
+
+## Task 2: The top bar scrolls away, and the hamburger sits on the articles
+
+**Model: Opus.** Two of the reported defects are one bug with one fix, and the fix reverses a decision `App.css` documents at length in a comment. Getting it wrong costs either a dead menu button or a header under the drawer, and it breaks a passing e2e test that must be re-aimed rather than deleted.
+
+### Root cause (verified)
+
+`App.css:31-36` says `.app-header` must not be positioned, because a `position` establishes a stacking context and `.drawer-toggle` inside it is `position: fixed` with `z-index: 30` specifically so it outranks the open drawer (`.sidebar`, z-index 25). That is a real constraint — and it is circular. The toggle is only fixed *because* the header cannot be; the header is only unpositioned *because* the toggle is fixed.
+
+The two reported symptoms are the two halves of that circle:
+- the header is not sticky, so *Mark all read* is unreachable from the bottom of a long list without scrolling all the way back up (**defect 1**);
+- the toggle is `position: fixed; top: 58px; left: 24px` with no background of its own, so once the header scrolls past it, two ink-coloured bars float over the first headline (**defect 3**).
+
+Break the circle at the toggle: put it back in the header's flow, make the header sticky, and let the **scrim** (z-index 18, already rendered and already wired to `setDrawerOpen(false)`) be what closes the drawer. The header then sits at z-index 15 — above the list, below the scrim and the drawer.
+
+Two things fall out for free: the `52px` top padding exists only to clear the fixed toggle at `top: 58px`, so it drops to `14px` and the header gets shorter; and it can take `env(safe-area-inset-top)` via `max()`, which is inert today (no `viewport-fit=cover`, so iOS already insets the web view and `env()` resolves to 0) and correct the day that changes.
+
+**Files:**
+- Modify: `web/src/App.css:31-36` (the "Not sticky" comment), `:233-246` (`.drawer-toggle`), `:247-252` (`.drawer-toggle span`), `:262-266` (the `max-width: 899px` block's toggle rules), `:1187-1199` (`.app-header`)
+- Modify: `web/src/components/Toolbar.tsx:88-97` (the toggle's comment)
+- Modify: `web/e2e/mobile.spec.ts:470-475`
+- Test: `web/e2e/mobile.spec.ts` (new tests in the `the top bar and the drawer fit the screen` describe block)
+
+**Interfaces:**
+- Consumes: nothing.
+- Produces: `.app-header` is `position: sticky; top: 0; z-index: 15`. `.drawer-toggle` is in flow, no `position`, no `z-index`. **Task 6 must not give the reader modal a z-index below 15**, and Task 3's tap-target work must not re-introduce a `min-height` that changes the header's height.
+
+- [ ] **Step 1: Write the failing tests**
+
+Add to `web/e2e/mobile.spec.ts`, inside the existing `test.describe('the top bar and the drawer fit the screen', ...)` block:
+
+```ts
+  test('the top bar stays on screen at the bottom of the list', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'phone only');
+    // Mark all read is a header action, and the reader reaches for it after
+    // reading the last story on screen -- which is exactly where an unpinned
+    // header is furthest away. It was not sticky because the hamburger inside
+    // it was `position: fixed` to outrank the open drawer; the scrim closes
+    // the drawer now, so the header can pin and the hamburger can ride with it.
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    const header = page.locator('.app-header');
+    await expect(header).toBeInViewport();
+    expect((await header.boundingBox())!.y).toBeLessThanOrEqual(1);
+    await expect(header.getByRole('button', { name: 'Mark all read' })).toBeInViewport();
+  });
+
+  test('the menu button never sits on top of a headline', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'phone only');
+    // It was fixed at top:58px/left:24px with no background, so once the
+    // header scrolled past, two ink bars floated over the first story's
+    // headline. In the header's flow it cannot overlap anything below it.
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    const toggle = (await page.locator('.drawer-toggle').boundingBox())!;
+    const header = (await page.locator('.app-header').boundingBox())!;
+    expect(toggle.y + toggle.height, 'the toggle escaped the header')
+      .toBeLessThanOrEqual(header.y + header.height + 1);
+
+    // And the element under the first headline's top-left corner is the
+    // headline, not the button.
+    const title = (await page.locator('.article-title').first().boundingBox())!;
+    const onTop = await page.evaluate(
+      ([x, y]) => (document.elementFromPoint(x, y) as HTMLElement)?.className ?? '',
+      [title.x + 4, title.y + 4] as const,
+    );
+    expect(onTop).not.toContain('drawer-toggle');
+  });
+
+  test('the drawer covers the header, and the scrim closes it', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'phone only');
+    // The header is sticky now, so it has a stacking context: it must sit
+    // *under* the scrim (18) and the drawer (25), and the scrim -- not the
+    // hamburger buried beneath it -- is what shuts the drawer again.
+    await openDrawer(page);
+    await expect(page.locator('.sidebar.open')).toHaveCount(1);
+    await page.locator('.drawer-scrim').click({ position: { x: 340, y: 40 } });
+    await expect(page.locator('.sidebar.open')).toHaveCount(0);
+  });
+```
+
+- [ ] **Step 2: Run them to verify they fail**
+
+Run: `cd web && npx playwright test mobile.spec.ts --project=phone -g "stays on screen|on top of a headline|covers the header"`
+Expected: the first two FAIL (the header's `y` goes negative as the page scrolls; the toggle is fixed and outlives the header). The third may already pass — the scrim is wired up today — and that is fine; it is there to keep the closing path from regressing.
+
+- [ ] **Step 3: Replace the "Not sticky" comment**
+
+`web/src/App.css:31-36` — the comment now states the opposite of what the file does, and a stale comment here is what kept this bug alive. Replace it with:
+
+```css
+/* `.app-header` is sticky (see its rule below). It could not be while
+   `.drawer-toggle` was `position: fixed` to outrank the open drawer: a sticky
+   ancestor establishes a stacking context, so no z-index on the toggle could
+   have out-ranked a sibling context at all. That was circular -- the toggle
+   was fixed because the header could not pin, and the header could not pin
+   because the toggle was fixed -- and it cost both of the things this pair
+   was arranged to protect: Mark all read was unreachable from the bottom of a
+   long list, and the fixed toggle floated over the first headline with no
+   background of its own. The drawer's scrim closes the drawer now, so the
+   toggle rides in the header's flow and the header pins.
+
+   The missed strip below stays unpinned: it scrolls with the list. */
+```
+
+- [ ] **Step 4: Put the toggle back in the header's flow**
+
+Replace `.drawer-toggle` and `.drawer-toggle span` (`App.css:224-252`) with:
+
+```css
+/* Mobile drawer. Two bars, in the header's flow -- not fixed. It was fixed so
+   it could sit above the open drawer (z-index 25) from inside a header that
+   had no stacking context of its own; that is what put it on top of the first
+   headline whenever the header scrolled away. The drawer covers it now, and
+   `.drawer-scrim` is what closes it. */
+.drawer-toggle {
+  display: none;
+  /* 40x40 taken here rather than inherited from the coarse-pointer
+     `min-height`, which only sets one axis and would leave an 18px-wide
+     target. The bars stay 18px; the button around them is the tap area. */
+  width: 40px;
+  height: 40px;
+  flex: none;
+  /* The bars line up with the title text's left edge; the target overhangs
+     into the gutter, which is dead space anyway. */
+  margin-left: -10px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.drawer-toggle span {
+  display: block;
+  /* Explicit now: the button used to be exactly 18px wide and the bars simply
+     filled it. */
+  width: 18px;
+  height: 1.5px;
+  background: var(--color-ink);
+}
+```
+
+- [ ] **Step 5: Drop the space the fixed toggle used to need**
+
+In the `@media (max-width: 899px)` block (`App.css:261-266`), delete the `.header-title` reservation — the toggle is a flex item in that row now and takes its own width:
+
+```css
+@media (max-width: 899px) {
+  .drawer-toggle { display: flex; }
+  .sidebar {
+```
+
+(That is: remove the two comment lines and the `.header-title { padding-left: 32px; }` rule, and nothing else from the block.)
+
+- [ ] **Step 6: Pin the header**
+
+Replace the `.app-header` rule (`App.css:1187-1199`) with:
+
+```css
+.app-header {
+  /* Pinned, so Mark all read is reachable from the bottom of a long list
+     rather than only from the top of it. */
+  position: sticky;
+  top: 0;
+  /* Above the list, below `.drawer-scrim` (18) and `.sidebar` (25): the drawer
+     is meant to cover this, and the scrim is what closes it. Well below
+     `.modal-backdrop` (40). */
+  z-index: 15;
+  /* The hairline lives here, not on a wrapper. `.site-header` was a <header>
+     nested inside this one whose only remaining job was to draw this line --
+     and it drew it across the whole window while the column beneath it is
+     capped at 760px, so the rule ran past every card it was meant to close
+     off. On this element it ends where the reading measure does. */
+  border-bottom: 1px solid var(--color-hairline);
+  /* Opaque, and now load-bearing rather than cosmetic: the list scrolls under
+     this. */
+  background: var(--color-bg);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  /* Was 52px on top, which was clearance for a hamburger fixed at top:58px and
+     nothing else. `max()` with the inset is inert today -- there is no
+     `viewport-fit=cover`, so iOS insets the web view itself and `env()`
+     resolves to 0 -- and is correct the day that changes. */
+  padding: max(14px, env(safe-area-inset-top)) 24px 16px;
+}
+```
+
+- [ ] **Step 7: Correct the toggle's comment in the component**
+
+`web/src/components/Toolbar.tsx:88-97` — the JSX comment still explains the fixed positioning. Replace the paragraph beginning "`.drawer-toggle` survives for the same reason" with:
+
+```
+          `.drawer-toggle` keeps its class for the same reason -- it is the
+          control other specs open the drawer by. It is no longer fixed over
+          the list: it is a flex item in this row, the header is sticky, and
+          the scrim is what closes the drawer once it is open.
+```
+
+- [ ] **Step 8: Re-aim the one test that closed the drawer with the toggle**
+
+`web/e2e/mobile.spec.ts:470-475`, inside `it takes the reader lead image with it`. The toggle is under the drawer now, so clicking it is a click on the scrim in disguise. Make that explicit:
+
+```ts
+    // Shut the drawer: on a phone it covers the list, and Escape does not close
+    // it -- it is not a dialog. The scrim, not the hamburger: the toggle rides
+    // in the sticky header now and the open drawer covers it.
+    // The position matters: the scrim is `inset: 0`, so its own (5,5) lies
+    // under the 260px drawer and Playwright reports the click intercepted.
+    // Anything right of 260px hits scrim that is actually exposed.
+    await page.locator('.drawer-scrim').click({ position: { x: 340, y: 40 } });
+    await expect(page.locator('.sidebar.open')).toHaveCount(0);
+```
+
+- [ ] **Step 9: Run the new tests**
+
+Run: `cd web && npx playwright test mobile.spec.ts --project=phone --project=safari`
+Expected: PASS, including `the compact header stays compact` (`header.height < 130` — the header is now ~70px, down from ~120px).
+
+- [ ] **Step 10: Run the full web suite**
+
+Run: `cd web && npm run typecheck && npm run e2e`
+Expected: PASS except `visual.spec.ts`, whose `list-*` and `drawer-*` baselines now differ by a shorter header. **Do not regenerate them here** — Task 7 does it once, after every visual change is in. Note which snapshots failed and carry the list forward.
+
+- [ ] **Step 11: Commit**
+
+```bash
+git add web/src/App.css web/src/components/Toolbar.tsx web/e2e/mobile.spec.ts
+git commit -m "fix: pin the top bar and take the hamburger off the articles
+
+The toggle was fixed so it could outrank the open drawer, which is why the
+header could not be sticky, which is why the toggle floated over the first
+headline. The scrim closes the drawer now; both halves go away."
+```
+
+---
+
+## Task 3: The Photos and Compact switches render as circles
+
+**Model: Sonnet.** A narrow, fully diagnosed CSS bug, but the obvious fix (drop the tap-target floor) trades an accessibility guarantee for a shape. The implementer has to keep both.
+
+### Root cause (verified)
+
+`App.css:577-590`:
+
+```css
+@media (pointer: coarse) {
+  button:not(.pill), .btn-icon, .btn-external, .sidebar-feed, .sidebar-collapse, .sidebar-manage {
+    min-height: 40px;
+  }
+```
+
+`.toggle` is a `<button role="switch">` without `.pill`, so on any touch device it becomes `42px × 40px` with `border-radius: var(--radius-pill)` (999px) — a circle. The rule is invisible on a desktop, which is why this survived: the drawn size (`42 × 26`) only applies to a fine pointer.
+
+`.segment` is caught by the same rule: the Sort and Theme radiogroups' options stand 40px tall inside a `padding: 3px` track, which is why that block reads as much heavier on a phone than in the design.
+
+The floor itself is right and stays. The switch gives its tap area back with a pseudo-element instead of by growing — the same technique `.action` already uses on the card ("padding plus a negative margin rather than by growing", per `mobile.spec.ts:43`).
+
+**Files:**
+- Modify: `web/src/App.css:359-368` (`.toggle`, `.toggle-knob`), `:577-590` (the coarse-pointer block)
+- Test: `web/e2e/mobile.spec.ts`
+
+**Interfaces:**
+- Consumes: nothing.
+- Produces: `.toggle` measures `42 × 26` at every pointer type and carries a `44 × 50` hit area via `::after`. No class or accessible name changes — `getByRole('switch', { name: 'Show photos' | 'Compact list' })` keeps working, and roughly ten tests depend on that.
+
+- [ ] **Step 1: Write the failing test**
+
+Add to `web/e2e/mobile.spec.ts`, in the `the top bar and the drawer fit the screen` describe block:
+
+```ts
+  test('the switches are pills, and still clear the tap floor', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'phone only');
+    // `@media (pointer: coarse)` put a 40px floor on every button without
+    // `.pill`. A switch is a track: 42 wide, floored to 40 tall, with a 999px
+    // radius, it rendered as a circle on every phone -- and only on a phone,
+    // which is why it lived this long. The drawn size comes back and the tap
+    // target moves to a pseudo-element.
+    await openDrawer(page);
+    const toggle = page.getByRole('switch', { name: 'Compact list' });
+    const box = (await toggle.boundingBox())!;
+    expect(box.height, 'the track grew to meet the tap floor').toBeLessThanOrEqual(28);
+    expect(box.width / box.height, 'a switch is wider than it is tall')
+      .toBeGreaterThan(1.4);
+
+    // The target is still there, it is just not the painted box.
+    const hit = await toggle.evaluate((el) => {
+      const r = getComputedStyle(el, '::after');
+      const b = el.getBoundingClientRect();
+      const grow = (v: string) => Math.abs(parseFloat(v) || 0);
+      return {
+        w: b.width + grow(r.left) + grow(r.right),
+        h: b.height + grow(r.top) + grow(r.bottom),
+      };
+    });
+    expect(Math.min(hit.w, hit.h)).toBeGreaterThanOrEqual(44);
+  });
+
+  test('the segmented controls do not stand 40px tall', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'phone only');
+    // Same floor, same shape problem, one step smaller: Sort and Theme are
+    // two- and three-position radiogroups, not primary actions.
+    await openDrawer(page);
+    const segment = page.getByRole('radiogroup', { name: 'Sort' })
+      .getByRole('radio').first();
+    const box = (await segment.boundingBox())!;
+    expect(box.height).toBeLessThanOrEqual(34);
+    // WCAG 2.5.8 is 24px; this must stay above it.
+    expect(Math.min(box.width, box.height)).toBeGreaterThanOrEqual(24);
+  });
+```
+
+- [ ] **Step 2: Run them to verify they fail**
+
+Run: `cd web && npx playwright test mobile.spec.ts --project=phone -g "switches are pills|do not stand 40px"`
+Expected: both FAIL — height 40, ratio 1.05.
+
+- [ ] **Step 3: Give the switch its hit area without growing it**
+
+Replace `.toggle` and add the pseudo-element (`App.css:359-368`):
+
+```css
+.toggle {
+  width: 42px; height: 26px; flex: none;
+  border: 0; padding: 0 3px;
+  border-radius: var(--radius-pill);
+  background: var(--color-toggle-off);
+  display: flex; align-items: center; cursor: pointer;
+  /* Anchor for the hit area below. */
+  position: relative;
+}
+/* The tap target, separated from the drawn control. A switch is a track, and
+   a track grown to a 40px floor under `--radius-pill` is a circle -- which is
+   what these looked like on a phone. Absolutely positioned, so it is not a
+   flex item of the track above it. 42+8 x 26+18 = 50x44. */
+.toggle::after {
+  content: '';
+  position: absolute;
+  inset: -9px -4px;
+}
+.toggle[aria-checked='true'] { background: var(--color-accent); justify-content: flex-end; }
+.toggle-knob { width: 20px; height: 20px; border-radius: var(--radius-pill); background: var(--color-segment-selected); }
+```
+
+- [ ] **Step 4: Exempt the two shaped controls from the floor**
+
+Append inside the existing `@media (pointer: coarse)` block (`App.css:577-590`), after the `.btn-icon, .sidebar-collapse, .sidebar-manage` line — add rules, do not rewrite the selector list above them:
+
+```css
+  /* Two controls whose shape *is* their meaning, and for which a height floor
+     is the wrong instrument. `.toggle` takes its 44px target from `::after`
+     instead; `.segment` sits in a 3px track, so a 40px floor makes the whole
+     radiogroup 46px tall. 32 clears WCAG 2.5.8's 24px with room over. */
+  button.toggle { min-height: 0; }
+  button.segment { min-height: 32px; }
+
+  /* Qualified with the element on purpose: the floor's selector is
+     `button:not(.pill)` = (0,1,1), which outranks a bare `.toggle` = (0,1,0)
+     wherever it sits in the file. `button.toggle` matches that specificity, so
+     the later position wins. A bare class measures 40px and looks like it
+     worked. */
+```
+
+- [ ] **Step 5: Run the tests to verify they pass**
+
+Run: `cd web && npx playwright test mobile.spec.ts --project=phone --project=safari -g "switches are pills|do not stand 40px"`
+Expected: PASS on both projects.
+
+- [ ] **Step 6: Verify nothing else measured the switch**
+
+Run: `cd web && npm run e2e`
+Expected: PASS except the known `visual.spec.ts` drift. `design-system.spec.ts:343,381` and every `mobile.spec.ts` density/photos test address the switches by role and name, not by size, so they must not move.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add web/src/App.css web/e2e/mobile.spec.ts
+git commit -m "fix: the drawer switches are pills on a phone again
+
+The coarse-pointer 40px floor applied to every button without .pill, which
+made a 42x26 track 42x40 under a 999px radius -- a circle, and only ever on
+a touch device. The target moves to ::after; segments get a smaller floor."
+```
+
+---
+
+## Task 4: The hidden-reason survives compact mode
+
+**Model: Haiku.** One CSS declaration and one assertion. The cause is unambiguous and there is no design judgment left to make.
+
+### Root cause (verified)
+
+`ArticleCard.tsx:98-100` renders the reason as its own paragraph:
+
+```tsx
+{article.hidden && article.score_reason && (
+  <p className="hidden-reason">Hidden: {article.score_reason}</p>
+)}
+```
+
+`App.css:1131` hides only the summary in compact mode:
+
+```css
+[data-density='compact'] .article-summary { display: none; }
+```
+
+So in the Hidden list, compact drops the summary and leaves a second paragraph of italic prose in its place — which is most of what compact was meant to reclaim. The reason is not lost: it is still the `title` attribute on `.meta-score` (`ArticleCard.tsx:106`).
+
+**Files:**
+- Modify: `web/src/App.css:1128-1132`
+- Test: `web/e2e/mobile.spec.ts`
+
+**Interfaces:**
+- Consumes: nothing.
+- Produces: nothing other tasks use.
+
+- [ ] **Step 1: Write the failing test**
+
+Add to `web/e2e/mobile.spec.ts`, in the same describe block as `compact mode trades summaries for stories on screen`:
+
+```ts
+  test('compact mode drops the hidden-reason with the summary', async ({ page }) => {
+    // Compact hid `.article-summary` and nothing else, so on the Hidden list it
+    // traded one paragraph of prose for another -- the reason is longer than
+    // some summaries. It is still on the score's `title` attribute, so nothing
+    // is lost by dropping it from the row.
+    await page.route('**/api/v1/articles?*', (r) => r.fulfill({ json: {
+      articles: [article(1, {
+        hidden: true,
+        score_reason: 'No stated interest in municipal parking policy.',
+      })],
+      next_offset: null, diagnosis: null,
+    } }));
+    await page.reload();
+    await page.waitForSelector('.article-row');
+    await expect(page.locator('.hidden-reason')).toBeVisible();
+
+    await openDrawer(page);
+    await page.getByRole('switch', { name: 'Compact list' }).click();
+    await expect(page.locator('.hidden-reason')).toBeHidden();
+    // Still reachable, just not as a second paragraph.
+    await expect(page.locator('.meta-score').first())
+      .toHaveAttribute('title', 'No stated interest in municipal parking policy.');
+  });
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `cd web && npx playwright test mobile.spec.ts --project=phone -g "drops the hidden-reason"`
+Expected: FAIL at `expect(locator).toBeHidden()` — the paragraph is still visible.
+
+- [ ] **Step 3: Hide it with the summary**
+
+Replace `App.css:1128-1132` with:
+
+```css
+/* Compact list. The summary was the whole saving, and the reason a hidden
+   article was hidden has to go with it: on the Hidden list it is a second
+   paragraph of prose, often longer than the summary compact just dropped. It
+   is still the `title` on `.meta-score`, so nothing is lost. The tags and the
+   kind that compact also used to hide have gone from the card entirely, and
+   the meta line is one line in either mode. */
+[data-density='compact'] .article-summary,
+[data-density='compact'] .hidden-reason { display: none; }
+[data-density='compact'] .article-row { padding: 6px 0; }
+```
+
+- [ ] **Step 4: Run the test to verify it passes**
+
+Run: `cd web && npx playwright test mobile.spec.ts --project=phone --project=safari -g "drops the hidden-reason"`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add web/src/App.css web/e2e/mobile.spec.ts
+git commit -m "fix: compact mode drops the hidden-reason too"
+```
+
+---
+
+## Task 5: The headline is too large in the list
+
+**Model: Haiku.** Two numeric values with the reasoning supplied. The only judgment — how far down — is made below, and the existing tests draw the floor.
+
+### Root cause (verified)
+
+`App.css:455-463` — `.article-title` is `19px / 1.32 / 600 / -0.35px` at phone width and `20px / 1.3` above 900px. On a 390pt iPhone that is close to the reader's body text and, at three or four lines a headline, sets the height of every card.
+
+Target: **17px**, line-height **1.35**, letter-spacing **-0.2px**. Tighter tracking hurts more as size falls, so the negative tracking relaxes as the size drops rather than staying put. The desktop value is not changed: the measure is 760px there and 20px is right for it.
+
+Existing tests set the floor, and both should improve rather than break:
+- `mobile.spec.ts:60` — `title.width / viewport > 0.4` (a width claim, unaffected by size).
+- `mobile.spec.ts:165` — compact fits `> 4.5` stories per screen and saves `> 30px` against comfortable. The summary is still the saving; the delta does not move, and both heights come down.
+
+**Files:**
+- Modify: `web/src/App.css:455-463`
+- Test: `web/e2e/mobile.spec.ts`
+
+**Interfaces:**
+- Consumes: nothing.
+- Produces: nothing other tasks use. Changes the `list-*` visual baselines (Task 7).
+
+- [ ] **Step 1: Write the failing test**
+
+Add to `web/e2e/mobile.spec.ts`, in the `the top bar and the drawer fit the screen` describe block:
+
+```ts
+  test('the headline is a headline, not a heading', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'phone only');
+    // 19px on a 390pt screen sat a headline within a point of the body text
+    // and, at three lines, set the height of every card. 17 keeps the weight
+    // and the hierarchy against the 14px summary and buys back a story a
+    // screen. The desktop keeps 20 -- it has a 760px measure to fill.
+    const title = page.locator('.article-title').first();
+    await expect(title).toHaveCSS('font-size', '17px');
+    const summary = page.locator('.article-summary').first();
+    const [t, s] = [
+      parseFloat(await title.evaluate((el) => getComputedStyle(el).fontSize)),
+      parseFloat(await summary.evaluate((el) => getComputedStyle(el).fontSize)),
+    ];
+    expect(t, 'the headline must still outrank the summary').toBeGreaterThan(s + 2);
+  });
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `cd web && npx playwright test mobile.spec.ts --project=phone -g "is a headline, not a heading"`
+Expected: FAIL — `Expected: "17px" Received: "19px"`.
+
+- [ ] **Step 3: Bring the size down**
+
+Replace `.article-title` (`App.css:455-463`) with:
+
+```css
+.article-title {
+  /* 17, from 19. At 19 a headline on a 390pt screen sat within a couple of
+     points of the body text while setting the height of every card; the
+     hierarchy against the 14px summary is what carries it, not the size.
+     The desktop override below keeps 20 -- it has a 760px measure to fill.
+     Tracking relaxes with the size: -0.35px is a display-size correction and
+     reads as cramped at 17. */
+  font-size: 17px;
+  line-height: 1.35;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  color: var(--color-ink);
+  text-wrap: pretty;
+  cursor: pointer;
+}
+```
+
+- [ ] **Step 4: Run the test to verify it passes**
+
+Run: `cd web && npx playwright test mobile.spec.ts --project=phone --project=safari -g "is a headline, not a heading"`
+Expected: PASS.
+
+- [ ] **Step 5: Verify the density and width claims still hold**
+
+Run: `cd web && npx playwright test mobile.spec.ts --project=phone -g "compact mode trades|gets most of the width|the headline sits beside the photo"`
+Expected: PASS. If `compact ... toBeLessThan(comfortable - 30)` fails, the summary is no longer the dominant saving at this size — report it rather than loosening the threshold.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add web/src/App.css web/e2e/mobile.spec.ts
+git commit -m "fix: 17px headlines in the reading list
+
+19 put a headline within a couple of points of the body text on a phone and
+set the height of every card. Desktop keeps 20."
+```
+
+---
+
+## Task 6: The reader's top bar does not speak the app's language
+
+**Model: Sonnet.** The fix is small but it is a design judgment — deciding what "matches the system" means here, and which of the two existing vocabularies wins — and it removes CSS that other screens still use the classes of. That needs more care than a mechanical edit.
+
+### Root cause (verified)
+
+The app has one header vocabulary, set by `.app-header`: plain text actions (`.header-action`, 13px, `--color-ink-muted`, no border, no glyph), a hairline rule beneath, `--color-bg` behind. `CLAUDE.md` states the rule as "Actions are words, not emoji."
+
+The reader's top bar (`Reader.tsx:38-47`, `App.css:669-680`) is from before that: `← Back` as a `.btn-icon` (bordered, radius-sm, hover-fills its background) and `↗ Open in browser` as a `.btn-external` (a bordered box), on a bar with 12px/20px padding — and then overridden again at ≤899px to 32px and 13px so they "don't dominate the screen". Three different sets of metrics for one row.
+
+The fix is to speak `.app-header`'s language: the same 13px text actions, the same hairline, the same ground, the same `max(…, env(safe-area-inset-top))` treatment Task 2 gave the main header. The side padding stays at the **modal's** 20px rather than the header's 24/48, because the modal is its own surface and `.modal-body` sets the measure the nav has to align to — the type is what makes it read as one system, not the gutter.
+
+`.btn-icon` and `.btn-external` stay in the stylesheet: nine other screens use them. This task only stops the reader from using them.
+
+Two dead rules go with it: the `dialog#reader-modal` override at `App.css:282-289` and the `.modal-nav .btn-icon / .btn-external` override at `:293-298`. The reader has not been a native `<dialog>` since `components/Modal.tsx` replaced it — nothing in `src/` renders one (`grep -rn "<dialog" web/src` returns only a comment).
+
+**Files:**
+- Modify: `web/src/components/Reader.tsx:38-47`
+- Modify: `web/src/App.css:282-298` (delete two dead overrides), `:669-680` (`.modal-nav`)
+- Test: `web/e2e/design-system.spec.ts`
+
+**Interfaces:**
+- Consumes: Task 2's ladder — the reader sits inside `.modal-backdrop` at z-index 40, comfortably above the sticky header's 15. Nothing to change.
+- Produces: `.modal-nav` is a `.app-header`-shaped bar; its two controls carry `.header-action`. No accessible names change: "Back" and "Open in browser" keep their exact text.
+
+- [ ] **Step 1: Write the failing test**
+
+Add to `web/e2e/design-system.spec.ts`:
+
+```ts
+test('the reader top bar speaks the app header language', async ({ page }) => {
+  // There is one header vocabulary -- `.header-action`: 13px text, ink-muted,
+  // no border, no glyph, a hairline under the row. The reader's bar predated
+  // it and carried `.btn-icon` / `.btn-external` (bordered boxes with arrow
+  // glyphs) plus a third set of metrics under 899px, so the one screen a
+  // reader spends the most time on looked like a different application.
+  await signedIn(page);
+  await mockApi(page);
+  await page.goto('/');
+  await page.waitForSelector('.article-row');
+  await page.locator('.article-title').first().click();
+
+  const nav = page.getByRole('dialog').locator('.modal-nav');
+  await expect(nav).toBeVisible();
+  // Same classes as the list header's actions, and only those.
+  await expect(nav.locator('.btn-icon, .btn-external')).toHaveCount(0);
+  await expect(nav.getByRole('button', { name: 'Back' })).toHaveClass(/header-action/);
+  await expect(nav.getByRole('link', { name: 'Open in browser' }))
+    .toHaveClass(/header-action/);
+  // Words, not glyphs.
+  await expect(nav).not.toContainText('←');
+  await expect(nav).not.toContainText('↗');
+  // Same type and the same hairline as `.app-header`.
+  const listHeader = page.locator('.app-header');
+  const rule = await listHeader.evaluate((el) => getComputedStyle(el).borderBottomColor);
+  await expect(nav).toHaveCSS('border-bottom-color', rule);
+  await expect(nav.getByRole('button', { name: 'Back' })).toHaveCSS('font-size', '13px');
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `cd web && npx playwright test design-system.spec.ts --project=phone -g "reader top bar speaks"`
+Expected: FAIL at `toHaveCount(0)` — the bar still holds a `.btn-icon` and a `.btn-external`.
+
+- [ ] **Step 3: Restyle the reader's nav markup**
+
+`web/src/components/Reader.tsx`, replace the `<nav>` block:
+
+```tsx
+      {/* The same vocabulary as `.app-header`: text actions, no borders, no
+          glyphs. It carried `.btn-icon` and `.btn-external` from before that
+          header existed, which made the one screen a reader spends the most
+          time on look like a different application. Those classes stay in the
+          stylesheet -- nine other screens use them -- this bar just stops
+          being one of them. */}
+      <nav className="modal-nav">
+        <button className="header-action is-ink" onClick={onClose}>
+          Back
+        </button>
+        {detail && (
+          <a
+            className="header-action"
+            href={detail.url}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Open in browser
+          </a>
+        )}
+      </nav>
+```
+
+- [ ] **Step 4: Give the bar the header's metrics**
+
+Replace `.modal-nav` (`App.css:669-680`) with:
+
+```css
+/* Shaped like `.app-header`, and for the same reasons -- one hairline, the
+   page ground behind it, actions as 13px text. The side padding is the
+   modal's 20px rather than the header's 24, because this bar aligns to
+   `.modal-body` beneath it; it is the type that makes the two read as one
+   system, not the gutter. The top inset matches the list header's treatment
+   and is inert until there is a `viewport-fit=cover` to make it real. */
+.modal-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: max(14px, env(safe-area-inset-top)) 20px 14px;
+  border-bottom: 1px solid var(--color-hairline);
+  background: var(--color-bg);
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+/* `.header-action` is a <button> rule; the Open link needs the same box. */
+.modal-nav .header-action { text-decoration: none; }
+```
+
+- [ ] **Step 5: Delete the two rules that are now dead**
+
+In the `@media (max-width: 899px)` block, remove the `dialog#reader-modal { … }` rule (`App.css:282-289`, together with its "Reader modal goes full-bleed" comment) and the `.modal-nav { padding: 6px 12px; }` line plus the `.modal-nav .btn-icon, .modal-nav .btn-external { … }` rule and its comment (`:290-298`). Drop whole rules — do not rewrite the selector lists around them.
+
+Verify nothing else wanted them:
+
+```bash
+cd web && grep -rn "reader-modal" src/ e2e/          # expect: no matches
+cd web && grep -rn "btn-icon\|btn-external" src/     # expect: matches only outside Reader.tsx
+```
+
+- [ ] **Step 6: Run the test to verify it passes**
+
+Run: `cd web && npx playwright test design-system.spec.ts --project=phone --project=desktop --project=safari -g "reader top bar speaks"`
+Expected: PASS on all three.
+
+- [ ] **Step 7: Run the reading and design suites**
+
+Run: `cd web && npm run typecheck && npx playwright test reading.spec.ts design-system.spec.ts redesign.spec.ts`
+Expected: PASS. `design-system.spec.ts` asserts `App.css` holds no hex literal and no literal radius and that every `var(--token)` resolves — the rules above use tokens only.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add web/src/components/Reader.tsx web/src/App.css web/e2e/design-system.spec.ts
+git commit -m "fix: the reader top bar uses the app header vocabulary
+
+Text actions, one hairline, the page ground -- instead of two bordered
+button styles with arrow glyphs and a third set of metrics under 899px.
+Takes two dead <dialog>-era overrides with it."
+```
+
+---
+
+## Task 7: A Tags switch in the drawer
+
+**Model: Sonnet.** It is a new preference rather than a bug fix — a new module, three components and a stylesheet rule, following a pattern `photos.ts` and `density.ts` already set. The one judgment is what the switch does at phone width, and that is settled below.
+
+### What this adds, and the decision behind it
+
+A fourth per-device display preference, `tags`, beside `theme`, `density` and `photos`, rendered as a `Toggle` in `.drawer-settings`.
+
+The card already renders one topic (`ArticleCard.tsx:129-142`), but `.meta-tag` is `display: none` at base and turns on only inside the `@media (min-width: 900px)` block (`App.css:1147,1158,1368`) — the meta line is a single line on a phone and the tag is the item that would wrap it. So on the device that asked for this switch there is currently nothing for it to hide.
+
+**The preference replaces the breakpoint, and defaults to `off`.** The switch then means the same thing on both devices: off is what a phone shows today, and turning it on shows tags wherever you are. The cost is that a desktop loses its single tag until the reader flips the switch once — acceptable, because these preferences are per-device localStorage and a desktop reader sets theirs once anyway. The alternative, defaulting on, would put a tag on every card on the phone without anyone asking for it.
+
+The phone's one-line meta rule is protected by bringing back the **13ch cap** the redesign removed. That cap was dropped along with the tag row that needed it; the tag is back at phone width now, so the cap comes back with it. `mobile.spec.ts:217` asserts that line stays under 48px, which is the test that would catch a wrap.
+
+**Files:**
+- Create: `web/src/tags.ts`
+- Modify: `web/src/App.tsx` (state, effect, `Drawer` prop, palette entry), `web/src/components/Drawer.tsx` (prop + `Toggle`), `web/src/App.css:1143-1158` and `:1368`
+- Test: `web/e2e/mobile.spec.ts`
+
+**Interfaces:**
+- Consumes: nothing from Tasks 1-6.
+- Produces: `loadTags(): Tags`, `setTags(v: Tags): void`, `applyTags(v: Tags): void` with `type Tags = 'on' | 'off'`, exactly mirroring `web/src/photos.ts`. `<html data-tags>` is stamped. `Drawer` gains two required props, `tags: Tags` and `setTagsState: Dispatch<SetStateAction<Tags>>` — required, not optional, because "a prop made optional just to quiet the compiler is how a control comes out of a refactor still rendering and doing nothing" (`CLAUDE.md`). Task 8 rebuilds the `drawer-*` baselines this changes.
+
+- [ ] **Step 1: Write the failing tests**
+
+Add to `web/e2e/mobile.spec.ts`, in the `the top bar and the drawer fit the screen` describe block:
+
+```ts
+  test('the tags switch shows and hides the topic, on a phone too', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'phone only');
+    // The tag was desktop-only: `display: none` at base, `inline` inside the
+    // 900px block, because the meta line is one line on a phone and the tag is
+    // the item that wraps it. The preference replaces that breakpoint, so the
+    // switch means the same thing on both devices -- and defaults off, which
+    // is what a phone shows today.
+    await expect(page.locator('.meta-tag').first()).toBeHidden();
+
+    await openDrawer(page);
+    const tags = page.getByRole('switch', { name: 'Show tags' });
+    await expect(tags).toHaveAttribute('aria-checked', 'false');
+    await tags.click();
+    await page.locator('.drawer-scrim').click({ position: { x: 340, y: 40 } });
+
+    await expect(page.locator('.meta-tag').first()).toBeVisible();
+    await expect(page.locator('html')).toHaveAttribute('data-tags', 'on');
+    // And it must not cost the single meta line. 48, the same floor the
+    // source-and-age test uses: the actions stand 40px tall, so anything
+    // under 48 is one line and only a wrap clears it.
+    const meta = page.locator('.article-meta').first();
+    expect((await meta.boundingBox())!.height).toBeLessThan(48);
+  });
+
+  test('the tags choice survives a reload', async ({ page }) => {
+    await openDrawer(page);
+    await page.getByRole('switch', { name: 'Show tags' }).click();
+    await page.reload();
+    await page.waitForSelector('.article-row');
+    await expect(page.locator('html')).toHaveAttribute('data-tags', 'on');
+    await openDrawer(page);
+    await expect(page.getByRole('switch', { name: 'Show tags' }))
+      .toHaveAttribute('aria-checked', 'true');
+  });
+
+  test('a long tag is capped rather than allowed to wrap the line', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'phone only');
+    // The 13ch cap was dropped with the tag row that needed it. The tag is
+    // back at phone width, so the cap comes back with it.
+    await page.route('**/api/v1/articles?*', (r) => r.fulfill({ json: {
+      articles: [article(1, { topics: ['campeonato-brasileiro-serie-a'] })],
+      next_offset: null, diagnosis: null,
+    } }));
+    await page.reload();
+    await page.waitForSelector('.article-row');
+    await openDrawer(page);
+    await page.getByRole('switch', { name: 'Show tags' }).click();
+    await page.locator('.drawer-scrim').click({ position: { x: 340, y: 40 } });
+
+    const tag = (await page.locator('.meta-tag').first().boundingBox())!;
+    const viewport = page.viewportSize()!.width;
+    expect(tag.width, 'the tag took the whole meta line').toBeLessThan(viewport * 0.4);
+    expect((await page.locator('.article-meta').first().boundingBox())!.height)
+      .toBeLessThan(48);
+  });
+```
+
+- [ ] **Step 2: Run them to verify they fail**
+
+Run: `cd web && npx playwright test mobile.spec.ts --project=phone -g "tags switch shows|tags choice survives|long tag is capped"`
+Expected: all three FAIL — `getByRole('switch', { name: 'Show tags' })` resolves to nothing.
+
+- [ ] **Step 3: Create the preference module**
+
+`web/src/tags.ts`:
+
+```ts
+/**
+ * Whether the reading list shows the topic tag.
+ *
+ * A fourth display preference beside `theme`, `density` and `photos`, and
+ * per-device for the same reason they are.
+ *
+ * It replaces a breakpoint rather than adding to one. The tag was desktop-only
+ * -- `display: none` at base, `inline` only inside the 900px block -- because
+ * the meta line is a single line on a phone and the tag is the item that would
+ * wrap it. That made it the one thing on the card a reader could not choose,
+ * and a switch in the drawer that did nothing on a phone would have been worse
+ * than no switch.
+ *
+ * Defaults to **off**, which is what a phone shows today: the switch then means
+ * the same thing on both devices, and a desktop reader turns it on once. The
+ * phone's single meta line is protected by the 13ch cap in `App.css`, not by
+ * hiding the control.
+ *
+ * Stored in localStorage beside `theme`, `density`, `photos` and
+ * `sidebar-collapsed`: a non-secret display preference, and the sanctioned use
+ * of that store.
+ */
+export type Tags = 'on' | 'off';
+
+const KEY = 'tags';
+
+export function loadTags(): Tags {
+  try {
+    return localStorage.getItem(KEY) === 'on' ? 'on' : 'off';
+  } catch {
+    return 'off';
+  }
+}
+
+export function setTags(value: Tags): void {
+  try {
+    localStorage.setItem(KEY, value);
+  } catch {
+    /* private mode: the toggle still works, it just forgets */
+  }
+}
+
+/** Stamped on <html>, so it is one attribute rather than a prop threaded
+ *  through every component that renders part of a card. */
+export function applyTags(value: Tags): void {
+  document.documentElement.dataset.tags = value;
+}
+```
+
+- [ ] **Step 4: Wire it into the shell**
+
+`web/src/App.tsx` — import beside the other three preferences (after the `photos` import, ~line 18):
+
+```tsx
+import { applyTags, loadTags, setTags, type Tags } from './tags';
+```
+
+State and effect, directly after the `photos` pair (~line 79):
+
+```tsx
+  const [tags, setTagsState] = useState<Tags>(() => loadTags());
+  useEffect(() => applyTags(tags), [tags]);
+```
+
+Pass it to `Drawer`, beside `photos={photos}` and `setPhotosState={setPhotosState}`:
+
+```tsx
+        tags={tags}
+        setTagsState={setTagsState}
+```
+
+And a palette entry, directly after the `photos` command (~line 283):
+
+```tsx
+    { id: 'tags', label: 'Toggle article tags',
+      run: () => setTagsState((t) => { const n = t === 'on' ? 'off' : 'on'; setTags(n); return n; }) },
+```
+
+- [ ] **Step 5: Add the switch to the drawer**
+
+`web/src/components/Drawer.tsx` — import beside the others:
+
+```tsx
+import { setTags, type Tags } from '../tags';
+```
+
+Add to `DrawerProps`, beside `photos` and `setPhotosState`:
+
+```tsx
+  tags: Tags;
+  setTagsState: Dispatch<SetStateAction<Tags>>;
+```
+
+Add both names to the destructured parameter list, then render the switch inside `.drawer-settings`, directly after the Compact `Toggle`:
+
+```tsx
+            {/* The topic tag was the one thing on the card a reader could not
+                choose: desktop-only by breakpoint, because it is the item that
+                would wrap the phone's single meta line. This preference
+                replaces that breakpoint -- the line is protected by a 13ch cap
+                instead -- so the switch means the same thing on both devices.
+                `name` diverges from `label` the way Photos and Compact do. */}
+            <Toggle
+              label="Tags"
+              name="Show tags"
+              checked={tags === 'on'}
+              onChange={(v) => {
+                const next = v ? 'on' : 'off';
+                setTags(next); setTagsState(next);
+              }}
+            />
+```
+
+- [ ] **Step 6: Make the preference the gate, and cap the tag**
+
+`web/src/App.css` — replace `.meta-tag` and `.meta-dot-tag` (`:1147-1158`) with:
+
+```css
+/* A button, so the card's click guard excludes it and it is reachable by Tab --
+   but it must read as the plain text the design asks for, not as a chip.
+   Hidden unless the drawer's Tags switch is on. That switch replaced a
+   `min-width: 900px` gate: the tag was the one item on the card a reader could
+   not choose, and a control in the drawer that did nothing at phone width
+   would have been worse than none. Its dot goes with it -- a separator left
+   behind by a hidden tag is a stray mark. */
+.meta-tag {
+  display: none;
+  flex: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.meta-dot-tag { display: none; }
+/* 13ch, back again. The cap went out with the tag row that needed it; the tag
+   is rendered at phone width now, where the meta line is a single line and
+   this is the item that would wrap it. `inline-block`, not `inline`: an inline
+   box has no width to cap and ignores `text-overflow` entirely. */
+[data-tags='on'] .meta-tag {
+  display: inline-block;
+  max-width: 13ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+[data-tags='on'] .meta-dot-tag { display: inline; }
+```
+
+Then delete the now-superseded line from the `@media (min-width: 900px)` block (`App.css:1368`):
+
+```
+  .meta-tag, .meta-dot-tag { display: inline; }
+```
+
+Leave `.meta-tag:hover` in the `@media (hover: hover)` block alone.
+
+- [ ] **Step 7: Run the tests to verify they pass**
+
+Run: `cd web && npx playwright test mobile.spec.ts --project=phone --project=safari -g "tags switch shows|tags choice survives|long tag is capped"`
+Expected: PASS on both projects.
+
+- [ ] **Step 8: Verify the desktop tag still works, behind the switch**
+
+Run: `cd web && npx playwright test --project=desktop`
+Expected: PASS. Any desktop test that expects `.meta-tag` to be visible without touching the switch now needs `data-tags='on'` set first — set it through the drawer's switch, not by stamping the attribute, so the test drives the control a reader would.
+
+- [ ] **Step 9: Run the full web suite**
+
+Run: `cd web && npm run typecheck && npm run e2e`
+Expected: PASS except the known `visual.spec.ts` drift — the `drawer-*` baselines now hold a fourth switch. Task 8 rebuilds them.
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add web/src/tags.ts web/src/App.tsx web/src/components/Drawer.tsx web/src/App.css web/e2e/mobile.spec.ts
+git commit -m "feat: a Tags switch in the drawer
+
+A fourth per-device display preference. It replaces the tag's min-width:900px
+gate rather than adding to it, so the switch means the same thing on a phone
+as on a desktop; the phone's one-line meta is protected by a 13ch cap.
+Defaults off, which is what a phone shows today."
+```
+
+---
+
+## Task 8: Rebuild the pixel baselines and verify the whole stack
+
+**Model: Sonnet.** Mostly procedural, but it ends in a judgment call — a human has to look at four images before any baseline is written, and the suite is known to be blind to low-contrast movement, so the header change has to be confirmed by measurement rather than by a green run.
+
+**Files:**
+- Modify: `web/e2e/visual.spec.ts-snapshots/*.png` (the 8 `list-*` and `drawer-*` baselines; `signin-*` and `single-story-*` should not move)
+- Modify: `rss-reader/CLAUDE.md`
+
+**Interfaces:**
+- Consumes: Tasks 2–7, all committed.
+- Produces: nothing.
+
+- [ ] **Step 1: Confirm which baselines actually moved**
+
+Run: `cd web && npx playwright test visual.spec.ts`
+Expected: the eight `list-*` and `drawer-*` snapshots fail — `list-*` for the shorter header and the smaller headline, `drawer-*` for those plus the pill-shaped switches and the new Tags row. `signin-*` and `single-story-*` pass. If a `signin-*` or `single-story-*` snapshot fails, a rule leaked outside the reading list — stop and find it before regenerating anything.
+
+- [ ] **Step 2: Measure what the suite cannot see**
+
+`toHaveScreenshot`'s default threshold is above this palette's hairline contrast, so a moved rule does not register. Confirm the header change by measuring instead:
+
+```bash
+cd web && npx playwright test mobile.spec.ts --project=phone \
+  -g "stays on screen|on top of a headline|switches are pills|is a headline"
+```
+Expected: PASS — these four are the measurements that stand in for the pixels.
+
+- [ ] **Step 3: Generate the new images and look at them**
+
+```bash
+cd web && npx playwright test visual.spec.ts --update-snapshots
+```
+
+Then **open** `e2e/visual.spec.ts-snapshots/list-light-phone-linux.png`, `list-dark-phone-linux.png`, `drawer-light-phone-linux.png` and `drawer-dark-phone-linux.png` and check, by eye:
+1. the header is shorter and the hamburger sits inside it, level with the title;
+2. the headline is visibly smaller than the old baseline but still outranks the summary;
+3. the Photos, Compact and Tags switches are pills, not circles, and the new Tags row sits with the other three;
+4. nothing else moved.
+
+Regenerating to make red go away, without looking, is how this suite quietly becomes decoration.
+
+- [ ] **Step 4: Run everything**
+
+```bash
+docker compose run --rm web pytest tests/ -q
+cd web && npm run typecheck && npm run e2e && npm run build
+```
+
+`npm run build` is not redundant with typecheck: neither typecheck nor the dev-server e2e run touches the CSS minifier, and invalid CSS that Vite serves happily has failed `docker compose build` at deploy time before.
+
+- [ ] **Step 5: Verify on the device that reported the defects**
+
+The mocked suite cannot see a real Safari on a real phone, and every defect in this plan was reported from one. Against the deployed stack, on the iPhone 16 Pro, in both Safari and the installed PWA:
+
+1. scroll to the bottom of a long list — the top bar is still there and *Mark all read* works from where you are;
+2. no floating bars over the first headline at any scroll position;
+3. open the drawer, tap the dimmed area — it closes;
+4. Photos and Compact read as pills;
+5. drawer → Saved articles: the list matches the count beside it, after a *Mark all read*;
+6. drawer → Hidden, then Compact on: no "Hidden: …" line, and long-pressing the score still shows the reason;
+7. open any article — the top bar matches the list's header;
+8. drawer → Tags on — a topic appears on each card and the meta line stays one line; off again — it goes.
+
+- [ ] **Step 6: Bring `CLAUDE.md` up to date**
+
+Three of its statements are now wrong. Under **Frontend**, amend the `Toolbar.tsx` bullet and the drawer bullet:
+
+- the "One header, not two" bullet gains: *The header is `position: sticky` at z-index 15 and `.drawer-toggle` rides inside it. It was unpinned with the toggle fixed above the drawer — circular, and it cost both Mark-all-read's reachability from the foot of a long list and a clean first headline. The scrim closes the drawer now.*
+- a new bullet: *The coarse-pointer tap floor (`min-height: 40px` on every button without `.pill`) is the wrong instrument for a control whose shape carries meaning. `.toggle` opts out and takes a 44px target from `::after`; `.segment` takes a 32px floor. At 40px under `--radius-pill` a 42×26 switch renders as a circle — on touch devices only, which is why it survived so long.*
+- the modal bullet gains: *`.modal-nav` uses `.header-action`, the same vocabulary as `.app-header`. `.btn-icon` / `.btn-external` remain for the other screens.*
+
+Also under **Frontend**, two counts are now wrong: *"Three display preferences, all per-device localStorage: `theme`, `density`, `photos`"* becomes **four**, with `tags`; and *"`localStorage` holds four keys"* becomes **five**. Say what `tags` is for: it replaced the topic tag's `min-width: 900px` gate rather than adding to it, so the switch means the same thing on a phone as on a desktop, and the phone's single meta line is held by a 13ch cap instead of by hiding the control. It defaults off.
+
+Under **DB schema**, beside the dismissed-pile paragraph, add: *The Saved list does **not** apply `_visible`, and accepts `hidden` status as well as `summarized`. `dismiss-all` stamps everything the on-screen filter matched, saved articles included, so with the split on, one Mark-all-read emptied Saved while `sidebar_counts` — which never applied the split to `saved` — went on reporting a dozen. A save is a keep, and asking for your keeps is not asking whether you dealt with them.*
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add web/e2e/visual.spec.ts-snapshots CLAUDE.md
+git commit -m "test: rebuild the phone visual baselines; document the fixes"
+```
+
+---
+
+## Task List & Recommended Models
+
+> **Model key** — **Haiku**: the cause is fully diagnosed and the change is a value or a declaration, with no judgment left. **Sonnet**: a contained change that still trades one thing against another, or removes code other callers touch. **Opus**: the fix reverses a decision the codebase argues for in a comment, or changes shared read semantics — the implementer has to re-argue it, not just apply it.
+
+| # | Defect | Root cause | Files | Model |
+|---|---|---|---|---|
+| **1** | Saved list shows nothing | `dismiss_all` stamps saved rows; `list_for_user`'s dismissed split then hides them, while `sidebar_counts` keeps counting them | `app/repo/articles.py`, `web/src/App.tsx`, `tests/test_api.py` | **Opus** |
+| **2** | Top bar scrolls away **+** hamburger over the articles | `.drawer-toggle` is `position: fixed` so it can outrank the drawer, which is why `.app-header` was deliberately unpinned — circular | `web/src/App.css`, `components/Toolbar.tsx`, `e2e/mobile.spec.ts` | **Opus** |
+| **3** | Photos / Compact switches are circles | `@media (pointer: coarse) { button:not(.pill) { min-height: 40px } }` floors a 42×26 track under a 999px radius | `web/src/App.css`, `e2e/mobile.spec.ts` | **Sonnet** |
+| **4** | Hidden-reason survives compact | compact hides `.article-summary` only; `.hidden-reason` is its own `<p>` | `web/src/App.css`, `e2e/mobile.spec.ts` | **Haiku** |
+| **5** | Headline too large in the list | `.article-title` is 19px/-0.35px at phone width | `web/src/App.css`, `e2e/mobile.spec.ts` | **Haiku** |
+| **6** | Reader top bar is off-system | `.btn-icon` / `.btn-external` with arrow glyphs, plus a third set of metrics ≤899px, predating `.header-action` | `components/Reader.tsx`, `web/src/App.css`, `e2e/design-system.spec.ts` | **Sonnet** |
+| **7** | *(new)* Tags switch in the drawer | The topic tag was gated by `min-width: 900px` and had no control at all; the preference replaces that gate | `web/src/tags.ts`, `App.tsx`, `Drawer.tsx`, `App.css`, `e2e/mobile.spec.ts` | **Sonnet** |
+| **8** | — | Baseline rebuild, full verification, device check, docs | `e2e/visual.spec.ts-snapshots`, `CLAUDE.md` | **Sonnet** |
+
+**Order matters.** Task 1 is independent (backend, plus one line of `App.tsx`) and can run alongside Task 2. Tasks 2–7 all edit `App.css` and must run sequentially. Task 8 must be last — regenerating baselines before every visual change is in means doing it twice and looking at the wrong images the first time.
+
+---
+
+## Found but deliberately out of scope
+
+Recorded here so the next reader does not have to find them again.
+
+- **`.article-row.hidden` is dead CSS.** `App.css:439-440` styles `.article-row.hidden` (0.65 opacity, a left rule, an italic headline), but `ArticleCard.tsx:52-61` never puts `hidden` in the class list — it carries `s.opinion`, `read`, `saved`, `dismissed` and `focused` only. So hidden articles get none of that treatment; `.hidden-reason` is the only thing marking them. Either the class should be added or the rules dropped. Not touched here because it changes how the Hidden list looks, which nobody asked for.
+- **Three more dead `<dialog>` rules.** `App.css:655-668` — the bare `dialog`, `dialog::backdrop` and `dialog[open]` rules. Nothing in `src/` renders a `<dialog>`; `components/Modal.tsx` is a `div[role=dialog]`. Task 6 removes the `dialog#reader-modal` override because it sits inside a block being edited; these three sit in a block that is not, and deleting them belongs in a cleanup pass with the rest.
+- **No `viewport-fit=cover`.** `web/index.html` sets `width=device-width, initial-scale=1.0`, so on an iPhone 16 Pro iOS insets the web view itself and `env(safe-area-inset-*)` resolves to 0. Tasks 2 and 6 write `max(14px, env(safe-area-inset-top))`, which is exactly the 14px value today and correct if `viewport-fit=cover` is ever added. Adding it now would mean auditing every horizontal gutter in the app for a landscape inset, which is its own piece of work.

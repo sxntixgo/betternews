@@ -3,6 +3,7 @@ import type { FeedList, Me } from '@shared/api';
 import { api } from '../api/client';
 import { setDensity, type Density } from '../density';
 import { setPhotos, type Photos } from '../photos';
+import { setTags, type Tags } from '../tags';
 import { setTheme, type ThemePreference } from '../theme';
 import { Toggle } from './Toggle';
 import { Segmented } from './Segmented';
@@ -16,6 +17,7 @@ interface DrawerProps {
   saved: boolean;
   hidden: boolean;
   photos: Photos;
+  tags: Tags;
   density: Density;
   sort: 'date' | 'score';
   theme: ThemePreference;
@@ -29,6 +31,7 @@ interface DrawerProps {
   setShowFeeds: Dispatch<SetStateAction<boolean>>;
   setShowInsights: Dispatch<SetStateAction<boolean>>;
   setPhotosState: Dispatch<SetStateAction<Photos>>;
+  setTagsState: Dispatch<SetStateAction<Tags>>;
   setDensityState: Dispatch<SetStateAction<Density>>;
   setSort: Dispatch<SetStateAction<'date' | 'score'>>;
   setThemeState: Dispatch<SetStateAction<ThemePreference>>;
@@ -47,9 +50,9 @@ interface DrawerProps {
  * holds none of its own.
  */
 export function Drawer({
-  drawerOpen, me, feeds, feed, saved, hidden, photos, density, sort, theme,
+  drawerOpen, me, feeds, feed, saved, hidden, photos, tags, density, sort, theme,
   choose, setFeed, setSaved, setHidden, setSingleStoryMode, setSingleIndex,
-  setShowFeeds, setShowInsights, setPhotosState, setDensityState, setSort,
+  setShowFeeds, setShowInsights, setPhotosState, setTagsState, setDensityState, setSort,
   setThemeState, setShowProfile, setShowUsers, setShowSettings, setShowLog,
   setShowShortcuts, setSignedIn,
 }: DrawerProps) {
@@ -155,6 +158,22 @@ export function Drawer({
               onChange={(v) => {
                 const next = v ? 'compact' : 'comfortable';
                 setDensity(next); setDensityState(next);
+              }}
+            />
+
+            {/* The topic tag was the one thing on the card a reader could not
+                choose: desktop-only by breakpoint, because it is the item that
+                would wrap the phone's single meta line. This preference
+                replaces that breakpoint -- the line is protected by a 13ch cap
+                instead -- so the switch means the same thing on both devices.
+                `name` diverges from `label` the way Photos and Compact do. */}
+            <Toggle
+              label="Tags"
+              name="Show tags"
+              checked={tags === 'on'}
+              onChange={(v) => {
+                const next = v ? 'on' : 'off';
+                setTags(next); setTagsState(next);
               }}
             />
 

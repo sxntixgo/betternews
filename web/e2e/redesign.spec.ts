@@ -229,6 +229,10 @@ test.describe('desktop layout', () => {
     await signedIn(page);
     await mockApi(page);
     await page.goto('/');
+    // The tag is hidden until the drawer's Tags switch is on -- drive the
+    // control a reader would, not the underlying attribute.
+    await openDrawer(page);
+    await page.getByRole('switch', { name: 'Show tags' }).click();
     const asked: string[] = [];
     page.on('request', (r) => {
       if (r.url().includes('/api/v1/articles?')) asked.push(r.url());

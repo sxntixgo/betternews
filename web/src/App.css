@@ -1169,11 +1169,13 @@ kbd {
   white-space: nowrap;
 }
 .meta-age, .meta-dot, .meta-dupes { flex: none; }
-/* One topic, as plain text and not as a chip row. Desktop only, with its own
-   separator dot: this is the item that would wrap the phone's single meta
-   line, and a dot left behind by a hidden tag is a stray mark. */
 /* A button, so the card's click guard excludes it and it is reachable by Tab --
-   but it must read as the plain text the design asks for, not as a chip. */
+   but it must read as the plain text the design asks for, not as a chip.
+   Hidden unless the drawer's Tags switch is on. That switch replaced a
+   `min-width: 900px` gate: the tag was the one item on the card a reader could
+   not choose, and a control in the drawer that did nothing at phone width
+   would have been worse than none. Its dot goes with it -- a separator left
+   behind by a hidden tag is a stray mark. */
 .meta-tag {
   display: none;
   flex: none;
@@ -1186,6 +1188,19 @@ kbd {
   cursor: pointer;
 }
 .meta-dot-tag { display: none; }
+/* 13ch, back again. The cap went out with the tag row that needed it; the tag
+   is rendered at phone width now, where the meta line is a single line and
+   this is the item that would wrap it. `inline-block`, not `inline`: an inline
+   box has no width to cap and ignores `text-overflow` entirely. */
+[data-tags='on'] .meta-tag {
+  display: inline-block;
+  max-width: 13ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+[data-tags='on'] .meta-dot-tag { display: inline; }
 
 /* The dismissed pile: a divider you have to cross on purpose. It sits below
    the unread list, so it needs to read as a different section rather than as
@@ -1409,7 +1424,6 @@ kbd {
   .article-meta { font-size: 11.5px; }
   .article-actions { gap: 20px; }
   .article-actions .action-open { display: inline; }
-  .meta-tag, .meta-dot-tag { display: inline; }
 
   /* Held to the same 760px as the list below it. Left to the full width of
      the content column the header's right edge -- the actions and the filter

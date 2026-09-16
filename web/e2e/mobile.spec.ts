@@ -493,6 +493,62 @@ test.describe('the top bar and the drawer fit the screen', () => {
     ];
     expect(t, 'the headline must still outrank the summary').toBeGreaterThan(s + 2);
   });
+
+  test('the tags switch shows and hides the topic, on a phone too', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'phone only');
+    // The tag was desktop-only: `display: none` at base, `inline` inside the
+    // 900px block, because the meta line is one line on a phone and the tag is
+    // the item that wraps it. The preference replaces that breakpoint, so the
+    // switch means the same thing on both devices -- and defaults off, which
+    // is what a phone shows today.
+    await expect(page.locator('.meta-tag').first()).toBeHidden();
+
+    await openDrawer(page);
+    const tags = page.getByRole('switch', { name: 'Show tags' });
+    await expect(tags).toHaveAttribute('aria-checked', 'false');
+    await tags.click();
+    await page.locator('.drawer-scrim').click({ position: { x: 340, y: 40 } });
+
+    await expect(page.locator('.meta-tag').first()).toBeVisible();
+    await expect(page.locator('html')).toHaveAttribute('data-tags', 'on');
+    // And it must not cost the single meta line. 48, the same floor the
+    // source-and-age test uses: the actions stand 40px tall, so anything
+    // under 48 is one line and only a wrap clears it.
+    const meta = page.locator('.article-meta').first();
+    expect((await meta.boundingBox())!.height).toBeLessThan(48);
+  });
+
+  test('the tags choice survives a reload', async ({ page }) => {
+    await openDrawer(page);
+    await page.getByRole('switch', { name: 'Show tags' }).click();
+    await page.reload();
+    await page.waitForSelector('.article-row');
+    await expect(page.locator('html')).toHaveAttribute('data-tags', 'on');
+    await openDrawer(page);
+    await expect(page.getByRole('switch', { name: 'Show tags' }))
+      .toHaveAttribute('aria-checked', 'true');
+  });
+
+  test('a long tag is capped rather than allowed to wrap the line', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'phone only');
+    // The 13ch cap was dropped with the tag row that needed it. The tag is
+    // back at phone width, so the cap comes back with it.
+    await page.route('**/api/v1/articles?*', (r) => r.fulfill({ json: {
+      articles: [article(1, { topics: ['campeonato-brasileiro-serie-a'] })],
+      next_offset: null, diagnosis: null,
+    } }));
+    await page.reload();
+    await page.waitForSelector('.article-row');
+    await openDrawer(page);
+    await page.getByRole('switch', { name: 'Show tags' }).click();
+    await page.locator('.drawer-scrim').click({ position: { x: 340, y: 40 } });
+
+    const tag = (await page.locator('.meta-tag').first().boundingBox())!;
+    const viewport = page.viewportSize()!.width;
+    expect(tag.width, 'the tag took the whole meta line').toBeLessThan(viewport * 0.4);
+    expect((await page.locator('.article-meta').first().boundingBox())!.height)
+      .toBeLessThan(48);
+  });
 });
 
 test.describe('photos', () => {

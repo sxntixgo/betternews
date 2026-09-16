@@ -130,11 +130,13 @@ export default function App() {
     '',
   );
 
-  // Searching and the Hidden view are their own answers to "what should I look
-  // at"; a dismissed pile underneath them is noise. It also resets on any
-  // filter change, so the button does not stay open over a list it was never
-  // opened for.
-  const offersDismissed = !search && !hidden;
+  // Searching, the Hidden view and Saved are each their own answer to "what
+  // should I look at"; a dismissed pile underneath them is noise. Saved is the
+  // newest of the three and the strictest: it no longer applies the dismissed
+  // split at all, so a pile under it would be the same rows a second time. It
+  // also resets on any filter change, so the button does not stay open over a
+  // list it was never opened for.
+  const offersDismissed = !search && !hidden && !saved;
   useEffect(() => {
     setShowDismissed(false);
   }, [feed, saved, hidden, topic, search]);

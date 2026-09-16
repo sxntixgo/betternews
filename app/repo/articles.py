@@ -78,8 +78,27 @@ def list_for_user(db, user_id: int, *, hidden: bool = False, saved: bool = False
                   feed_id: int | None = None, sort: str = "date",
                   topic: str | None = None, limit: int = 50, offset: int = 0,
                   dismissed: bool = False):
-    stmt = _visible(_card_select(user_id), dismissed)
-    stmt = stmt.where(A.c.status.in_(HIDDEN_STATUSES if hidden else VISIBLE_STATUSES))
+    # Saved is the one list the dismissed split does not apply to, for the same
+    # reason `search` below opts out of it: saving is an explicit keep, and
+    # asking for the things you kept is not asking whether you have dealt with
+    # them. `dismiss-all` stamps every article the current filter matched --
+    # saved ones included -- so with the split on, one press of Mark all read
+    # emptied this list while `sidebar_counts` (which has never applied the
+    # split to `saved`) went on reporting a dozen of them.
+    if not saved:
+        stmt = _visible(_card_select(user_id), dismissed)
+    else:
+        stmt = _card_select(user_id)
+
+    if saved and not hidden:
+        # A Save button is rendered on the Hidden list, so it has to mean
+        # something. Restricting to `summarized` here saved articles into a
+        # list that could not show them.
+        stmt = stmt.where(A.c.status.in_(VISIBLE_STATUSES + HIDDEN_STATUSES))
+    else:
+        stmt = stmt.where(
+            A.c.status.in_(HIDDEN_STATUSES if hidden else VISIBLE_STATUSES))
+
     if topic:
         # An explicit topic filter is a deliberate request, so it overrides the
         # user's own hide stance for that topic.

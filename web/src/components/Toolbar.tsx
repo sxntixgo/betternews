@@ -87,9 +87,12 @@ export function Toolbar({
           The ids are the old row's, deliberately. Several specs drive
           `#poll-btn`, `#dismiss-all-btn` and `#digest-btn` directly, and those
           are the same three actions doing the same three jobs; renaming them
-          would have churned the suite to no end. `.drawer-toggle` survives for
-          the same reason -- it is the control other specs open the drawer by,
-          restyled from a three-line icon to the two-bar one. */}
+          would have churned the suite to no end.
+
+          `.drawer-toggle` keeps its class for the same reason -- it is the
+          control other specs open the drawer by. It is no longer fixed over
+          the list: it is a flex item in this row, the header is sticky, and
+          the scrim is what closes the drawer once it is open. */}
       <div className="header-row">
         <div className="header-title">
           <button

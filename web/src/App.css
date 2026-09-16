@@ -29,12 +29,18 @@ body {
   line-height: 1.5;
 }
 
-/* Not sticky: a `position` here would establish its own stacking context,
-   and `.drawer-toggle` inside it is `position: fixed` specifically so it
-   stays clickable above the open drawer (z-index 25) -- trapped in a
-   stickied ancestor's context, no z-index on the toggle could out-rank a
-   sibling stacking context at all. The missed strip below is unpinned for
-   the same family of reason, just simpler: it scrolls with the list. */
+/* `.app-header` is sticky (see its rule below). It could not be while
+   `.drawer-toggle` was `position: fixed` to outrank the open drawer: a sticky
+   ancestor establishes a stacking context, so no z-index on the toggle could
+   have out-ranked a sibling context at all. That was circular -- the toggle
+   was fixed because the header could not pin, and the header could not pin
+   because the toggle was fixed -- and it cost both of the things this pair
+   was arranged to protect: Mark all read was unreachable from the bottom of a
+   long list, and the fixed toggle floated over the first headline with no
+   background of its own. The drawer's scrim closes the drawer now, so the
+   toggle rides in the header's flow and the header pins.
+
+   The missed strip below stays unpinned: it scrolls with the list. */
 
 
 nav { display: flex; align-items: center; gap: 12px; flex-shrink: 0; margin-left: auto; }
@@ -221,23 +227,25 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 }
 .sidebar-manage:hover { color: var(--color-ink); }
 
-/* Mobile drawer. `.drawer-toggle` is restyled here -- a two-bar hamburger
-   instead of the old three-line icon -- but it still needs to sit above the
-   open drawer, not behind it: the sidebar overlays at z-index 25 while open,
-   and its own descendants clicked through, so an in-flow copy inside
-   `.app-header` (a much lower stacking context) would go dead the moment the drawer covered it. Fixed and above
-   both keeps `photos toggle > it takes the reader lead image with it`
-   (mobile.spec.ts) able to close the drawer by tapping this same control a
-   second time. `.header-title` reserves the matching space below so the
-   title text does not start underneath it. */
+/* Mobile drawer. Two bars, in the header's flow -- not fixed. It was fixed so
+   it could sit above the open drawer (z-index 25) from inside a header that
+   had no stacking context of its own; that is what put it on top of the first
+   headline whenever the header scrolled away. The drawer covers it now, and
+   `.drawer-scrim` is what closes it. */
 .drawer-toggle {
   display: none;
-  position: fixed;
-  top: 58px;
-  left: 24px;
-  z-index: 30;
-  width: 18px;
+  /* 40x40 taken here rather than inherited from the coarse-pointer
+     `min-height`, which only sets one axis and would leave an 18px-wide
+     target. The bars stay 18px; the button around them is the tap area. */
+  width: 40px;
+  height: 40px;
+  flex: none;
+  /* The bars line up with the title text's left edge; the target overhangs
+     into the gutter, which is dead space anyway. */
+  margin-left: -10px;
   flex-direction: column;
+  align-items: center;
+  justify-content: center;
   gap: 4px;
   background: none;
   border: 0;
@@ -246,6 +254,9 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 }
 .drawer-toggle span {
   display: block;
+  /* Explicit now: the button used to be exactly 18px wide and the bars simply
+     filled it. */
+  width: 18px;
   height: 1.5px;
   background: var(--color-ink);
 }
@@ -260,10 +271,6 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 
 @media (max-width: 899px) {
   .drawer-toggle { display: flex; }
-  /* The toggle is fixed and out of flow at this width, so `.header-title`
-     reserves its width itself rather than leaving the title to render
-     underneath it. */
-  .header-title { padding-left: 32px; }
   .sidebar {
     position: fixed;
     top: 0;
@@ -1185,17 +1192,31 @@ kbd {
    the field-behind-a-button search: those have no home up here and stay
    exactly as they were. */
 .app-header {
+  /* Pinned, so Mark all read is reachable from the bottom of a long list
+     rather than only from the top of it. */
+  position: sticky;
+  top: 0;
+  /* Above the list, below `.drawer-scrim` (18) and `.sidebar` (25): the drawer
+     is meant to cover this, and the scrim is what closes it. Well below
+     `.modal-backdrop` (40). */
+  z-index: 15;
   /* The hairline lives here, not on a wrapper. `.site-header` was a <header>
      nested inside this one whose only remaining job was to draw this line --
      and it drew it across the whole window while the column beneath it is
      capped at 760px, so the rule ran past every card it was meant to close
      off. On this element it ends where the reading measure does. */
   border-bottom: 1px solid var(--color-hairline);
+  /* Opaque, and now load-bearing rather than cosmetic: the list scrolls under
+     this. */
   background: var(--color-bg);
   display: flex;
   flex-direction: column;
   gap: 18px;
-  padding: 52px 24px 16px;
+  /* Was 52px on top, which was clearance for a hamburger fixed at top:58px and
+     nothing else. `max()` with the inset is inert today -- there is no
+     `viewport-fit=cover`, so iOS insets the web view itself and `env()`
+     resolves to 0 -- and is correct the day that changes. */
+  padding: max(14px, env(safe-area-inset-top)) 24px 16px;
 }
 .header-row { display: flex; align-items: center; justify-content: space-between; }
 .header-title { display: flex; align-items: center; gap: 14px; }

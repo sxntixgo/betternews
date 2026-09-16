@@ -366,6 +366,54 @@ test.describe('the top bar and the drawer fit the screen', () => {
     }
     await expect(page.getByRole('radiogroup', { name: 'Theme' })).toBeAttached();
   });
+
+  test('the top bar stays on screen at the bottom of the list', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'phone only');
+    // Mark all read is a header action, and the reader reaches for it after
+    // reading the last story on screen -- which is exactly where an unpinned
+    // header is furthest away. It was not sticky because the hamburger inside
+    // it was `position: fixed` to outrank the open drawer; the scrim closes
+    // the drawer now, so the header can pin and the hamburger can ride with it.
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    const header = page.locator('.app-header');
+    await expect(header).toBeInViewport();
+    expect((await header.boundingBox())!.y).toBeLessThanOrEqual(1);
+    await expect(header.getByRole('button', { name: 'Mark all read' })).toBeInViewport();
+  });
+
+  test('the menu button never sits on top of a headline', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'phone only');
+    // It was fixed at top:58px/left:24px with no background, so once the
+    // header scrolled past, two ink bars floated over the first story's
+    // headline. In the header's flow it cannot overlap anything below it.
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    const toggle = (await page.locator('.drawer-toggle').boundingBox())!;
+    const header = (await page.locator('.app-header').boundingBox())!;
+    expect(toggle.y + toggle.height, 'the toggle escaped the header')
+      .toBeLessThanOrEqual(header.y + header.height + 1);
+
+    // And the element under the first headline's top-left corner is the
+    // headline, not the button.
+    const title = (await page.locator('.article-title').first().boundingBox())!;
+    const onTop = await page.evaluate(
+      ([x, y]) => (document.elementFromPoint(x, y) as HTMLElement)?.className ?? '',
+      [title.x + 4, title.y + 4] as const,
+    );
+    expect(onTop).not.toContain('drawer-toggle');
+  });
+
+  test('the drawer covers the header, and the scrim closes it', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'phone only');
+    // The header is sticky now, so it has a stacking context: it must sit
+    // *under* the scrim (18) and the drawer (25), and the scrim -- not the
+    // hamburger buried beneath it -- is what shuts the drawer again.
+    await openDrawer(page);
+    await expect(page.locator('.sidebar.open')).toHaveCount(1);
+    // Not the top-left corner: the scrim spans the viewport, so its own (5, 5)
+    // is underneath the 260px drawer. Click to the right of the drawer's edge.
+    await page.locator('.drawer-scrim').click({ position: { x: 340, y: 40 } });
+    await expect(page.locator('.sidebar.open')).toHaveCount(0);
+  });
 });
 
 test.describe('photos', () => {
@@ -468,9 +516,11 @@ test.describe('the photos toggle', () => {
     await openDrawer(page);
     await page.getByRole('switch', { name: 'Show photos' }).click();
     // Shut the drawer: on a phone it covers the list, and Escape does not close
-    // it -- it is not a dialog.
-    const toggle = page.locator('.drawer-toggle');
-    if (await toggle.isVisible()) await toggle.click();
+    // it -- it is not a dialog. The scrim, not the hamburger: the toggle rides
+    // in the sticky header now and the open drawer covers it. On a desktop the
+    // sidebar is in flow, nothing opened it, and the scrim has no box to click.
+    const scrim = page.locator('.drawer-scrim');
+    if (await scrim.isVisible()) await scrim.click({ position: { x: 340, y: 40 } });
     await expect(page.locator('.sidebar.open')).toHaveCount(0);
 
     await page.locator('.article-title').first().click();

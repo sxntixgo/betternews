@@ -370,6 +370,17 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
   border-radius: var(--radius-pill);
   background: var(--color-toggle-off);
   display: flex; align-items: center; cursor: pointer;
+  /* Anchor for the hit area below. */
+  position: relative;
+}
+/* The tap target, separated from the drawn control. A switch is a track, and
+   a track grown to a 40px floor under `--radius-pill` is a circle -- which is
+   what these looked like on a phone. Absolutely positioned, so it is not a
+   flex item of the track above it. 42+8 x 26+18 = 50x44. */
+.toggle::after {
+  content: '';
+  position: absolute;
+  inset: -9px -4px;
 }
 .toggle[aria-checked='true'] { background: var(--color-accent); justify-content: flex-end; }
 .toggle-knob { width: 20px; height: 20px; border-radius: var(--radius-pill); background: var(--color-segment-selected); }
@@ -594,6 +605,18 @@ button:disabled { opacity: 0.4; cursor: default; }
   }
   .pill { min-height: 26px; }
   .btn-icon, .sidebar-collapse, .sidebar-manage { min-width: 40px; }
+
+  /* Two controls whose shape *is* their meaning, and for which a height floor
+     is the wrong instrument. `.toggle` takes its 44px target from `::after`
+     instead; `.segment` sits in a 3px track, so a 40px floor makes the whole
+     radiogroup 46px tall. 32 clears WCAG 2.5.8's 24px with room over.
+     Both are selected as `button.toggle` / `button.segment`, not the bare
+     class: `button:not(.pill)` above carries a type selector plus the
+     specificity of its `:not()` argument (0,1,1), which outranks a bare
+     class (0,1,0) regardless of source order. Matching that specificity lets
+     these, appended after, win on order instead. */
+  button.toggle { min-height: 0; }
+  button.segment { min-height: 32px; }
 }
 
 .btn-external {

@@ -414,6 +414,46 @@ test.describe('the top bar and the drawer fit the screen', () => {
     await page.locator('.drawer-scrim').click({ position: { x: 340, y: 40 } });
     await expect(page.locator('.sidebar.open')).toHaveCount(0);
   });
+
+  test('the switches are pills, and still clear the tap floor', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'phone only');
+    // `@media (pointer: coarse)` put a 40px floor on every button without
+    // `.pill`. A switch is a track: 42 wide, floored to 40 tall, with a 999px
+    // radius, it rendered as a circle on every phone -- and only on a phone,
+    // which is why it lived this long. The drawn size comes back and the tap
+    // target moves to a pseudo-element.
+    await openDrawer(page);
+    const toggle = page.getByRole('switch', { name: 'Compact list' });
+    const box = (await toggle.boundingBox())!;
+    expect(box.height, 'the track grew to meet the tap floor').toBeLessThanOrEqual(28);
+    expect(box.width / box.height, 'a switch is wider than it is tall')
+      .toBeGreaterThan(1.4);
+
+    // The target is still there, it is just not the painted box.
+    const hit = await toggle.evaluate((el) => {
+      const r = getComputedStyle(el, '::after');
+      const b = el.getBoundingClientRect();
+      const grow = (v: string) => Math.abs(parseFloat(v) || 0);
+      return {
+        w: b.width + grow(r.left) + grow(r.right),
+        h: b.height + grow(r.top) + grow(r.bottom),
+      };
+    });
+    expect(Math.min(hit.w, hit.h)).toBeGreaterThanOrEqual(44);
+  });
+
+  test('the segmented controls do not stand 40px tall', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'phone only');
+    // Same floor, same shape problem, one step smaller: Sort and Theme are
+    // two- and three-position radiogroups, not primary actions.
+    await openDrawer(page);
+    const segment = page.getByRole('radiogroup', { name: 'Sort' })
+      .getByRole('radio').first();
+    const box = (await segment.boundingBox())!;
+    expect(box.height).toBeLessThanOrEqual(34);
+    // WCAG 2.5.8 is 24px; this must stay above it.
+    expect(Math.min(box.width, box.height)).toBeGreaterThanOrEqual(24);
+  });
 });
 
 test.describe('photos', () => {

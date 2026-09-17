@@ -208,6 +208,26 @@ test.describe('phone layout', () => {
       .toHaveAttribute('aria-checked', 'true');
   });
 
+  test('the list is tighter than a screen-and-a-half per story', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'phone only');
+    // 34px between cards was set when the headline was 19px and bold. Against
+    // 15/400 it reads as drift rather than separation. Whitespace is still the
+    // only thing dividing the stories -- there are no dividers and no row
+    // tints -- there is just less of it.
+    await expect(page.locator('#article-list')).toHaveCSS('row-gap', '20px');
+    const perScreen = await page.evaluate(() =>
+      window.innerHeight /
+      (document.querySelector('.article-row') as HTMLElement).getBoundingClientRect().height);
+    expect(perScreen, 'fewer than four stories fit a screen').toBeGreaterThan(4);
+    // The separation must still be real: no card may touch its neighbour.
+    const gaps = await page.evaluate(() => {
+      const rows = [...document.querySelectorAll('.article-row')];
+      return rows.slice(1).map((r, i) =>
+        r.getBoundingClientRect().top - rows[i].getBoundingClientRect().bottom);
+    });
+    expect(Math.min(...gaps)).toBeGreaterThanOrEqual(16);
+  });
+
   test('the meta line leads with the source and the age', async ({ page }) => {
     // They moved down to the tags row when the card became three rows, and back
     // up again now that there is one line for everything. Same claim either

@@ -396,7 +396,11 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 #article-list {
   display: flex;
   flex-direction: column;
-  gap: 34px;
+  /* 20, from 34. That 34 was set against a 19px bold headline; under 15/400 the
+     same gap reads as the list drifting apart rather than as separation.
+     Whitespace is still the only thing between two stories -- no dividers, no
+     row tints -- there is simply less of it needed now. */
+  gap: 20px;
   padding: 6px 24px 24px;
   list-style: none;
   margin: 0;
@@ -1470,7 +1474,9 @@ kbd {
      card reads as cut off. */
   #article-list {
     max-width: 760px;
-    gap: 40px;
+    /* 24, from 40 -- the same proportion the phone took, against a 760px
+       measure that can carry a little more air than a 390px one. */
+    gap: 24px;
     padding: 34px 48px 24px;
   }
   /* Held to the list's own text measure so the strip and the cards share a

@@ -80,7 +80,18 @@ test.describe('list rhythm', () => {
     await page.goto('/');
     const row = page.locator('#card-1');
     await expect(row).toHaveClass(/read/);
-    expect(await row.evaluate((el) => getComputedStyle(el).opacity)).toBe('0.55');
+    // 0.8, from 0.55: at 0.55 a read summary measured 1.64:1 against the page
+    // and a read headline 2.19:1. The floor itself is asserted by measurement
+    // in design-system.spec.ts ('read state stays legible and still reads as
+    // read'); what this test owns is the mechanism -- a fade on the row, and
+    // no tint behind it, because a tinted row is the second kind of card the
+    // redesign took out.
+    const { opacity, bg } = await row.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return { opacity: cs.opacity, bg: cs.backgroundColor };
+    });
+    expect(opacity).toBe('0.8');
+    expect(bg, 'read must not be expressed as a background tint').toBe('rgba(0, 0, 0, 0)');
   });
 });
 

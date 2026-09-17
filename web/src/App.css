@@ -405,8 +405,18 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
   list-style: none;
   margin: 0;
 }
-/* Read is expressed by weight, not by a background. */
-.article-row.read { opacity: 0.55; }
+/* Read is expressed by a muted headline colour and a single row-level fade --
+   never by a background tint, which is the thing the whitespace redesign took
+   out. 0.8, from 0.55: at 0.55 over `--color-ink-muted` the read headline
+   measured 2.19:1 against the page in light and 2.42:1 in dark, and the
+   summary -- which compounded a second 0.7 on top -- 1.64:1 and 1.82:1. This
+   rule used to be read alongside a `font-weight: 500`, and stroke weight was
+   carrying what the fade had taken; that weight went when the list came down
+   to 15/400, and nothing replaced it. 0.8 with no compounding is the smallest
+   value that clears 3:1 on both the headline and the summary in both themes,
+   and it leaves a read headline ~5:1 away from an unread one -- still plainly
+   read, no longer plainly invisible. `design-system.spec.ts` measures it. */
+.article-row.read { opacity: 0.8; }
 .article-row {
   padding: 10px 0;
   /* Two rows, and only two: the story, then one line carrying every fact a
@@ -444,7 +454,6 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
    headline against an unread 600; with unread at 400 that inverted and made
    read stories the boldest thing in the list. */
 .article-row.read .article-title { color: var(--color-ink-muted); }
-.article-row.read .article-summary { opacity: 0.7; }
 .article-row.read .article-thumb { opacity: 0.6; }
 /* Saved has its own colour, not the accent the votes use: it is a keep, not
    an opinion, and it is the one state that outlives retention. */

@@ -1202,7 +1202,7 @@ kbd {
 
 @media (max-width: 899px) {
   /* Almost nothing left here. The card's type and metrics are the phone's own
-     now -- 19px headline, 76px photo, one 11px meta line -- so the desktop no
+     now -- 15px headline, 76px photo, one 11px meta line -- so the desktop no
      longer needs undoing at this width; the tuning that used to live here was
      all for the four-row card and went with it. */
   .article-row { padding: 8px 0; }

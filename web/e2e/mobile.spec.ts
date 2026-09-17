@@ -606,17 +606,18 @@ test.describe('the top bar and the drawer fit the screen', () => {
   test('the headline is a headline, not a heading', async ({ page, isMobile }) => {
     test.skip(!isMobile, 'phone only');
     // 19px on a 390pt screen sat a headline within a point of the body text
-    // and, at three lines, set the height of every card. 17 keeps the weight
-    // and the hierarchy against the 14px summary and buys back a story a
-    // screen. The desktop keeps 20 -- it has a 760px measure to fill.
+    // and, at three lines, set the height of every card. 15/400 keeps the
+    // hierarchy against the 13px summary through size and colour rather than
+    // weight, and buys back a story a screen. The desktop keeps 17 -- it has
+    // a 760px measure to fill.
     const title = page.locator('.article-title').first();
-    await expect(title).toHaveCSS('font-size', '17px');
+    await expect(title).toHaveCSS('font-size', '15px');
     const summary = page.locator('.article-summary').first();
     const [t, s] = [
       parseFloat(await title.evaluate((el) => getComputedStyle(el).fontSize)),
       parseFloat(await summary.evaluate((el) => getComputedStyle(el).fontSize)),
     ];
-    expect(t, 'the headline must still outrank the summary').toBeGreaterThan(s + 2);
+    expect(t, 'the headline must still outrank the summary').toBeGreaterThan(s);
   });
 
   test('the tags switch shows and hides the topic, on a phone too', async ({ page, isMobile }) => {
@@ -673,6 +674,58 @@ test.describe('the top bar and the drawer fit the screen', () => {
     expect(tag.width, 'the tag took the whole meta line').toBeLessThan(viewport * 0.4);
     expect((await page.locator('.article-meta').first().boundingBox())!.height)
       .toBeLessThan(48);
+  });
+
+  test('the list is set in normal weight, with the summary a step below', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'phone only');
+    // The headline carried weight 600, which on a list of forty stories is a
+    // wall of bold. Hierarchy moves onto size and colour: 15px ink over 13px
+    // body ink. Both normal weight.
+    const title = page.locator('.article-title').first();
+    await expect(title).toHaveCSS('font-size', '15px');
+    await expect(title).toHaveCSS('font-weight', '400');
+
+    const summary = page.locator('.article-summary').first();
+    await expect(summary).toHaveCSS('font-size', '13px');
+    // A step, not a tie: the headline must still out-size its own summary.
+    const [t, s] = [
+      parseFloat(await title.evaluate((el) => getComputedStyle(el).fontSize)),
+      parseFloat(await summary.evaluate((el) => getComputedStyle(el).fontSize)),
+    ];
+    expect(t).toBeGreaterThan(s);
+    // ...and they must not be the same colour, or the step is one pixel.
+    const [tc, sc] = [
+      await title.evaluate((el) => getComputedStyle(el).color),
+      await summary.evaluate((el) => getComputedStyle(el).color),
+    ];
+    expect(tc).not.toBe(sc);
+  });
+
+  test('a read story is never bolder than an unread one', async ({ page }) => {
+    // `.article-row.read .article-title` set `font-weight: 500` to lighten a
+    // read headline against an unread 600. With unread at 400 that rule
+    // inverts and read becomes the boldest thing on the screen. Colour is what
+    // carries read state.
+    await page.route('**/api/v1/articles?*', (r) => r.fulfill({ json: {
+      articles: [
+        article(1, { state: { read: true, saved: false, dismissed: false, opinion: null } }),
+        article(2, { state: { read: false, saved: false, dismissed: false, opinion: null } }),
+      ],
+      next_offset: null, diagnosis: null,
+    } }));
+    await page.reload();
+    await page.waitForSelector('.article-row');
+
+    const weight = (sel: string) => page.locator(sel).evaluate(
+      (el) => parseInt(getComputedStyle(el).fontWeight, 10));
+    const read = await weight('.article-row.read .article-title');
+    const unread = await weight('.article-row:not(.read) .article-title');
+    expect(read, 'a read headline outweighs an unread one').toBeLessThanOrEqual(unread);
+    // And read state is still visible, just not through weight.
+    const colours = await Promise.all(['.article-row.read .article-title',
+                                       '.article-row:not(.read) .article-title']
+      .map((s) => page.locator(s).evaluate((el) => getComputedStyle(el).color)));
+    expect(colours[0]).not.toBe(colours[1]);
   });
 });
 

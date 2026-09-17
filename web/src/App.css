@@ -436,7 +436,10 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 }
 .article-row.dismissed:hover { opacity: 0.75; }
 .article-row.focused  { background: var(--color-surface-2); }
-.article-row.read .article-title { color: var(--color-ink-muted); font-weight: 500; }
+/* Colour only. This used to also set `font-weight: 500`, to lighten a read
+   headline against an unread 600; with unread at 400 that inverted and made
+   read stories the boldest thing in the list. */
+.article-row.read .article-title { color: var(--color-ink-muted); }
 .article-row.read .article-summary { opacity: 0.7; }
 .article-row.read .article-thumb { opacity: 0.6; }
 /* Saved has its own colour, not the accent the votes use: it is a keep, not
@@ -461,23 +464,25 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
    inline-level box in every engine, so it can never wrap around anything and
    `font: inherit` has to be undone by hand. Everything here is type. */
 .article-title {
-  /* 17, from 19. At 19 a headline on a 390pt screen sat within a couple of
-     points of the body text while setting the height of every card; the
-     hierarchy against the 14px summary is what carries it, not the size.
-     The desktop override below keeps 20 -- it has a 760px measure to fill.
-     Tracking relaxes with the size: -0.35px is a display-size correction and
-     reads as cramped at 17. */
-  font-size: 17px;
-  line-height: 1.35;
-  font-weight: 600;
-  letter-spacing: -0.2px;
+  /* 15/400, from 17/600. A reading list is forty headlines in a column, and at
+     600 that is a wall of bold with nothing standing out of it because
+     everything is. Hierarchy moves onto size and colour instead: 15px
+     `--color-ink` over a 13px `--color-ink-body` summary. Tracking goes to 0 --
+     negative tracking is a display-size correction and reads as cramped at 15px
+     in a normal weight. */
+  font-size: 15px;
+  line-height: 1.4;
+  font-weight: 400;
+  letter-spacing: 0;
   color: var(--color-ink);
   text-wrap: pretty;
   cursor: pointer;
 }
 .article-summary {
   margin: 0;
-  font-size: 14px;
+  /* 13, from 14. The headline came down to 15; at 14 the two were a pixel
+     apart and the card read as one undifferentiated block of text. */
+  font-size: 13px;
   line-height: 1.55;
   font-weight: 400;
   color: var(--color-ink-body);
@@ -1477,11 +1482,9 @@ kbd {
   }
 
   .article-head { gap: 22px; }
-  /* The tracking comes with the size. The base relaxed to -0.2px when phone
-     headlines dropped to 17 -- that is a 17px correction -- and this override
-     set only the size, so 20px desktop headlines were being set at the
-     phone's tracking. -0.35px is the display-size value they had before. */
-  .article-title { font-size: 20px; line-height: 1.3; letter-spacing: -0.35px; }
+  /* 17, from 20, tracking down with it. The base rule sets the weight for both
+     widths; only size, line-height and tracking are per-width. */
+  .article-title { font-size: 17px; line-height: 1.35; letter-spacing: -0.1px; }
   .article-thumb { width: 104px; height: 78px; }
   .article-meta { font-size: 11.5px; }
   .article-actions { gap: 20px; }

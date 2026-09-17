@@ -215,10 +215,17 @@ test.describe('phone layout', () => {
     // only thing dividing the stories -- there are no dividers and no row
     // tints -- there is just less of it.
     await expect(page.locator('#article-list')).toHaveCSS('row-gap', '20px');
-    const perScreen = await page.evaluate(() =>
-      window.innerHeight /
-      (document.querySelector('.article-row') as HTMLElement).getBoundingClientRect().height);
-    expect(perScreen, 'fewer than four stories fit a screen').toBeGreaterThan(4);
+    // Row height *plus* the gap: a story costs a reader both, and dividing by
+    // the row alone counted a list with no space between the cards. It lands
+    // at 4.04 on an iPhone 13, which is the whole claim -- four stories and
+    // the start of a fifth, where the 34px gap gave three and a half.
+    const perScreen = await page.evaluate(() => {
+      const row = (document.querySelector('.article-row') as HTMLElement)
+        .getBoundingClientRect().height;
+      const gap = parseFloat(getComputedStyle(document.querySelector('#article-list')!).rowGap);
+      return window.innerHeight / (row + gap);
+    });
+    expect(perScreen, 'more than four stories must fit a screen').toBeGreaterThan(4);
     // The separation must still be real: no card may touch its neighbour.
     const gaps = await page.evaluate(() => {
       const rows = [...document.querySelectorAll('.article-row')];
@@ -629,15 +636,24 @@ test.describe('the top bar and the drawer fit the screen', () => {
     // and, at three lines, set the height of every card. 15/400 keeps the
     // hierarchy against the 13px summary through size and colour rather than
     // weight, and buys back a story a screen. The desktop keeps 17 -- it has
-    // a 760px measure to fill.
+    // a 760px measure to fill. This test owns the sizes and the step between
+    // them; 'the list carries its hierarchy in colour too' owns the colour.
     const title = page.locator('.article-title').first();
     await expect(title).toHaveCSS('font-size', '15px');
+    // The headline carried weight 600, which on a list of forty stories is a
+    // wall of bold with nothing standing out of it.
+    await expect(title).toHaveCSS('font-weight', '400');
     const summary = page.locator('.article-summary').first();
+    await expect(summary).toHaveCSS('font-size', '13px');
     const [t, s] = [
       parseFloat(await title.evaluate((el) => getComputedStyle(el).fontSize)),
       parseFloat(await summary.evaluate((el) => getComputedStyle(el).fontSize)),
     ];
-    expect(t, 'the headline must still outrank the summary').toBeGreaterThan(s);
+    // A step of 2px, stated as a floor rather than as the pair of exact sizes
+    // above it: this is the claim that has to survive either size moving, and
+    // it is the one that was relaxed to `> s` when the headline came down to
+    // 15 -- which a summary back at 14px would have passed.
+    expect(t, 'the headline must still outrank the summary').toBeGreaterThanOrEqual(s + 2);
   });
 
   test('the tags switch shows and hides the topic, on a phone too', async ({ page, isMobile }) => {
@@ -696,29 +712,22 @@ test.describe('the top bar and the drawer fit the screen', () => {
       .toBeLessThan(48);
   });
 
-  test('the list is set in normal weight, with the summary a step below', async ({ page, isMobile }) => {
+  test('the list carries its hierarchy in colour too', async ({ page, isMobile }) => {
     test.skip(!isMobile, 'phone only');
-    // The headline carried weight 600, which on a list of forty stories is a
-    // wall of bold. Hierarchy moves onto size and colour: 15px ink over 13px
-    // body ink. Both normal weight.
+    // The sizes and the 2px step between them are asserted once, in 'the
+    // headline is a headline, not a heading'; this test used to restate both
+    // and then add `expect(t).toBeGreaterThan(s)` under two exact
+    // `toHaveCSS` assertions that had already fixed t and s. What is only
+    // claimed here is the colour: with the weight gone, 15px `--color-ink`
+    // over a 13px `--color-ink-body` summary is half of what separates a
+    // headline from its own standfirst, and two pixels is the other half.
     const title = page.locator('.article-title').first();
-    await expect(title).toHaveCSS('font-size', '15px');
-    await expect(title).toHaveCSS('font-weight', '400');
-
     const summary = page.locator('.article-summary').first();
-    await expect(summary).toHaveCSS('font-size', '13px');
-    // A step, not a tie: the headline must still out-size its own summary.
-    const [t, s] = [
-      parseFloat(await title.evaluate((el) => getComputedStyle(el).fontSize)),
-      parseFloat(await summary.evaluate((el) => getComputedStyle(el).fontSize)),
-    ];
-    expect(t).toBeGreaterThan(s);
-    // ...and they must not be the same colour, or the step is one pixel.
     const [tc, sc] = [
       await title.evaluate((el) => getComputedStyle(el).color),
       await summary.evaluate((el) => getComputedStyle(el).color),
     ];
-    expect(tc).not.toBe(sc);
+    expect(tc, 'the headline and the summary must not share a colour').not.toBe(sc);
   });
 
   test('a read story is never bolder than an unread one', async ({ page }) => {

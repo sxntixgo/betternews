@@ -742,6 +742,25 @@ dialog[open] { display: flex; flex-direction: column; }
   font-size: 16px;
   line-height: 1.8;
 }
+/* The reader's headline, which until now had no rule at all: 32px was the
+   browser's default `h1` and the leading was `.modal-body`'s 1.8 inherited onto
+   a heading, so a three-line headline stood 173px tall and pushed the article
+   itself below the fold on a phone. Halved, and the leading brought to a
+   heading value -- which is where most of the height was.
+
+   At 16px this matches the body copy exactly, so `font-weight` is the only
+   thing left marking it as a heading. That is deliberate, and it is why the
+   weight is restated here rather than left to the browser.
+
+   Scoped to `.modal-body h1`: the only other `<h1>` in the app is the
+   `.unreachable` screen's, which is not inside a modal. */
+.modal-body h1 {
+  font-size: 16px;
+  line-height: 1.25;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  margin: 0 0 12px;
+}
 .modal-body p { margin-bottom: 16px; }
 .modal-body p:last-child { margin-bottom: 0; }
 .modal-body ul { margin: 0 0 16px; padding-left: 24px; list-style: disc; }

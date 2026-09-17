@@ -312,6 +312,33 @@ test('an embed renders as a card and loads nothing from a third party', async ({
   expect(external, `contacted: ${external.join(', ')}`).toEqual([]);
 });
 
+test('the reader headline is a headline, not a banner', async ({ page }) => {
+  // It had no rule at all: 32px was the browser default h1 and the 57.6px
+  // line-height was `.modal-body`'s 1.8 -- a body-copy value inherited onto a
+  // heading -- so a three-line headline stood 173px tall and the article began
+  // below the fold on a phone. The leading was doing more damage than the size.
+  await signedIn(page);
+  await mockApi(page);
+  await page.goto('/');
+  await page.waitForSelector('.article-row');
+  await page.locator('.article-title').first().click();
+
+  const h1 = page.getByRole('dialog').locator('.modal-body h1');
+  await expect(h1).toBeVisible();
+  await expect(h1).toHaveCSS('font-size', '16px');
+  // The leading is the point: 1.8 on a heading is what made it a banner.
+  const lh = await h1.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight));
+  expect(lh).toBeLessThanOrEqual(21);
+  // At 16px it matches the body copy exactly, so weight is the only thing left
+  // saying "heading". It must not be given up too.
+  const [hw, pw] = await Promise.all([
+    h1.evaluate((el) => parseInt(getComputedStyle(el).fontWeight, 10)),
+    page.getByRole('dialog').locator('.modal-body p').first()
+      .evaluate((el) => parseInt(getComputedStyle(el).fontWeight, 10)),
+  ]);
+  expect(hw, 'at body size, weight is all that marks the heading').toBeGreaterThan(pw);
+});
+
 test.describe('keyboard votes', () => {
   test('l likes and d dislikes the focused article', async ({ page }) => {
     // `l` existed and `d` did not, so the keyboard path could approve of things

@@ -752,8 +752,10 @@ dialog[open] { display: flex; flex-direction: column; }
    thing left marking it as a heading. That is deliberate, and it is why the
    weight is restated here rather than left to the browser.
 
-   Scoped to `.modal-body h1`: the only other `<h1>` in the app is the
-   `.unreachable` screen's, which is not inside a modal. */
+   Scoped to `.modal-body h1`: the app's other three `<h1>`s -- the
+   `.unreachable` screen's, and the `signin-wordmark` heading in both `SignIn`
+   and `ForcedPasswordChange` -- are none of them descendants of `.modal-body`,
+   so this rule cannot reach them. */
 .modal-body h1 {
   font-size: 16px;
   line-height: 1.25;

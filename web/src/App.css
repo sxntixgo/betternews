@@ -16,6 +16,13 @@ html {
      under the swipe gesture. */
   overscroll-behavior-y: contain;
   overscroll-behavior-x: none;
+  /* `.app-header` is `position: sticky` and opaque, so every scroll the
+     browser performs on its own -- find-in-page, `scrollIntoView`,
+     `scrollIntoViewIfNeeded`, a fragment link -- parks its target under 71px
+     of header unless the scroll port is told the header is there. One pixel
+     over the measured height; the desktop block sets its own, because that
+     header carries the search row and stands 119. */
+  scroll-padding-top: 72px;
 }
 
 body {
@@ -29,12 +36,18 @@ body {
   line-height: 1.5;
 }
 
-/* Not sticky: a `position` here would establish its own stacking context,
-   and `.drawer-toggle` inside it is `position: fixed` specifically so it
-   stays clickable above the open drawer (z-index 25) -- trapped in a
-   stickied ancestor's context, no z-index on the toggle could out-rank a
-   sibling stacking context at all. The missed strip below is unpinned for
-   the same family of reason, just simpler: it scrolls with the list. */
+/* `.app-header` is sticky (see its rule below). It could not be while
+   `.drawer-toggle` was `position: fixed` to outrank the open drawer: a sticky
+   ancestor establishes a stacking context, so no z-index on the toggle could
+   have out-ranked a sibling context at all. That was circular -- the toggle
+   was fixed because the header could not pin, and the header could not pin
+   because the toggle was fixed -- and it cost both of the things this pair
+   was arranged to protect: Mark all read was unreachable from the bottom of a
+   long list, and the fixed toggle floated over the first headline with no
+   background of its own. The drawer's scrim closes the drawer now, so the
+   toggle rides in the header's flow and the header pins.
+
+   The missed strip below stays unpinned: it scrolls with the list. */
 
 
 nav { display: flex; align-items: center; gap: 12px; flex-shrink: 0; margin-left: auto; }
@@ -221,23 +234,27 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 }
 .sidebar-manage:hover { color: var(--color-ink); }
 
-/* Mobile drawer. `.drawer-toggle` is restyled here -- a two-bar hamburger
-   instead of the old three-line icon -- but it still needs to sit above the
-   open drawer, not behind it: the sidebar overlays at z-index 25 while open,
-   and its own descendants clicked through, so an in-flow copy inside
-   `.app-header` (a much lower stacking context) would go dead the moment the drawer covered it. Fixed and above
-   both keeps `photos toggle > it takes the reader lead image with it`
-   (mobile.spec.ts) able to close the drawer by tapping this same control a
-   second time. `.header-title` reserves the matching space below so the
-   title text does not start underneath it. */
+/* Mobile drawer. Two bars, in the header's flow -- not fixed. It was fixed so
+   it could sit above the open drawer (z-index 25) from inside a header that
+   had no stacking context of its own; that is what put it on top of the first
+   headline whenever the header scrolled away. The drawer covers it now, and
+   `.drawer-scrim` is what closes it. */
 .drawer-toggle {
   display: none;
-  position: fixed;
-  top: 58px;
-  left: 24px;
-  z-index: 30;
-  width: 18px;
+  /* 40x40 taken here rather than inherited from the coarse-pointer
+     `min-height`, which only sets one axis and would leave an 18px-wide
+     target. The bars stay 18px; the button around them is the tap area. */
+  width: 40px;
+  height: 40px;
+  flex: none;
+  /* The bars line up with the article titles' left edge -- the list's 24px
+     gutter -- and the target overhangs into that gutter, which is dead space
+     anyway. Tracks the header's side padding: bars sit 11px inside this
+     button, so padding + margin + 11 is what has to come to 24. */
+  margin-left: -7px;
   flex-direction: column;
+  align-items: center;
+  justify-content: center;
   gap: 4px;
   background: none;
   border: 0;
@@ -246,6 +263,9 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 }
 .drawer-toggle span {
   display: block;
+  /* Explicit now: the button used to be exactly 18px wide and the bars simply
+     filled it. */
+  width: 18px;
   height: 1.5px;
   background: var(--color-ink);
 }
@@ -260,10 +280,6 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 
 @media (max-width: 899px) {
   .drawer-toggle { display: flex; }
-  /* The toggle is fixed and out of flow at this width, so `.header-title`
-     reserves its width itself rather than leaving the title to render
-     underneath it. */
-  .header-title { padding-left: 32px; }
   .sidebar {
     position: fixed;
     top: 0;
@@ -277,25 +293,6 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
   }
   .sidebar.open { transform: translateX(0); }
 
-  /* Reader modal goes full-bleed on small screens — the desktop margins
-     just eat real estate on a phone. */
-  dialog#reader-modal {
-    width: 100vw;
-    height: 100vh;
-    max-width: 100vw;
-    max-height: 100vh;
-    border: none;
-    box-shadow: none;
-  }
-  .modal-nav { padding: 6px 12px; }
-  /* Override the coarse-pointer 40px min-height for the modal top bar so
-     Back / Open-in-browser don't dominate the screen on mobile. */
-  .modal-nav .btn-icon,
-  .modal-nav .btn-external {
-    min-height: 32px;
-    padding: 4px 8px;
-    font-size: 13px;
-  }
   .modal-body { padding: 20px 16px; }
   /* Borders would be two stray lines at the screen edge, but the side padding
      stays: without it the thumbnail and the score badge sit flush against the
@@ -363,6 +360,17 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
   border-radius: var(--radius-pill);
   background: var(--color-toggle-off);
   display: flex; align-items: center; cursor: pointer;
+  /* Anchor for the hit area below. */
+  position: relative;
+}
+/* The tap target, separated from the drawn control. A switch is a track, and
+   a track grown to a 40px floor under `--radius-pill` is a circle -- which is
+   what these looked like on a phone. Absolutely positioned, so it is not a
+   flex item of the track above it. 42+8 x 26+18 = 50x44. */
+.toggle::after {
+  content: '';
+  position: absolute;
+  inset: -9px -4px;
 }
 .toggle[aria-checked='true'] { background: var(--color-accent); justify-content: flex-end; }
 .toggle-knob { width: 20px; height: 20px; border-radius: var(--radius-pill); background: var(--color-segment-selected); }
@@ -453,10 +461,16 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
    inline-level box in every engine, so it can never wrap around anything and
    `font: inherit` has to be undone by hand. Everything here is type. */
 .article-title {
-  font-size: 19px;
-  line-height: 1.32;
+  /* 17, from 19. At 19 a headline on a 390pt screen sat within a couple of
+     points of the body text while setting the height of every card; the
+     hierarchy against the 14px summary is what carries it, not the size.
+     The desktop override below keeps 20 -- it has a 760px measure to fill.
+     Tracking relaxes with the size: -0.35px is a display-size correction and
+     reads as cramped at 17. */
+  font-size: 17px;
+  line-height: 1.35;
   font-weight: 600;
-  letter-spacing: -0.35px;
+  letter-spacing: -0.2px;
   color: var(--color-ink);
   text-wrap: pretty;
   cursor: pointer;
@@ -587,6 +601,18 @@ button:disabled { opacity: 0.4; cursor: default; }
   }
   .pill { min-height: 26px; }
   .btn-icon, .sidebar-collapse, .sidebar-manage { min-width: 40px; }
+
+  /* Two controls whose shape *is* their meaning, and for which a height floor
+     is the wrong instrument. `.toggle` takes its 44px target from `::after`
+     instead; `.segment` sits in a 3px track, so a 40px floor makes the whole
+     radiogroup 46px tall. 32 clears WCAG 2.5.8's 24px with room over.
+     Both are selected as `button.toggle` / `button.segment`, not the bare
+     class: `button:not(.pill)` above carries a type selector plus the
+     specificity of its `:not()` argument (0,1,1), which outranks a bare
+     class (0,1,0) regardless of source order. Matching that specificity lets
+     these, appended after, win on order instead. */
+  button.toggle { min-height: 0; }
+  button.segment { min-height: 32px; }
 }
 
 .btn-external {
@@ -666,18 +692,38 @@ dialog {
 dialog::backdrop { background: var(--overlay-bg); }
 dialog[open] { display: flex; flex-direction: column; }
 
+/* Shaped like `.app-header`, and for the same reasons -- one hairline, the
+   page ground behind it, actions as 13px text. The side padding is the
+   modal's 20px rather than the header's 24, because this bar aligns to
+   `.modal-body` beneath it; it is the type that makes the two read as one
+   system, not the gutter. The top inset matches the list header's treatment
+   and is inert until there is a `viewport-fit=cover` to make it real. */
 .modal-nav {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 20px;
+  justify-content: space-between;
+  gap: 20px;
+  /* 4px here and 10px on each action below, rather than 14px here and none
+     there. The text lands in exactly the same place either way; the difference
+     is whether the padding belongs to the bar or to the controls, and only the
+     second gives them something to tap. */
+  padding: max(4px, env(safe-area-inset-top)) 20px 4px;
   border-bottom: 1px solid var(--color-hairline);
+  background: var(--color-bg);
   flex-shrink: 0;
   position: sticky;
   top: 0;
-  background: var(--color-bg);
   z-index: 1;
 }
+/* `.header-action` is a <button> rule; the Open link needs the same box --
+   and `.header-action` sets `padding: 0`, which for an <a> means no box at
+   all. Back is a <button> and the coarse-pointer floor stands it at 40px;
+   "Open in browser" matched nothing in that selector list and measured
+   95.4 x 19.5 on a phone, under WCAG 2.5.8's 24px, in a bar whose other
+   control was twice its height. The padding goes on the pair rather than on
+   the selector list above -- appending a rule is this file's habit, and a
+   height floor would not have helped an inline <a> anyway. */
+.modal-nav .header-action { text-decoration: none; padding: 10px 0; }
 
 .modal-body {
   flex: 1;
@@ -1125,10 +1171,14 @@ kbd {
      there is room for it. */
   .original-title { display: none; }}
 
-/* Compact list. The summary is the whole saving, and now the only one: the
-   tags and the kind that compact also used to hide have gone from the card
-   entirely, and the meta line is one line in either mode. */
-[data-density='compact'] .article-summary { display: none; }
+/* Compact list. The summary was the whole saving, and the reason a hidden
+   article was hidden has to go with it: on the Hidden list it is a second
+   paragraph of prose, often longer than the summary compact just dropped. It
+   is still the `title` on `.meta-score`, so nothing is lost. The tags and the
+   kind that compact also used to hide have gone from the card entirely, and
+   the meta line is one line in either mode. */
+[data-density='compact'] .article-summary,
+[data-density='compact'] .hidden-reason { display: none; }
 [data-density='compact'] .article-row { padding: 6px 0; }
 
 /* The source is the one item on the meta line with no length limit, so it is
@@ -1139,11 +1189,13 @@ kbd {
   white-space: nowrap;
 }
 .meta-age, .meta-dot, .meta-dupes { flex: none; }
-/* One topic, as plain text and not as a chip row. Desktop only, with its own
-   separator dot: this is the item that would wrap the phone's single meta
-   line, and a dot left behind by a hidden tag is a stray mark. */
 /* A button, so the card's click guard excludes it and it is reachable by Tab --
-   but it must read as the plain text the design asks for, not as a chip. */
+   but it must read as the plain text the design asks for, not as a chip.
+   Hidden unless the drawer's Tags switch is on. That switch replaced a
+   `min-width: 900px` gate: the tag was the one item on the card a reader could
+   not choose, and a control in the drawer that did nothing at phone width
+   would have been worse than none. Its dot goes with it -- a separator left
+   behind by a hidden tag is a stray mark. */
 .meta-tag {
   display: none;
   flex: none;
@@ -1156,6 +1208,19 @@ kbd {
   cursor: pointer;
 }
 .meta-dot-tag { display: none; }
+/* 13ch, back again. The cap went out with the tag row that needed it; the tag
+   is rendered at phone width now, where the meta line is a single line and
+   this is the item that would wrap it. `inline-block`, not `inline`: an inline
+   box has no width to cap and ignores `text-overflow` entirely. */
+[data-tags='on'] .meta-tag {
+  display: inline-block;
+  max-width: 13ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+[data-tags='on'] .meta-dot-tag { display: inline; }
 
 /* The dismissed pile: a divider you have to cross on purpose. It sits below
    the unread list, so it needs to read as a different section rather than as
@@ -1185,24 +1250,75 @@ kbd {
    the field-behind-a-button search: those have no home up here and stay
    exactly as they were. */
 .app-header {
+  /* Pinned, so Mark all read is reachable from the bottom of a long list
+     rather than only from the top of it. */
+  position: sticky;
+  top: 0;
+  /* Above the list, below `.drawer-scrim` (18) and `.sidebar` (25): the drawer
+     is meant to cover this, and the scrim is what closes it. Well below
+     `.modal-backdrop` (40). */
+  z-index: 15;
   /* The hairline lives here, not on a wrapper. `.site-header` was a <header>
      nested inside this one whose only remaining job was to draw this line --
      and it drew it across the whole window while the column beneath it is
      capped at 760px, so the rule ran past every card it was meant to close
      off. On this element it ends where the reading measure does. */
   border-bottom: 1px solid var(--color-hairline);
+  /* Opaque, and now load-bearing rather than cosmetic: the list scrolls under
+     this. */
   background: var(--color-bg);
   display: flex;
   flex-direction: column;
   gap: 18px;
-  padding: 52px 24px 16px;
-}
-.header-row { display: flex; align-items: center; justify-content: space-between; }
-.header-title { display: flex; align-items: center; gap: 14px; }
-.header-name { font-size: 17px; font-weight: 600; letter-spacing: -0.2px; color: var(--color-ink); }
-.unread-count { font-size: 12px; font-weight: 400; color: var(--color-ink-meta); }
+  /* Was 52px on top, which was clearance for a hamburger fixed at top:58px and
+     nothing else. `max()` with the inset is inert today -- there is no
+     `viewport-fit=cover`, so iOS insets the web view itself and `env()`
+     resolves to 0 -- and is correct the day that changes.
 
-.header-actions { display: flex; align-items: center; gap: 20px; }
+     20px at the sides, not 24. At 375px -- iPhone SE 2/3, 8 and 13 mini, all
+     of them current -- `.header-name` had 55px of box for 69px of "All feeds"
+     and a fresh install read "All fee...". Nothing overflowed; the title is
+     the only flexible item in the row, so it absorbed the shortfall silently.
+     The 15px came from here, the two gaps below and the toggle's overhang,
+     rather than from dropping an action: three actions at 375px is the thing
+     being defended. */
+  padding: max(14px, env(safe-area-inset-top)) 20px 16px;
+}
+/* `gap` rather than `justify-content: space-between` alone. Space-between
+   distributes whatever slack is left, which is the right look while there is
+   slack and silently becomes zero when there is none: at 390px the unread
+   count's right edge and the first action's left edge touched exactly, and
+   "139Refresh" read as one string. The gap is a floor the row cannot spend. */
+.header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+/* `min-width: 0` so the title -- and only the title -- is what gives when a
+   feed name is long. Without it a flex item refuses to shrink below its
+   content and the actions are pushed off the right edge instead. */
+/* Two gaps, not one: the toggle and the unread count both sit in here beside
+   the name, so a pixel off this is two pixels back for the title. */
+.header-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.header-name {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  color: var(--color-ink);
+  /* One line, always. Wrapped, "All feeds" stood 51px tall against a 25.5px
+     line-height and took the whole header up with it. A long feed name
+     ellipsises now rather than growing a second row. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.unread-count { font-size: 12px; font-weight: 400; color: var(--color-ink-meta); flex: none; }
+
+/* `flex: none`: the three actions are the fixed half of this row. They shrink
+   to nothing useful -- a label at its wrap width is a label on two lines. */
+.header-actions { display: flex; align-items: center; gap: 10px; flex: none; }
 .header-action {
   background: none;
   border: 0;
@@ -1212,6 +1328,7 @@ kbd {
   font-weight: 400;
   color: var(--color-ink-muted);
   cursor: pointer;
+  white-space: nowrap;
 }
 .header-action.is-ink { color: var(--color-ink); }
 
@@ -1360,18 +1477,28 @@ kbd {
   }
 
   .article-head { gap: 22px; }
-  .article-title { font-size: 20px; line-height: 1.3; }
+  /* The tracking comes with the size. The base relaxed to -0.2px when phone
+     headlines dropped to 17 -- that is a 17px correction -- and this override
+     set only the size, so 20px desktop headlines were being set at the
+     phone's tracking. -0.35px is the display-size value they had before. */
+  .article-title { font-size: 20px; line-height: 1.3; letter-spacing: -0.35px; }
   .article-thumb { width: 104px; height: 78px; }
   .article-meta { font-size: 11.5px; }
   .article-actions { gap: 20px; }
   .article-actions .action-open { display: inline; }
-  .meta-tag, .meta-dot-tag { display: inline; }
 
   /* Held to the same 760px as the list below it. Left to the full width of
      the content column the header's right edge -- the actions and the filter
      field -- floated 260px past the right edge of every card under it, and the
      toolbar stopped reading as this column's toolbar. */
   .app-header { max-width: 760px; padding: 26px 48px 0; gap: 28px; }
+  /* The same reservation as the base rule, against a header that is taller
+     here: the search field is a row of its own at this width. */
+  html { scroll-padding-top: 120px; }
+  /* The base 8px is the phone's budget -- there the hamburger sits in this
+     gap too, twice over, and the row has 335px to spend. Nothing is tight
+     here. */
+  .header-title { gap: 14px; }
   .header-actions { gap: 24px; }
   /* The field is simply there at this width, so the button that reveals it has
      nothing left to reveal -- it would toggle something already open. Hidden,

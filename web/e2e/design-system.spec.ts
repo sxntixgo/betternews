@@ -448,3 +448,32 @@ for (const theme of ['light', 'dark'] as const) {
     expect(failures, `below WCAG AA in ${theme}:\n  ${failures.join('\n  ')}`).toEqual([]);
   });
 }
+
+test('the reader top bar speaks the app header language', async ({ page }) => {
+  // There is one header vocabulary -- `.header-action`: 13px text, ink-muted,
+  // no border, no glyph, a hairline under the row. The reader's bar predated
+  // it and carried `.btn-icon` / `.btn-external` (bordered boxes with arrow
+  // glyphs) plus a third set of metrics under 899px, so the one screen a
+  // reader spends the most time on looked like a different application.
+  await signedIn(page);
+  await mockApi(page);
+  await page.goto('/');
+  await page.waitForSelector('.article-row');
+  await page.locator('.article-title').first().click();
+
+  const nav = page.getByRole('dialog').locator('.modal-nav');
+  await expect(nav).toBeVisible();
+  // Same classes as the list header's actions, and only those.
+  await expect(nav.locator('.btn-icon, .btn-external')).toHaveCount(0);
+  await expect(nav.getByRole('button', { name: 'Back' })).toHaveClass(/header-action/);
+  await expect(nav.getByRole('link', { name: 'Open in browser' }))
+    .toHaveClass(/header-action/);
+  // Words, not glyphs.
+  await expect(nav).not.toContainText('←');
+  await expect(nav).not.toContainText('↗');
+  // Same type and the same hairline as `.app-header`.
+  const listHeader = page.locator('.app-header');
+  const rule = await listHeader.evaluate((el) => getComputedStyle(el).borderBottomColor);
+  await expect(nav).toHaveCSS('border-bottom-color', rule);
+  await expect(nav.getByRole('button', { name: 'Back' })).toHaveCSS('font-size', '13px');
+});

@@ -34,13 +34,24 @@ export function Reader({ id, onClose }: { id: number; onClose: () => void }) {
 
   return (
     <Modal onClose={onClose} ariaLabel="Article" className="modal">
+      {/* The same vocabulary as `.app-header`: text actions, no borders, no
+          glyphs. It carried `.btn-icon` and `.btn-external` from before that
+          header existed, which made the one screen a reader spends the most
+          time on look like a different application. Those classes stay in the
+          stylesheet -- nine other screens use them -- this bar just stops
+          being one of them. */}
       <nav className="modal-nav">
-        <button className="btn-icon" onClick={onClose}>
-          ← Back
+        <button className="header-action is-ink" onClick={onClose}>
+          Back
         </button>
         {detail && (
-          <a className="btn-external" href={detail.url} target="_blank" rel="noopener noreferrer">
-            ↗ Open in browser
+          <a
+            className="header-action"
+            href={detail.url}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Open in browser
           </a>
         )}
       </nav>

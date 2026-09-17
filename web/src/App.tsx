@@ -16,6 +16,7 @@ import { useSwipe } from './useSwipe';
 import { applyTheme, loadTheme, setTheme, watchSystemTheme, type ThemePreference } from './theme';
 import { applyDensity, loadDensity, setDensity, type Density } from './density';
 import { applyPhotos, loadPhotos, setPhotos, type Photos } from './photos';
+import { applyTags, loadTags, setTags, type Tags } from './tags';
 import { Toolbar } from './components/Toolbar';
 import { Drawer } from './components/Drawer';
 import { ManageFeeds } from './screens/ManageFeeds';
@@ -77,6 +78,9 @@ export default function App() {
   useEffect(() => applyDensity(density), [density]);
   const [photos, setPhotosState] = useState<Photos>(() => loadPhotos());
   useEffect(() => applyPhotos(photos), [photos]);
+
+  const [tags, setTagsState] = useState<Tags>(() => loadTags());
+  useEffect(() => applyTags(tags), [tags]);
   const [reading, setReading] = useState<number | null>(null);
   // Single-story mode: App.tsx owns both the switch and the index, per the
   // task 11 brief -- SingleStory itself holds no state about which story it
@@ -130,11 +134,13 @@ export default function App() {
     '',
   );
 
-  // Searching and the Hidden view are their own answers to "what should I look
-  // at"; a dismissed pile underneath them is noise. It also resets on any
-  // filter change, so the button does not stay open over a list it was never
-  // opened for.
-  const offersDismissed = !search && !hidden;
+  // Searching, the Hidden view and Saved are each their own answer to "what
+  // should I look at"; a dismissed pile underneath them is noise. Saved is the
+  // newest of the three and the strictest: it no longer applies the dismissed
+  // split at all, so a pile under it would be the same rows a second time. It
+  // also resets on any filter change, so the button does not stay open over a
+  // list it was never opened for.
+  const offersDismissed = !search && !hidden && !saved;
   useEffect(() => {
     setShowDismissed(false);
   }, [feed, saved, hidden, topic, search]);
@@ -298,7 +304,7 @@ export default function App() {
       run: () => document.getElementById('search')?.focus() },
     { id: 'sort-date', label: 'Sort by date', run: () => setSort('date') },
     { id: 'sort-score', label: 'Sort by score', run: () => setSort('score') },
-    { id: 'density', label: 'Toggle compact list (hides summaries and tags)',
+    { id: 'density', label: 'Toggle compact list (hides summaries)',
       run: () => {
         const next = density === 'compact' ? 'comfortable' : 'compact';
         setDensity(next);
@@ -306,6 +312,8 @@ export default function App() {
       } },
     { id: 'photos', label: 'Toggle article photos',
       run: () => setPhotosState((p) => { const n = p === 'on' ? 'off' : 'on'; setPhotos(n); return n; }) },
+    { id: 'tags', label: 'Toggle article tags',
+      run: () => setTagsState((t) => { const n = t === 'on' ? 'off' : 'on'; setTags(n); return n; }) },
     { id: 'theme-light', label: 'Theme: light', run: () => { setTheme('light'); setThemeState('light'); } },
     { id: 'theme-dark', label: 'Theme: dark', run: () => { setTheme('dark'); setThemeState('dark'); } },
     { id: 'theme-system', label: 'Theme: follow the system', run: () => { setTheme('system'); setThemeState('system'); } },
@@ -413,6 +421,7 @@ export default function App() {
         saved={saved}
         hidden={hidden}
         photos={photos}
+        tags={tags}
         density={density}
         sort={sort}
         theme={theme}
@@ -425,6 +434,7 @@ export default function App() {
         setShowFeeds={setShowFeeds}
         setShowInsights={setShowInsights}
         setPhotosState={setPhotosState}
+        setTagsState={setTagsState}
         setDensityState={setDensityState}
         setSort={setSort}
         setThemeState={setThemeState}

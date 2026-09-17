@@ -173,6 +173,29 @@ test.describe('phone layout', () => {
     await expect(page.locator('.article-summary').first()).toBeHidden();
   });
 
+  test('compact mode drops the hidden-reason with the summary', async ({ page }) => {
+    // Compact hid `.article-summary` and nothing else, so on the Hidden list it
+    // traded one paragraph of prose for another -- the reason is longer than
+    // some summaries. It is still on the score's `title` attribute, so nothing
+    // is lost by dropping it from the row.
+    await page.route('**/api/v1/articles?*', (r) => r.fulfill({ json: {
+      articles: [article(1, {
+        hidden: true,
+        score_reason: 'No stated interest in municipal parking policy.',
+      })],
+      next_offset: null, diagnosis: null,
+    } }));
+    await page.reload();
+    await page.waitForSelector('.article-row');
+    await expect(page.locator('.hidden-reason')).toBeVisible();
+
+    await openDrawer(page);
+    await page.getByRole('switch', { name: 'Compact list' }).click();
+    await expect(page.locator('.hidden-reason')).toBeHidden();
+    // Still reachable, just not as a second paragraph.
+    await expect(page.locator('.meta-score').first())
+      .toHaveAttribute('title', 'No stated interest in municipal parking policy.');
+  });
 
   test('the density choice survives a reload', async ({ page }) => {
     await openDrawer(page);
@@ -224,6 +247,30 @@ test.describe('phone layout', () => {
     await expect(page.locator('.meta-age').first()).toBeVisible();
   });
 
+  test('every control in the reader top bar clears the WCAG floor', async ({ page }) => {
+    // The sweep at the top of this file measures `.article-actions .action`
+    // and nothing else, so it could not see the one screen a reader spends the
+    // most time on. When the reader bar moved onto `.header-action` -- which
+    // sets `padding: 0` -- the "Open in browser" link kept its 13px text and
+    // lost every scrap of box around it: 95.4 x 19.5, against a Back button
+    // standing 40px because it is a <button> and the coarse-pointer floor
+    // catches those. An <a> matches nothing in that selector list.
+    //
+    // Swept, not named: a third control in this bar must earn a target too.
+    await page.locator('.article-title').first().click();
+    const nav = page.getByRole('dialog').locator('.modal-nav');
+    await expect(nav).toBeVisible();
+    const controls = await nav.locator('button, a, [role="button"]').all();
+    expect(controls.length, 'no controls found -- this test is asserting nothing')
+      .toBeGreaterThan(1);
+    for (const control of controls) {
+      const box = (await control.boundingBox())!;
+      const name = (await control.textContent())?.trim() ?? '';
+      expect(Math.min(box.width, box.height), `"${name}" is ${box.width}x${box.height}`)
+        .toBeGreaterThanOrEqual(24);
+    }
+  });
+
 });
 
 test.describe('desktop keeps its layout', () => {
@@ -266,6 +313,95 @@ test.describe('the top bar and the drawer fit the screen', () => {
     for (const name of ['Refresh', 'Mark all read', 'Search']) {
       await expect(actions.getByText(name)).toBeVisible();
     }
+  });
+
+  test('the header row fits on one line, and the count never touches the actions',
+    async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'phone only');
+    // The sticky-header fix moved `.drawer-toggle` out of `position: fixed` and
+    // into the header's flow, which was right -- but a fixed element is out of
+    // flow and contributes no width, and the in-flow button costs ~12px the row
+    // did not have. At 390px "All feeds" wrapped to two lines (51px against a
+    // 25.5px line-height), "Mark all read" wrapped with it, and `.unread-count`
+    // ended at exactly the x `.header-actions` began: "139Refresh" as one
+    // string, because `justify-content: space-between` distributes leftover
+    // space and there was none left.
+    //
+    // Asserted as the goal and not the mechanism: line boxes against the
+    // element's own line-height, and a gap greater than zero. A pixel-width
+    // assertion here would fail the next time the type changes; these two hold
+    // whatever the fix is and whatever the font is.
+    const oneLine = async (selector: string) => {
+      const el = page.locator(selector);
+      await expect(el).toBeVisible();
+      return el.evaluate((node) => {
+        const cs = getComputedStyle(node);
+        // The text's own line boxes, not the button's box: the coarse-pointer
+        // tap floor stands every action at 40px tall whether it wrapped or not.
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        const lh = cs.lineHeight === 'normal'
+          ? parseFloat(cs.fontSize) * 1.4
+          : parseFloat(cs.lineHeight);
+        return { text: node.textContent?.trim() ?? '', height: range.getBoundingClientRect().height, lineHeight: lh };
+      });
+    };
+
+    const fits = async () => {
+      for (const selector of ['.header-name', '#poll-btn', '#dismiss-all-btn', '.search-toggle']) {
+        const { text, height, lineHeight } = await oneLine(selector);
+        expect(height, `"${text}" (${selector}) wrapped: ${height}px of ${lineHeight}px line-height`)
+          .toBeLessThanOrEqual(lineHeight * 1.4);
+      }
+
+      const count = (await page.locator('.unread-count').boundingBox())!;
+      const actionsBox = (await page.locator('.header-actions').boundingBox())!;
+      expect(actionsBox.x - (count.x + count.width),
+        'the unread count is flush against the first action').toBeGreaterThan(0);
+
+      // One line and no overflow was the whole assertion, and both were true
+      // at 375px while the title read "All fee...". `.header-name` ellipsises
+      // rather than wrapping, and it is the only flexible item in the row, so
+      // it absorbs any shortfall in silence: nothing wraps, `document`'s
+      // scrollWidth never exceeds the viewport, and the feed name is the thing
+      // that pays. Reading the element's own overflow is what sees it.
+      const title = await page.locator('.header-name').evaluate((node) => ({
+        text: node.textContent ?? '',
+        scrollWidth: node.scrollWidth,
+        clientWidth: node.clientWidth,
+      }));
+      expect(title.scrollWidth,
+        `"${title.text}" is ellipsised: ${title.scrollWidth}px of name in ${title.clientWidth}px of box`)
+        .toBeLessThanOrEqual(title.clientWidth);
+    };
+
+    await fits();
+
+    // 375, not only the project's 390. The iPhone SE 2/3, the 8 and the 13
+    // mini all render 375 and all three are current; at that width the header
+    // had 15px less than "All feeds" needs.
+    await page.setViewportSize({ width: 375, height: 667 });
+    await expect(page.locator('.app-header')).toBeVisible();
+    await fits();
+  });
+
+  test('a scroll the browser performs lands clear of the pinned header', async ({ page }) => {
+    // The header is `position: sticky` and opaque, so it covers whatever is
+    // under it. Find-in-page, `scrollIntoView`, `scrollIntoViewIfNeeded` and a
+    // fragment jump all scroll the *page*, not the app, and none of them knows
+    // the top ~71px is spoken for -- they put their target at y=0 and the
+    // header draws over it. `scroll-padding-top` on the scroll port is what
+    // tells them, and it has been missing since the header was pinned.
+    const header = (await page.locator('.app-header').boundingBox())!;
+    // Not the last row: at the foot of the document there is nothing left to
+    // scroll, the target stops short of the top on its own, and the assertion
+    // passes whatever the padding is. A row in the middle is the one that
+    // actually gets put at the top.
+    const row = page.locator('.article-row').nth(3);
+    await row.evaluate((el) => el.scrollIntoView());
+    const box = (await row.boundingBox())!;
+    expect(box.y, `the row landed ${header.height - box.y}px under the header`)
+      .toBeGreaterThanOrEqual(header.height);
   });
 
   test('every header action is a named control', async ({ page, isMobile }) => {
@@ -365,6 +501,178 @@ test.describe('the top bar and the drawer fit the screen', () => {
       expect(box.y, `${name} was above the viewport`).toBeGreaterThanOrEqual(0);
     }
     await expect(page.getByRole('radiogroup', { name: 'Theme' })).toBeAttached();
+  });
+
+  test('the top bar stays on screen at the bottom of the list', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'phone only');
+    // Mark all read is a header action, and the reader reaches for it after
+    // reading the last story on screen -- which is exactly where an unpinned
+    // header is furthest away. It was not sticky because the hamburger inside
+    // it was `position: fixed` to outrank the open drawer; the scrim closes
+    // the drawer now, so the header can pin and the hamburger can ride with it.
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    const header = page.locator('.app-header');
+    await expect(header).toBeInViewport();
+    expect((await header.boundingBox())!.y).toBeLessThanOrEqual(1);
+    await expect(header.getByRole('button', { name: 'Mark all read' })).toBeInViewport();
+  });
+
+  test('the menu button never sits on top of a headline', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'phone only');
+    // It was fixed at top:58px/left:24px with no background, so once the
+    // header scrolled past, two ink bars floated over the first story's
+    // headline. In the header's flow it cannot overlap anything below it.
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    const toggle = (await page.locator('.drawer-toggle').boundingBox())!;
+    const header = (await page.locator('.app-header').boundingBox())!;
+    expect(toggle.y + toggle.height, 'the toggle escaped the header')
+      .toBeLessThanOrEqual(header.y + header.height + 1);
+
+    // And the element under the first headline's top-left corner is the
+    // headline, not the button.
+    const title = (await page.locator('.article-title').first().boundingBox())!;
+    const onTop = await page.evaluate(
+      ([x, y]) => (document.elementFromPoint(x, y) as HTMLElement)?.className ?? '',
+      [title.x + 4, title.y + 4] as const,
+    );
+    expect(onTop).not.toContain('drawer-toggle');
+  });
+
+  test('the drawer covers the header, and the scrim closes it', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'phone only');
+    // The header is sticky now, so it has a stacking context: it must sit
+    // *under* the scrim (18) and the drawer (25), and the scrim -- not the
+    // hamburger buried beneath it -- is what shuts the drawer again.
+    await openDrawer(page);
+    await expect(page.locator('.sidebar.open')).toHaveCount(1);
+    // Not the top-left corner: the scrim spans the viewport, so its own (5, 5)
+    // is underneath the 260px drawer. Click to the right of the drawer's edge.
+    await page.locator('.drawer-scrim').click({ position: { x: 340, y: 40 } });
+    await expect(page.locator('.sidebar.open')).toHaveCount(0);
+  });
+
+  test('the switches are pills, and still clear the tap floor', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'phone only');
+    // `@media (pointer: coarse)` put a 40px floor on every button without
+    // `.pill`. A switch is a track: 42 wide, floored to 40 tall, with a 999px
+    // radius, it rendered as a circle on every phone -- and only on a phone,
+    // which is why it lived this long. The drawn size comes back and the tap
+    // target moves to a pseudo-element.
+    await openDrawer(page);
+    const toggle = page.getByRole('switch', { name: 'Compact list' });
+    const box = (await toggle.boundingBox())!;
+    expect(box.height, 'the track grew to meet the tap floor').toBeLessThanOrEqual(28);
+    expect(box.width / box.height, 'a switch is wider than it is tall')
+      .toBeGreaterThan(1.4);
+
+    // The target is still there, it is just not the painted box -- so probe
+    // the hit region rather than the declaration that draws it. Reading
+    // `getComputedStyle(el, '::after')`'s insets and adding them to the track
+    // asserts the mechanism: it stays green if `.toggle` loses
+    // `position: relative`, at which point those same insets resolve against
+    // some ancestor's padding box and the 44px lands somewhere else entirely.
+    // On screen first: the drawer is taller than an iPhone, this row sits
+    // ~980px down it, and `elementFromPoint` answers null for anything past
+    // the fold. The computed-style probe this replaces never needed the
+    // control to be visible, which is part of how it drifted off the goal.
+    await toggle.scrollIntoViewIfNeeded();
+    const onScreen = (await toggle.boundingBox())!;
+    const above = { x: onScreen.x + onScreen.width / 2, y: onScreen.y - 8 };
+    const hit = await page.evaluate(
+      (p) => document.elementFromPoint(p.x, p.y)?.getAttribute('aria-label'),
+      above,
+    );
+    expect(hit, '8px above the track is not the switch').toBe('Compact list');
+
+    // And it is a working target, not merely the topmost element there.
+    const before = await toggle.getAttribute('aria-checked');
+    await page.mouse.click(above.x, above.y);
+    await expect(toggle).not.toHaveAttribute('aria-checked', before!);
+  });
+
+  test('the segmented controls do not stand 40px tall', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'phone only');
+    // Same floor, same shape problem, one step smaller: Sort and Theme are
+    // two- and three-position radiogroups, not primary actions.
+    await openDrawer(page);
+    const segment = page.getByRole('radiogroup', { name: 'Sort' })
+      .getByRole('radio').first();
+    const box = (await segment.boundingBox())!;
+    expect(box.height).toBeLessThanOrEqual(34);
+    // WCAG 2.5.8 is 24px; this must stay above it.
+    expect(Math.min(box.width, box.height)).toBeGreaterThanOrEqual(24);
+  });
+
+  test('the headline is a headline, not a heading', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'phone only');
+    // 19px on a 390pt screen sat a headline within a point of the body text
+    // and, at three lines, set the height of every card. 17 keeps the weight
+    // and the hierarchy against the 14px summary and buys back a story a
+    // screen. The desktop keeps 20 -- it has a 760px measure to fill.
+    const title = page.locator('.article-title').first();
+    await expect(title).toHaveCSS('font-size', '17px');
+    const summary = page.locator('.article-summary').first();
+    const [t, s] = [
+      parseFloat(await title.evaluate((el) => getComputedStyle(el).fontSize)),
+      parseFloat(await summary.evaluate((el) => getComputedStyle(el).fontSize)),
+    ];
+    expect(t, 'the headline must still outrank the summary').toBeGreaterThan(s + 2);
+  });
+
+  test('the tags switch shows and hides the topic, on a phone too', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'phone only');
+    // The tag was desktop-only: `display: none` at base, `inline` inside the
+    // 900px block, because the meta line is one line on a phone and the tag is
+    // the item that wraps it. The preference replaces that breakpoint, so the
+    // switch means the same thing on both devices -- and defaults off, which
+    // is what a phone shows today.
+    await expect(page.locator('.meta-tag').first()).toBeHidden();
+
+    await openDrawer(page);
+    const tags = page.getByRole('switch', { name: 'Show tags' });
+    await expect(tags).toHaveAttribute('aria-checked', 'false');
+    await tags.click();
+    await page.locator('.drawer-scrim').click({ position: { x: 340, y: 40 } });
+
+    await expect(page.locator('.meta-tag').first()).toBeVisible();
+    await expect(page.locator('html')).toHaveAttribute('data-tags', 'on');
+    // And it must not cost the single meta line. 48, the same floor the
+    // source-and-age test uses: the actions stand 40px tall, so anything
+    // under 48 is one line and only a wrap clears it.
+    const meta = page.locator('.article-meta').first();
+    expect((await meta.boundingBox())!.height).toBeLessThan(48);
+  });
+
+  test('the tags choice survives a reload', async ({ page }) => {
+    await openDrawer(page);
+    await page.getByRole('switch', { name: 'Show tags' }).click();
+    await page.reload();
+    await page.waitForSelector('.article-row');
+    await expect(page.locator('html')).toHaveAttribute('data-tags', 'on');
+    await openDrawer(page);
+    await expect(page.getByRole('switch', { name: 'Show tags' }))
+      .toHaveAttribute('aria-checked', 'true');
+  });
+
+  test('a long tag is capped rather than allowed to wrap the line', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'phone only');
+    // The 13ch cap was dropped with the tag row that needed it. The tag is
+    // back at phone width, so the cap comes back with it.
+    await page.route('**/api/v1/articles?*', (r) => r.fulfill({ json: {
+      articles: [article(1, { topics: ['campeonato-brasileiro-serie-a'] })],
+      next_offset: null, diagnosis: null,
+    } }));
+    await page.reload();
+    await page.waitForSelector('.article-row');
+    await openDrawer(page);
+    await page.getByRole('switch', { name: 'Show tags' }).click();
+    await page.locator('.drawer-scrim').click({ position: { x: 340, y: 40 } });
+
+    const tag = (await page.locator('.meta-tag').first().boundingBox())!;
+    const viewport = page.viewportSize()!.width;
+    expect(tag.width, 'the tag took the whole meta line').toBeLessThan(viewport * 0.4);
+    expect((await page.locator('.article-meta').first().boundingBox())!.height)
+      .toBeLessThan(48);
   });
 });
 
@@ -468,9 +776,11 @@ test.describe('the photos toggle', () => {
     await openDrawer(page);
     await page.getByRole('switch', { name: 'Show photos' }).click();
     // Shut the drawer: on a phone it covers the list, and Escape does not close
-    // it -- it is not a dialog.
-    const toggle = page.locator('.drawer-toggle');
-    if (await toggle.isVisible()) await toggle.click();
+    // it -- it is not a dialog. The scrim, not the hamburger: the toggle rides
+    // in the sticky header now and the open drawer covers it. On a desktop the
+    // sidebar is in flow, nothing opened it, and the scrim has no box to click.
+    const scrim = page.locator('.drawer-scrim');
+    if (await scrim.isVisible()) await scrim.click({ position: { x: 340, y: 40 } });
     await expect(page.locator('.sidebar.open')).toHaveCount(0);
 
     await page.locator('.article-title').first().click();

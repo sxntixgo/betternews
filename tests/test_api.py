@@ -2017,3 +2017,94 @@ def test_the_locked_parts_are_named(client, token):
     body = client.get(f"{API}/settings/prompts", headers=auth(token)).get_json()
     assert len(body["locked"]) >= 3
     assert any("inject" in w or "data, not instructions" in w for w in body["locked"])
+
+
+def test_saved_survives_mark_all_read(client, app, token):
+    """Saving is a keep, and Mark-all-read is not a question about keeps.
+
+    `dismiss-all` stamps `dismissed_at` on everything the list showed, saved
+    articles included, and the Saved list filtered on `dismissed_at IS NULL` --
+    so one press emptied it. The drawer's count kept saying otherwise, because
+    `sidebar_counts` never applied that filter, which is what made this read as
+    breakage rather than as something the reader had done.
+    """
+    from app.db import get_db_direct
+    from app.repo.articles import toggle_saved
+    from app.repo.users import ensure_bootstrap_user
+    with app.app_context():
+        db = get_db_direct()
+        fid = add_feed(db, url="http://keep.example/f")
+        aid = add_article(db, fid, seq=1, guid="k1", title="Worth keeping")
+        add_article(db, fid, seq=2, guid="k2", title="Just read it")
+        toggle_saved(db, ensure_bootstrap_user(db), aid)
+        db.commit()
+        db.close()
+
+    assert client.post(f"{API}/articles/dismiss-all",
+                       headers=auth(token)).get_json()["dismissed"] == 2
+
+    saved = client.get(f"{API}/articles?saved=1", headers=auth(token)).get_json()
+    assert [a["title"] for a in saved["articles"]] == ["Worth keeping"]
+    # The drawer's count and the list must agree, in both directions.
+    assert client.get(f"{API}/feeds", headers=auth(token)).get_json()["saved"] == 1
+    # And the main list is still emptied -- this must not un-dismiss anything.
+    assert client.get(f"{API}/articles", headers=auth(token)).get_json()["articles"] == []
+
+
+def test_mark_all_read_on_saved_reaches_hidden_status_saves(client, app, token):
+    """The Saved list and Mark-all-read have to agree about what is on screen.
+
+    `list_for_user(saved=True)` matches VISIBLE_STATUSES + HIDDEN_STATUSES --
+    an article saved out of the Hidden list is still a keep -- while
+    `dismiss_all(saved=True)` matched VISIBLE_STATUSES only. So Mark all read
+    on Saved skipped every hidden-status save, reported a count short of the
+    list the reader had just been looking at, and left those rows behind.
+    """
+    from app.db import get_db_direct
+    from app.repo.articles import toggle_saved
+    from app.repo.users import ensure_bootstrap_user
+    with app.app_context():
+        db = get_db_direct()
+        uid = ensure_bootstrap_user(db)
+        fid = add_feed(db, url="http://both.example/f")
+        summarized = add_article(db, fid, seq=1, guid="s1", title="Kept from the list")
+        hidden = add_article(db, fid, seq=2, guid="s2", title="Kept from Hidden",
+                             status="hidden")
+        toggle_saved(db, uid, summarized)
+        toggle_saved(db, uid, hidden)
+        db.commit()
+        db.close()
+
+    listed = client.get(f"{API}/articles?saved=1", headers=auth(token)).get_json()
+    assert len(listed["articles"]) == 2
+
+    # The number the reader is shown, and the list it was counted from.
+    assert client.post(f"{API}/articles/dismiss-all?saved=1",
+                       headers=auth(token)).get_json()["dismissed"] == 2
+    after = client.get(f"{API}/articles?saved=1", headers=auth(token)).get_json()
+    assert all(a["state"]["dismissed"] for a in after["articles"])
+    # Saved still escapes the dismissed split -- this must not empty the list.
+    assert len(after["articles"]) == 2
+
+
+def test_saved_includes_an_article_kept_from_the_hidden_list(client, app, token):
+    """The Hidden list renders a Save button, so it has to mean something.
+
+    `list_for_user` restricted every non-hidden query to status 'summarized',
+    so an article saved out of Hidden was saved into a list that could not
+    show it.
+    """
+    from app.db import get_db_direct
+    from app.repo.articles import toggle_saved
+    from app.repo.users import ensure_bootstrap_user
+    with app.app_context():
+        db = get_db_direct()
+        fid = add_feed(db, url="http://hid.example/f")
+        aid = add_article(db, fid, seq=1, guid="h1", title="Low score, kept anyway",
+                          status="hidden")
+        toggle_saved(db, ensure_bootstrap_user(db), aid)
+        db.commit()
+        db.close()
+
+    saved = client.get(f"{API}/articles?saved=1", headers=auth(token)).get_json()
+    assert [a["title"] for a in saved["articles"]] == ["Low score, kept anyway"]

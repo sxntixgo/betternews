@@ -214,8 +214,17 @@ test.describe('desktop layout', () => {
     await signedIn(page);
     await mockApi(page);
     await page.goto('/');
+    // The tag is gated on `[data-tags='on']` at every width and the switch
+    // defaults off, so a fresh install renders `.meta-tag` with
+    // `display: none`. `toHaveText` and `toHaveCount` read `textContent`,
+    // which a hidden node has as much as a shown one -- both assertions passed
+    // while the meta line carried nothing at all. Drive the switch a reader
+    // would, then assert the thing is on screen before asserting what it says.
+    await openDrawer(page);
+    await page.getByRole('switch', { name: 'Show tags' }).click();
     // One, not the chip row the four-row card carried: fixtures' article has
     // two topics and only the first is shown.
+    await expect(page.locator('#card-1 .meta-tag')).toBeVisible();
     await expect(page.locator('#card-1 .meta-tag')).toHaveText('economy');
     // One, and only one. The fixture carries two topics; asserting the count
     // is what proves the second is dropped. Checking that `.topic-chip` is
@@ -229,6 +238,10 @@ test.describe('desktop layout', () => {
     await signedIn(page);
     await mockApi(page);
     await page.goto('/');
+    // The tag is hidden until the drawer's Tags switch is on -- drive the
+    // control a reader would, not the underlying attribute.
+    await openDrawer(page);
+    await page.getByRole('switch', { name: 'Show tags' }).click();
     const asked: string[] = [];
     page.on('request', (r) => {
       if (r.url().includes('/api/v1/articles?')) asked.push(r.url());

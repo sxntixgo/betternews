@@ -1521,6 +1521,13 @@ kbd {
   /* 17, from 20, tracking down with it. The base rule sets the weight for both
      widths; only size, line-height and tracking are per-width. */
   .article-title { font-size: 17px; line-height: 1.35; letter-spacing: -0.1px; }
+  /* 18, and it belongs beside the rule above rather than anywhere else: the
+     card headline is scaled per width and the reader's was not, so opening a
+     story on a desktop shrank its own headline from 17 to 16. The reader is
+     the wider measure of the two, so it takes the step above the card rather
+     than matching it. Line-height and weight stay the base rule's 1.25/700 --
+     only the size is per-width, exactly as `.article-title` does it. */
+  .modal-body h1 { font-size: 18px; }
   .article-thumb { width: 104px; height: 78px; }
   .article-meta { font-size: 11.5px; }
   .article-actions { gap: 20px; }

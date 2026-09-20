@@ -368,7 +368,10 @@ test.describe('drawer', () => {
     await mockApi(page);
     await page.goto('/');
     await openDrawer(page);
-    const kids = page.locator('.drawer-children');
+    // Hidden's children carry `.drawer-children` too now (task 18 -- Hidden
+    // gets the same indent rule All feeds' children draw), so `:not` picks the
+    // All feeds copy specifically rather than resolving to both.
+    const kids = page.locator('.drawer-children:not(.hidden-children)');
     const rule = await kids.evaluate((el) => {
       const cs = getComputedStyle(el);
       return { width: cs.borderLeftWidth, pad: cs.paddingLeft };

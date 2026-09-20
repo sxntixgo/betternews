@@ -239,8 +239,14 @@ export function HiddenFeeds({
           ▾
         </button>
       </div>
+      {/* `.drawer-children`, not `.sidebar-group-body` -- Hidden gets the same
+          indent rule All feeds' children draw (border-left, gold while one of
+          these is the list being read) rather than a second copy of it.
+          `.hidden-children` carries the wider indent that used to live on
+          `.sidebar-group-body` alone; see the comment on `.drawer-children`
+          in App.css. */}
       {!shut && (
-        <div className="sidebar-group-body">
+        <div className={`drawer-children hidden-children ${hidden && feed !== undefined ? 'is-active' : ''}`}>
           {(feeds?.feeds ?? []).filter((f) => f.hidden > 0).map((f) => (
             <button
               key={f.id}

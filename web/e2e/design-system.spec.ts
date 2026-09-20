@@ -614,7 +614,11 @@ test('the three top-level lists are set alike, and share a left edge', async ({ 
   const hidden = page.getByRole('button', { name: /^Hidden/ });
   // A feed under All feeds, reached through the indent rule rather than by
   // name alone: The Verge is listed twice, once here and once under Hidden.
-  const nested = page.locator('.drawer-children').getByRole('button', { name: /^The Verge/ });
+  // Hidden's children carry `.drawer-children` too now (task 18 -- Hidden
+  // gets the same indent rule All feeds' children draw), so `:not` picks the
+  // All feeds copy specifically rather than resolving to both.
+  const nested = page.locator('.drawer-children:not(.hidden-children)')
+    .getByRole('button', { name: /^The Verge/ });
 
   const type = (loc: import('@playwright/test').Locator) => loc.evaluate((el) => {
     const c = getComputedStyle(el);
@@ -650,6 +654,62 @@ test('the three top-level lists are set alike, and share a left edge', async ({ 
     .evaluate((el) => el.getBoundingClientRect().left);
   expect(settingRow, 'the settings rows are inset from the rest of the drawer')
     .toBeCloseTo(allX, 1);
+});
+
+test('both feed menus halve their row gap, and Hidden gets All feeds\' rule', async ({ page }) => {
+  // Both `.drawer-children` (All feeds' children) and `.sidebar-group-body`
+  // (the tag groups, and previously Hidden's children) used 18px between
+  // rows. Halved to 9px, matching the reading list's own halved rhythm.
+  //
+  // Hidden hung its feeds off nothing -- `.sidebar-group-body` draws no rule,
+  // only `.drawer-children` does. Hidden's children now carry
+  // `.drawer-children` too (see Sidebar.tsx), so there is one indent rule in
+  // the drawer, not two kept in step by hand. The trap: `.sidebar-group-body`
+  // is also the tag groups (argentina / tech / untagged) that live *inside*
+  // `.drawer-children` already -- so the assertion below counts the rules on
+  // a tag-group feed row and insists on exactly one.
+  await signedIn(page);
+  await mockApi(page);
+  await page.goto('/');
+  await openDrawer(page);
+
+  const allChildren = page.locator('.drawer-children:not(.hidden-children)');
+  const hiddenChildren = page.locator('.drawer-children.hidden-children');
+  await expect(hiddenChildren).toBeVisible();
+
+  const gapOf = (loc: import('@playwright/test').Locator) =>
+    loc.evaluate((el) => getComputedStyle(el).rowGap);
+  expect(await gapOf(allChildren), 'All feeds row-gap is not 9px').toBe('9px');
+  expect(await gapOf(hiddenChildren), 'Hidden row-gap is not 9px').toBe('9px');
+
+  const ruleOf = (loc: import('@playwright/test').Locator) => loc.evaluate((el) => {
+    const c = getComputedStyle(el);
+    return { width: c.borderLeftWidth, style: c.borderLeftStyle, colour: c.borderLeftColor };
+  });
+  const allRule = await ruleOf(allChildren);
+  const hiddenRule = await ruleOf(hiddenChildren);
+  expect(hiddenRule.style, 'Hidden has no rule at all').not.toBe('none');
+  expect(hiddenRule.width, 'Hidden\'s rule is not the same width as All feeds\'')
+    .toBe(allRule.width);
+  expect(hiddenRule.colour, 'Hidden\'s rule is not the same colour as All feeds\'')
+    .toBe(allRule.colour);
+
+  // The trap: a feed nested under a tag group (LA NACION, under "argentina")
+  // must sit behind exactly one indent rule -- All feeds' -- not a second one
+  // drawn by `.sidebar-group-body` nested inside it.
+  const laNacion = allChildren.getByRole('button', { name: /^LA NACION/ });
+  await expect(laNacion).toBeVisible();
+  const ruleCount = await laNacion.evaluate((el) => {
+    let n = 0;
+    let node: HTMLElement | null = el.parentElement;
+    while (node && !node.classList.contains('drawer-groups')) {
+      const c = getComputedStyle(node);
+      if (c.borderLeftStyle !== 'none' && parseFloat(c.borderLeftWidth) > 0) n += 1;
+      node = node.parentElement;
+    }
+    return n;
+  });
+  expect(ruleCount, 'a tag-group feed sits behind more than one indent rule').toBe(1);
 });
 
 test('the drawer rules off its sections without bringing headers back', async ({ page }) => {

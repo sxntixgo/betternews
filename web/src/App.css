@@ -203,15 +203,32 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 
 /* The indent rule: the feeds hang 16px behind a 2px line, and the line goes
    gold while one of them is the list being read. Between them that is what
-   the deleted "FEEDS" header and the row tint used to say. */
+   the deleted "FEEDS" header and the row tint used to say. 9px between rows,
+   halved with the rest of the drawer's rhythm (was 18px).
+
+   Hidden's children carry this class too (`.hidden-children` alongside it --
+   see `Sidebar.tsx`'s `HiddenFeeds`), rather than a second copy of the rule
+   in `.sidebar-group-body`. Hidden's feeds used to hang off nothing:
+   `.sidebar-group-body` draws no border, and it is also the tag groups
+   (argentina / tech / untagged) that already live *inside* this element, so
+   adding a rule there would have drawn a second one nested against this one.
+   Sharing the class instead means one indent rule for the whole drawer, kept
+   in step by the cascade rather than by hand -- `.is-active` included, so a
+   hidden feed being read gilds the rule exactly as a regular one does. Only
+   the indent itself differs by group, because Hidden's caret sits at the
+   row's trailing edge rather than leading a chevron-indented label, so its
+   children keep the wider step (`.hidden-children` below) instead of
+   drawer-children's own 16px. */
 .drawer-children {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 9px;
   padding-left: 16px;
   border-left: 2px solid var(--color-indent-inactive);
 }
 .drawer-children.is-active { border-left-color: var(--color-indent-active); }
+.drawer-children.hidden-children { padding-left: 21px; }
+@media (pointer: coarse) { .drawer-children.hidden-children { padding-left: 42px; } }
 
 /* The last rule in the column, ahead of the footer -- same 1px, same
    `--color-hairline-strong`, same 28px inset as the ones on `.drawer-group`,
@@ -261,10 +278,12 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
    to match it or the feeds read as belonging to the row above them -- which is
    what dropping this indent entirely looked like. The chevron is wider on a
    touch screen (it carries a 40px tap target), so the indent is too.
-   Hidden's group is the one exception: its chevron sits at the trailing edge
-   so that the row itself can start where All feeds and Saved do, and there the same indent is simply the nesting step -- one level in
-   from its parent, and still short of where the feed tags' children sit. */
-.sidebar-group-body { display: flex; flex-direction: column; gap: 18px; padding-left: 21px; }
+   This is the tag groups only now (argentina / tech / untagged) -- Hidden's
+   body uses `.drawer-children.hidden-children` instead, so it gets the same
+   indent rule All feeds' children draw rather than none at all. Its own
+   21px/42px indent lives on that modifier, matching the values this rule
+   used to share with it. */
+.sidebar-group-body { display: flex; flex-direction: column; gap: 9px; padding-left: 21px; }
 @media (pointer: coarse) { .sidebar-group-body { padding-left: 42px; } }
 .sidebar-group.collapsed .sidebar-group-body { display: none; }
 .sidebar-feed-nested { font-size: 14px; }

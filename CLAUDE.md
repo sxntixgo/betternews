@@ -211,9 +211,19 @@ both clients.
   already ruled that out and the ruling stands.
 - **`components/Modal.tsx` is the only modal.** Nine screens hand-rolled one, none with `role="dialog"`, `aria-modal`, a focus trap or focus restoration. Its focus trap filters to elements with a layout box: the OPML `<input type="file">` is `display:none`, matches the focusable selector, sorts last, and can never take focus — so the wrap never fired and Tab walked out of the dialog. `.modal-nav` uses `.header-action`, the same vocabulary as `.app-header`. `.btn-icon` / `.btn-external` remain for the other screens.
 - **The drawer is three unlabelled groups, then settings, then a footer.** It was five
-  all-caps labelled sections (Feeds, Saved, Settings, You, Admin); the headers are gone,
-  because 34px of space between groups says the same thing and the labels were the
-  loudest type in the column while saying the least. The groups are: what to read
+  all-caps labelled sections (Feeds, Saved, Settings, You, Admin); the headers are gone
+  and are not coming back — with one or two rows under most of them they were the
+  loudest type in the column while saying the least. What separated the groups was
+  first tried as 34px of space alone; the reader lived with that and said the grouping
+  did not read. A rule now does the separating instead — `.drawer-group + .drawer-group`
+  gets the same 1px `--color-divider` treatment as the footer's existing
+  `.drawer-divider`, on every group but the first, since an edge needs no closing. With
+  a rule doing that work the gap comes down to 18px (from 34px — matching the row-gap
+  already used inside a group rather than inventing a new number), plus a tighter 10px
+  between the rule and the section it opens. `.drawer-divider` itself survives, at the
+  same reduced 18px rhythm, because the groups and the footer are not the same kind of
+  thing — the footer's links open dialogs rather than filtering a list, so it stays a
+  sibling of `.drawer-groups`, not a fourth member of it. The groups are: what to read
   (feeds), the lists that are not the reading list (Saved, Hidden, Your stats), and the
   display preferences — `.drawer-settings`, where `Toggle` gives Photos, Compact and
   Tags and `Segmented` gives Sort and Theme as radiogroups. Sort was a "sort by score instead of

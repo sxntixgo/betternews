@@ -618,3 +618,31 @@ test('the three top-level lists are set alike, and their feeds are not', async (
   const feed = await type(page.locator('.sidebar-feed-nested').first());
   expect(feed, 'a feed row was promoted to the lead treatment').not.toBe(all);
 });
+
+test('the drawer rules off its sections without bringing headers back', async ({ page }) => {
+  // The five all-caps section headers were removed on purpose -- they were the
+  // loudest type in the column while saying the least -- and 34px of space was
+  // meant to say the same thing. After living with it the reader says the
+  // grouping does not read. A rule separates without being a label, so the
+  // headers stay gone and the sections get an edge.
+  await signedIn(page);
+  await mockApi(page);
+  await page.goto('/');
+  await openDrawer(page);
+
+  const ruled = await page.evaluate(() => {
+    const groups = [...document.querySelectorAll('.drawer-group')] as HTMLElement[];
+    return groups.map((g) => {
+      const c = getComputedStyle(g);
+      return { top: c.borderTopWidth, colour: c.borderTopColor };
+    });
+  });
+  // Every group but the first is ruled off from the one above it.
+  expect(ruled.length).toBeGreaterThan(1);
+  expect(ruled.slice(1).every((r) => parseFloat(r.top) >= 1),
+    'a group has no rule above it').toBe(true);
+  expect(parseFloat(ruled[0].top), 'the first group has a rule above nothing').toBe(0);
+
+  // And no section headers came back with them.
+  await expect(page.locator('.drawer-group h2, .drawer-group h3')).toHaveCount(0);
+});

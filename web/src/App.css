@@ -96,9 +96,17 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
    Three unlabelled groups, a settings block and a footer, where there were
    five all-caps labelled sections: FEEDS / SAVED / SETTINGS / YOU / ADMIN.
    With one or two rows under most of them the headers were the loudest thing
-   in the column and said the least. What groups the rows now is the 34px
-   between the groups; what nests the feeds is the rule their children hang
-   behind. */
+   in the column and said the least. Space alone (34px between groups) was
+   meant to say the same thing, but the reader lived with it and said the
+   grouping did not read. What groups the rows now is a rule on each group but
+   the first -- same treatment as `.drawer-divider` below, 1px of
+   `--color-divider` inset with the row -- not a second header by another
+   name. With the rule doing that work, the gap it sits in comes down from
+   34px to 18px (matching the row-gap already used inside a group, rather
+   than inventing a new number), plus 10px after the rule before its first
+   row: less than the 18px, because the rule and the section it opens belong
+   together more than the rule belongs to the group above it. What nests the
+   feeds is the separate indent rule their children hang behind. */
 .drawer-head { padding: 56px 28px 40px; }
 .drawer-wordmark {
   font-family: var(--font-serif);
@@ -118,10 +126,18 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 .drawer-groups {
   display: flex;
   flex-direction: column;
-  gap: 34px;
+  gap: 18px;
   padding: 0 28px;
 }
 .drawer-group { display: flex; flex-direction: column; gap: 18px; }
+/* The rule between sections: every group but the first, so an edge needs no
+   closing. `.drawer-group + .drawer-group` catches groups 2 and 3 without an
+   explicit first-child exception, `.drawer-settings` included -- it is still
+   a `.drawer-group`. */
+.drawer-group + .drawer-group {
+  border-top: 1px solid var(--color-divider);
+  padding-top: 10px;
+}
 
 /* One row shape for everything in the drawer that filters the list or opens a
    screen. `.sidebar-feed` is the same row under its older name -- reading,
@@ -191,11 +207,18 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 }
 .drawer-children.is-active { border-left-color: var(--color-indent-active); }
 
+/* The fourth rule in the column, ahead of the footer -- same 1px, same
+   `--color-divider`, same 28px inset as the ones now on `.drawer-group`, and
+   the same 18px margin-top so the rhythm is uniform rather than one boundary
+   reading heavier than the others. Not redundant with them: it is a sibling
+   of `.drawer-groups`, not a fourth `.drawer-group`, because the footer's
+   links are not a fourth reading list -- they open dialogs rather than
+   filtering one. */
 .drawer-divider {
   height: 1px;
   flex: none;
   background: var(--color-divider);
-  margin: 34px 28px 0;
+  margin: 18px 28px 0;
 }
 /* It wraps. On a phone each of these is a 40px touch target and six of them
    do not fit one 260px line. */
@@ -1492,7 +1515,7 @@ kbd {
   .sidebar-scroll { gap: 30px; }
   .drawer-head { padding: 0; }
   .drawer-wordmark { font-size: 19px; }
-  .drawer-groups { padding: 0; gap: 34px; }
+  .drawer-groups { padding: 0; gap: 18px; }
   .drawer-item,
   .sidebar-feed { font-size: 14px; }
   .drawer-item.is-lead,

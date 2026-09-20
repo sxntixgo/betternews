@@ -2393,7 +2393,99 @@ manage-feeds pencil. `.drawer-children` always renders.
 
 ---
 
-## Task 20: Rebuild the baselines and verify
+## Task 20: Let the text wrap around the photo
+
+**Model: Sonnet.** A layout-model change — flex to float — with three tests measuring the
+current arrangement and a clearing problem that is easy to get subtly wrong.
+
+### What the reader sees
+
+The card is a flex row: `.article-text` in one column, `.article-thumb` (76px square) in
+another. A flex item cannot flow around its sibling, so when the text runs past 76px the
+space beside and below the photo stays empty. The reader calls it "white space under the
+image" and wants the headline and summary to wrap around it.
+
+### The markup was already built for this
+
+`ArticleCard.tsx:75-78`:
+
+> *Still a span, not a `<button>`: a button is an atomic inline-level box in every engine,
+> so it cannot wrap around a float and gets pushed below one whole.*
+
+and `App.css`, above `.article-title`:
+
+> *A span with role="button", never a `<button>`: a button is an atomic inline-level box in
+> every engine, so it can never wrap around anything.*
+
+The headline is a `<span role="button">` **specifically so it can wrap around a float.**
+That cost real accessibility work — `role`, `tabIndex` and `onKeyDown` are hand-written to
+give back what `<button>` provided. Then `.article-head` was made a flex row, which made
+the sacrifice buy nothing. This task collects what was already paid for.
+
+**So: do not convert the headline to a `<button>`, and do not remove the role/tabIndex/
+keyboard handler.** They are the reason this is possible.
+
+### The change
+
+`.article-head` becomes a block box; `.article-thumb` floats right (the redesign puts the
+photo on the right — keep that side); `.article-text` stops being a flex column and its
+`gap` becomes a margin on the headline, since `gap` does not apply outside flex/grid.
+
+### Three things that will bite
+
+1. **Clearing.** `.article-meta` must not wrap around the float — it is a full-width row
+   carrying the score, source and the Save/Up/Down actions. It needs to clear, or a short
+   card will pull the meta line up beside the photo. Equally the float must not escape the
+   card and affect the next one: `.article-head` needs to contain it (`display: flow-root`
+   is the modern way; a `::after` clearfix also works). Pick one and say why.
+2. **`[data-photos='off']`** hides the thumbnail. With no float, the text must fill the
+   width with no leftover margin or reserved space — verify in that mode explicitly.
+3. **Compact mode** hides `.article-summary`, so only the headline wraps. A one-line
+   headline beside a 76px photo leaves the float taller than its content, and without
+   correct clearing the meta line lands beside the photo instead of below it. **Test
+   compact explicitly** — it is the case most likely to look wrong.
+
+### The existing tests measure the flex arrangement
+
+Three in `mobile.spec.ts` assert the current layout and must be re-aimed at the goal rather
+than deleted:
+- *"the headline sits beside the photo, not under it"* — asserts `thumb.width === 76`,
+  `title.x < thumb.x`, and the headline starting level with the photo. With a float, the
+  headline's box spans the full content width (its line boxes are shortened by the float,
+  but the element's box is not), so **`title.x < thumb.x` will no longer mean what it
+  meant.** Re-aim it at what a reader can see: the *rendered first line* of the headline
+  must not start below the photo's top, and the photo must still be on the right.
+- *"the headline gets most of the width"* — `title.width / viewport > 0.4`. Under a float
+  the box is wider than the text; decide whether the claim still holds or needs restating
+  against the first line's rendered width.
+- *"turns the photos off and gives the width back"* (photos toggle) compares headline width
+  before and after hiding the photo. Under a float the box width may not change at all
+  even though the *text* reflows. Re-aim it at the text, not the box.
+
+**Do not delete any of the three, and do not weaken them into assertions that pass at any
+layout.** Each is making a real claim a reader would notice; the measurement has to change,
+not the claim.
+
+- [ ] **Step 1: Write the failing test first.** Assert the thing the reader asked for: with
+  a headline and summary long enough to run past the photo, a later line of text must begin
+  at an x left of the photo *and* extend under it — i.e. the text occupies the full column
+  width below the float. Measure with `Range`/`getClientRects()` on the text node rather
+  than the element box, since the element box does not tell you where lines actually are.
+- [ ] **Step 2: Run it, see it fail** against the flex layout.
+- [ ] **Step 3: Implement.** Convert `.article-head` to a block/flow-root, float the thumb
+  right with its left and bottom margins, unwind `.article-text`'s flex column into a block
+  with a margin between headline and summary, and clear `.article-meta`.
+- [ ] **Step 4: Re-aim the three existing tests**, then run the FULL suite.
+- [ ] **Step 5: Verify all three display modes** — comfortable, compact, and photos-off —
+  and say in the report what the meta line does in each.
+- [ ] **Step 6:** Update the comments. `App.css`'s `.article-head` comment describes a flex
+  row; `ArticleCard.tsx`'s span comment should now say the float it was waiting for exists.
+  `CLAUDE.md` describes the card as "the headline, summary and the thumbnail beside them" —
+  make it say the text wraps around the photo.
+
+---
+
+## Task 21: Rebuild the baselines and verify
 
 **Model: Sonnet.**
 
@@ -2437,7 +2529,8 @@ manage-feeds pencil. `.drawer-children` always renders.
 | **17** | *(new)* Halve the list rhythm | 30px between cards; reader chose to halve the card's internals with it, preserving 3:1 | `web/src/App.css`, `e2e/mobile.spec.ts`, `e2e/redesign.spec.ts`, `CLAUDE.md` | **Sonnet** |
 | **18** | *(new)* Halve both feed menus; Hidden's missing indent rule | Both at 18px; `.sidebar-group-body` has no border-left, and it is shared with the tag groups *inside* `.drawer-children`, so the naive fix draws a second nested rule | `web/src/App.css`, `Sidebar.tsx`, `e2e/design-system.spec.ts` | **Sonnet** |
 | **19** | *(new)* All feeds menu collapsible | `.drawer-children` always renders; `HiddenFeeds` already has the pattern to copy | `Sidebar.tsx`, `web/src/App.css`, `e2e/design-system.spec.ts` | **Sonnet** |
-| **20** | — | Baseline rebuild, verification, device check | `e2e/visual.spec.ts-snapshots` | **Sonnet** |
+| **20** | *(new)* White space under the photo | `.article-head` is a flex row, so text cannot flow around the thumbnail — though the headline is a `<span role="button">` built expressly to wrap a float | `web/src/App.css`, `ArticleCard.tsx`, `e2e/mobile.spec.ts`, `CLAUDE.md` | **Sonnet** |
+| **21** | — | Baseline rebuild, verification, device check | `e2e/visual.spec.ts-snapshots` | **Sonnet** |
 
 **Order matters.** Task 1 is independent (backend, plus one line of `App.tsx`) and can run alongside Task 2. Tasks 2–7 all edit `App.css` and must run sequentially. Task 8 closes out that first batch.
 

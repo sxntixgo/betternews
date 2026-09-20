@@ -145,8 +145,13 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
   text-align: left;
   cursor: pointer;
 }
-/* All feeds leads its group, and is the only row that does. */
-.drawer-item.is-all { font-size: 17px; font-weight: 600; color: var(--color-ink); }
+/* The three top-level lists -- All feeds, Saved, Hidden -- are peers and are
+   set alike. The feeds nest under All feeds behind the indent rule and stay a
+   step down; `.sidebar-feed` is shared with those nested rows, so the lead
+   treatment is opt-in by class rather than applied to the shared row.
+   Was `is-all`, named for one of its three occupants. */
+.drawer-item.is-lead,
+.sidebar-feed.is-lead { font-size: 17px; font-weight: 600; color: var(--color-ink); }
 .drawer-item.active,
 .sidebar-feed.active { color: var(--color-ink); font-weight: 600; }
 .sidebar-feed-title {
@@ -167,7 +172,8 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
   padding: 2px 0 2px 8px;
   min-width: 0;
 }
-.drawer-item.is-all .sidebar-feed-count { color: var(--color-accent); }
+.drawer-item.is-lead .sidebar-feed-count,
+.sidebar-feed.is-lead .sidebar-feed-count { color: var(--color-accent); }
 
 /* All feeds and the pencil that edits the list share a line. */
 .drawer-all { display: flex; align-items: center; gap: 8px; }
@@ -1489,7 +1495,8 @@ kbd {
   .drawer-groups { padding: 0; gap: 34px; }
   .drawer-item,
   .sidebar-feed { font-size: 14px; }
-  .drawer-item.is-all { font-size: 15px; }
+  .drawer-item.is-lead,
+  .sidebar-feed.is-lead { font-size: 15px; }
   .sidebar-feed-nested { font-size: 13px; }
   .drawer-children { padding-left: 14px; }
   /* `margin-top: auto` goes on the divider, not the footer: with it on the

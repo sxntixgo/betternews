@@ -155,7 +155,7 @@ export function Sidebar({
     <>
       <div className="drawer-all">
         <button
-          className={`drawer-item is-all ${allActive ? 'active' : ''}`}
+          className={`drawer-item is-lead ${allActive ? 'active' : ''}`}
           onClick={onAll}
         >
           <span className="sidebar-feed-title">All feeds</span>
@@ -218,7 +218,7 @@ export function HiddenFeeds({
           ▾
         </button>
         <button
-          className={`sidebar-feed ${hidden ? 'active' : ''}`}
+          className={`sidebar-feed is-lead ${hidden ? 'active' : ''}`}
           onClick={onHidden}
         >
           <span className="sidebar-feed-title">Hidden</span>

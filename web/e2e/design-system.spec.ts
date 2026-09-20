@@ -591,3 +591,30 @@ test('the reader top bar speaks the app header language', async ({ page }) => {
   await expect(nav).toHaveCSS('border-bottom-color', rule);
   await expect(nav.getByRole('button', { name: 'Back' })).toHaveCSS('font-size', '13px');
 });
+
+test('the three top-level lists are set alike, and their feeds are not', async ({ page }) => {
+  // All feeds, Saved and Hidden are peers -- three lists you can be reading.
+  // Individual feeds nest under All feeds behind the indent rule, and stay a
+  // step down. Saved and Hidden used to render at the size of the feeds they
+  // sit above, which read as though they belonged to that level.
+  await signedIn(page);
+  await mockApi(page);
+  await page.goto('/');
+  await openDrawer(page);
+
+  const type = (loc: import('@playwright/test').Locator) => loc.evaluate((el) => {
+    const c = getComputedStyle(el);
+    return `${c.fontSize}/${c.fontWeight}/${c.color}`;
+  });
+
+  const all = await type(page.locator('.drawer-item.is-lead'));
+  // Use CSS selectors for Saved and Hidden to avoid getByRole timing issues
+  const saved = await type(page.locator('.sidebar-feed.is-lead').first());
+  const hidden = await type(page.locator('.sidebar-feed.is-lead').nth(1));
+  expect(saved, 'Saved does not match All feeds').toBe(all);
+  expect(hidden, 'Hidden does not match All feeds').toBe(all);
+
+  // ...and a feed underneath is still visibly subordinate.
+  const feed = await type(page.locator('.sidebar-feed-nested').first());
+  expect(feed, 'a feed row was promoted to the lead treatment').not.toBe(all);
+});

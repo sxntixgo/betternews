@@ -96,7 +96,7 @@ export function Drawer({
               guessing. Saved and Hidden were two sections of one row each. */}
           <div className="drawer-group">
             <button
-              className={`sidebar-feed ${saved ? 'active' : ''}`}
+              className={`sidebar-feed is-lead ${saved ? 'active' : ''}`}
               onClick={() => choose(() => { setSaved(true); setFeed(undefined); setHidden(false); })}
             >
               <span className="sidebar-feed-title">Saved articles</span>

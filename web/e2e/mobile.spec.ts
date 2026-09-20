@@ -210,15 +210,18 @@ test.describe('phone layout', () => {
 
   test('the list is tighter than a screen-and-a-half per story', async ({ page, isMobile }) => {
     test.skip(!isMobile, 'phone only');
-    // 34px between cards was set when the headline was 19px and bold. Against
-    // 15/400 it reads as drift rather than separation. Whitespace is still the
-    // only thing dividing the stories -- there are no dividers and no row
-    // tints -- there is just less of it.
-    await expect(page.locator('#article-list')).toHaveCSS('row-gap', '20px');
+    // The 34px gap this replaced was set for a 19/600 headline. The list has
+    // been 15/400 for two batches now, and against that type 34px read as
+    // drift rather than as separation. Whitespace is still the only thing
+    // dividing the stories -- no dividers, no row tints -- there is just less
+    // of it. 14px is the floor, not a waypoint: the ratios below are 3.0:1 in
+    // both densities, and the next cut takes them under it.
+    await expect(page.locator('#article-list')).toHaveCSS('row-gap', '14px');
     // Row height *plus* the gap: a story costs a reader both, and dividing by
     // the row alone counted a list with no space between the cards. It lands
-    // at 4.04 on an iPhone 13, which is the whole claim -- four stories and
-    // the start of a fifth, where the 34px gap gave three and a half.
+    // at ~4.2 on an iPhone 13 (~6.0 in compact), which is the whole claim --
+    // four stories and the start of a fifth, where the 34px gap gave three
+    // and a half.
     const perScreen = await page.evaluate(() => {
       const row = (document.querySelector('.article-row') as HTMLElement)
         .getBoundingClientRect().height;
@@ -226,13 +229,46 @@ test.describe('phone layout', () => {
       return window.innerHeight / (row + gap);
     });
     expect(perScreen, 'more than four stories must fit a screen').toBeGreaterThan(4);
-    // The separation must still be real: no card may touch its neighbour.
-    const gaps = await page.evaluate(() => {
-      const rows = [...document.querySelectorAll('.article-row')];
-      return rows.slice(1).map((r, i) =>
-        r.getBoundingClientRect().top - rows[i].getBoundingClientRect().bottom);
+
+    // Visual separation, not the CSS gap. A bounding box includes the row's own
+    // padding, so `next.top - prev.bottom` is the gap alone and ignores the 8px
+    // each row adds on both sides -- it understated the real separation by 16px
+    // and would have failed a layout that is in fact well spaced. Against it,
+    // the card's own largest internal gap: the 10px between the story and its
+    // meta line. The 8px inside `.article-text` is the wrong comparison --
+    // compact hides the summary, so in that density it spans nothing at all,
+    // and measuring against it is how compact was scored 3.75:1 while actually
+    // sitting at 2.6.
+    const measure = () => page.evaluate(() => {
+      const rows = [...document.querySelectorAll('.article-row')] as HTMLElement[];
+      const pad = (el: HTMLElement) =>
+        parseFloat(getComputedStyle(el).paddingTop) + parseFloat(getComputedStyle(el).paddingBottom);
+      const between = rows.slice(1).map((r, i) => {
+        const gap = r.getBoundingClientRect().top - rows[i].getBoundingClientRect().bottom;
+        return gap + pad(r) / 2 + pad(rows[i]) / 2;
+      });
+      return { sep: Math.min(...between), inner: parseFloat(getComputedStyle(rows[0]).rowGap) };
     });
-    expect(Math.min(...gaps)).toBeGreaterThanOrEqual(16);
+
+    // Both densities, because only one of them was ever measured. Compact drops
+    // the summary and 2px of row padding with it; at a floor of 24 it passed at
+    // 26px and 2.6:1 -- tighter than the comfortable list this branch calls the
+    // floor -- and the test could not see it.
+    for (const density of ['comfortable', 'compact'] as const) {
+      if (density === 'compact') {
+        await openDrawer(page);
+        await page.getByRole('switch', { name: 'Compact list' }).click();
+        await expect(page.locator('html')).toHaveAttribute('data-density', 'compact');
+        await page.locator('.drawer-scrim').click({ position: { x: 340, y: 40 } });
+        await expect(page.locator('.sidebar.open')).toHaveCount(0);
+      }
+      const { sep, inner } = await measure();
+      expect(sep, `${density}: two stories sit closer than 30px apart`)
+        .toBeGreaterThanOrEqual(30);
+      expect(sep / inner,
+        `${density}: the space between two stories is not clearly more than the space inside one`)
+        .toBeGreaterThanOrEqual(3);
+    }
   });
 
   test('the meta line leads with the source and the age', async ({ page }) => {

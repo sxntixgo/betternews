@@ -1825,6 +1825,426 @@ git commit -m "test: rebuild the list baselines for the smaller, lighter type"
 
 ---
 
+## Task 13: Tighten the space between stories again
+
+**Model: Sonnet.** The number is trivial; the judgement is the floor. This is the second
+tightening — `d248063` already took the gap 34 → 20 and that is live on news.lan (verified
+against the deployed CSS bundle) — so the question is not "is 20 too much" but "where does
+a card stop reading as a card".
+
+### What the spacing actually is
+
+The gap is not the whole story. `.article-row` carries its own vertical padding, so the
+whitespace a reader sees between two stories is `gap + 2 × row-padding`:
+
+```
+phone      20 gap + 8 + 8   = 36px  between cards
+desktop    24 gap + 10 + 10 = 44px
+compact    20 gap + 6 + 6   = 32px
+inside a card:  headline -> summary 8px (`.article-text` gap)
+                summary  -> meta   10px (`.article-row` gap)
+```
+
+The whole-branch review measured that ratio at **3.6–4.5:1** and called it the thing
+keeping cards legible as units. Halve the between-card space and it approaches 2:1, at
+which point the space between two stories matches the space inside one and the column
+reads as continuous text.
+
+**New values: gap 20 → 14 (phone), 24 → 18 (desktop).** That gives 30px between cards on a
+phone against 8px internal — **3.75:1**, still clearly above the point where the ratio
+collapses, and a 17% cut in the whitespace a reader scrolls past.
+
+### The existing assertion is measuring the wrong thing
+
+`mobile.spec.ts` asserts `Math.min(...gaps) >= 16`, computed from
+`row.getBoundingClientRect().top - previousRow.getBoundingClientRect().bottom`. A bounding
+box **includes** the element's own padding, so that expression measures the CSS `gap`
+alone and ignores the 8px of padding on each side that a reader actually sees. It
+undersells the real separation by 16px, and at `gap: 14` it would fail for a layout that
+is in fact well separated.
+
+Fix the measurement rather than lowering the number: assert the **visual** separation —
+the gap plus both rows' vertical padding — against a floor that means something.
+
+**Files:**
+- Modify: `web/src/App.css` — `#article-list` (~399) and its desktop override (~1501)
+- Modify: `web/e2e/mobile.spec.ts` — the gap test
+- Modify: `web/e2e/redesign.spec.ts` — the three rhythm assertions pinned to 20/24
+- Modify: `CLAUDE.md` — the "20px between cards, 24px on desktop" sentence
+
+**Interfaces:**
+- Consumes: nothing.
+- Produces: nothing. Moves the `list-*` and `drawer-*` baselines (Task 16).
+
+- [ ] **Step 1: Correct the assertion, then change the value**
+
+Replace the neighbour check in `mobile.spec.ts`'s gap test with one that measures what a
+reader sees:
+
+```ts
+    // Visual separation, not the CSS gap. A bounding box includes the row's own
+    // padding, so `next.top - prev.bottom` is the gap alone and ignores the 8px
+    // each row adds on both sides -- it understated the real separation by 16px
+    // and would have failed a layout that is in fact well spaced.
+    const sep = await page.evaluate(() => {
+      const rows = [...document.querySelectorAll('.article-row')] as HTMLElement[];
+      const pad = (el: HTMLElement) =>
+        parseFloat(getComputedStyle(el).paddingTop) + parseFloat(getComputedStyle(el).paddingBottom);
+      return rows.slice(1).map((r, i) => {
+        const gap = r.getBoundingClientRect().top - rows[i].getBoundingClientRect().bottom;
+        return gap + pad(r) / 2 + pad(rows[i]) / 2;
+      });
+    });
+    // 24px is the floor where the space between two stories stops being clearly
+    // more than the 8px inside one. At `gap: 14` this measures 30.
+    expect(Math.min(...sep), 'two stories are no further apart than one is tall')
+      .toBeGreaterThanOrEqual(24);
+```
+
+Keep the exact `toHaveCSS('row-gap', ...)` assertion in that test, updated to `'14px'`.
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `cd web && CI=1 npx playwright test mobile.spec.ts --project=phone --workers=2 -g "tighter than a screen"`
+Expected: FAIL on `Expected: "14px" Received: "20px"`.
+
+- [ ] **Step 3: Tighten both gaps**
+
+`#article-list` base:
+
+```css
+  /* 14, from 20. The gap is not the whole separation -- each row adds 8px of its
+     own padding on both sides -- so this is 30px of whitespace between two
+     stories, against 8px between a headline and its own summary. Below roughly
+     24px those two numbers converge and the column reads as continuous text
+     rather than as a list of cards. */
+  gap: 14px;
+```
+
+Desktop override:
+
+```css
+    /* 18, from 24: 38px between cards against a 760px measure. */
+    gap: 18px;
+```
+
+- [ ] **Step 4: Update every other assertion pinned to the old numbers**
+
+`redesign.spec.ts` pins the rhythm in three places (they were updated from 34/40 to 20/24
+one batch ago and will now be stale again). Find them with:
+
+```bash
+cd web && grep -n "20px\|24px" e2e/redesign.spec.ts
+```
+
+Update the values, keep the claims, and **rename the test whose title names the number**
+(it currently says "24px rhythm"). Do not weaken an assertion to make it pass — an earlier
+task on this branch's predecessor did exactly that and it took a whole-branch review to
+catch.
+
+- [ ] **Step 5: Verify against the FULL suite, not one spec**
+
+Run: `cd web && CI=1 npx playwright test --workers=2`
+A scoped run is what let the last rhythm change break three tests unnoticed.
+
+- [ ] **Step 6: Correct `CLAUDE.md`**
+
+The sentence now reading *"Whitespace separates the stories — nothing else does. 20px
+between cards, 24px on desktop"* becomes 14px and 18px. Add the fact that makes those
+numbers legible: the row's own padding brings the real separation to 30px and 38px, and
+the floor is the ratio against the 8px inside a card.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add web/src/App.css web/e2e CLAUDE.md
+git commit -m "fix: 14px between stories, 18 on desktop
+
+Second tightening. The gap is not the separation -- each row adds 8px of
+padding a side -- so this is 30px between stories against 8px inside one.
+The neighbour assertion was measuring the gap alone and understating it."
+```
+
+---
+
+## Task 14: Saved and Hidden should read like All feeds
+
+**Model: Haiku.** One shared class and one rule, with the selector trap named.
+
+### What differs now
+
+| Row | Class | Renders as |
+|---|---|---|
+| All feeds | `.drawer-item.is-all` | 17px / 600 / `--color-ink` (15px at phone width) |
+| Saved articles | `.sidebar-feed` | 15px / 400 / `--color-ink-secondary` |
+| Hidden | `.sidebar-feed` | 15px / 400 / `--color-ink-secondary` |
+
+`App.css:149` comments the current state as *"All feeds leads its group, and is the only
+row that does."* The reader's request is the better reading: **All feeds, Saved and Hidden
+are the three top-level lists**, and individual feeds nest *under* All feeds behind the
+indent rule. Three peers set alike, with their children a step down, is more truthful than
+one lead row and two peers demoted to the size of their own children.
+
+### The trap
+
+`.sidebar-feed` is **shared with every individual feed row** (`.sidebar-feed-nested` in
+`Sidebar.tsx`). Restyling `.sidebar-feed` would bump every feed in the list to 17/600 and
+erase exactly the distinction this task is trying to make. The lead treatment has to be
+opt-in via a class on the three rows that should have it.
+
+`is-all` is the existing hook, and **no spec references it** (`grep -rn "is-all" web/e2e`
+returns nothing), so it is free to rename to something that describes the role rather than
+one of its three occupants.
+
+**Files:**
+- Modify: `web/src/App.css` (~149, ~170, ~1491)
+- Modify: `web/src/components/Sidebar.tsx` (the `is-all` row, and `HiddenFeeds`' Hidden button)
+- Modify: `web/src/components/Drawer.tsx` (the Saved articles button)
+- Test: `web/e2e/design-system.spec.ts`
+
+**Interfaces:**
+- Consumes: nothing.
+- Produces: the class `is-lead`, used by Task 15's rule grouping. Task 15 must not assume
+  `is-all` still exists.
+
+- [ ] **Step 1: Write the failing test**
+
+```ts
+test('the three top-level lists are set alike, and their feeds are not', async ({ page }) => {
+  // All feeds, Saved and Hidden are peers -- three lists you can be reading.
+  // Individual feeds nest under All feeds behind the indent rule, and stay a
+  // step down. Saved and Hidden used to render at the size of the feeds they
+  // sit above, which read as though they belonged to that level.
+  await signedIn(page);
+  await mockApi(page);
+  await page.goto('/');
+  await openDrawer(page);
+
+  const type = (loc: import('@playwright/test').Locator) => loc.evaluate((el) => {
+    const c = getComputedStyle(el);
+    return `${c.fontSize}/${c.fontWeight}/${c.color}`;
+  });
+
+  const all = await type(page.locator('.drawer-item.is-lead'));
+  const saved = await type(page.getByRole('button', { name: /Saved articles/ }));
+  const hidden = await type(page.getByRole('button', { name: 'Hidden', exact: true }));
+  expect(saved, 'Saved does not match All feeds').toBe(all);
+  expect(hidden, 'Hidden does not match All feeds').toBe(all);
+
+  // ...and a feed underneath is still visibly subordinate.
+  const feed = await type(page.locator('.sidebar-feed-nested').first());
+  expect(feed, 'a feed row was promoted to the lead treatment').not.toBe(all);
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `cd web && CI=1 npx playwright test design-system.spec.ts --project=desktop --workers=2 -g "top-level lists are set alike"`
+Expected: FAIL — `.drawer-item.is-lead` matches nothing yet.
+
+- [ ] **Step 3: Rename the hook and widen it to all three**
+
+In `App.css`, replace the three `is-all` occurrences:
+
+```css
+/* The three top-level lists -- All feeds, Saved, Hidden -- are peers and are
+   set alike. The feeds nest under All feeds behind the indent rule and stay a
+   step down; `.sidebar-feed` is shared with those nested rows, so the lead
+   treatment is opt-in by class rather than applied to the shared row.
+   Was `is-all`, named for one of its three occupants. */
+.drawer-item.is-lead,
+.sidebar-feed.is-lead { font-size: 17px; font-weight: 600; color: var(--color-ink); }
+```
+
+```css
+.drawer-item.is-lead .sidebar-feed-count,
+.sidebar-feed.is-lead .sidebar-feed-count { color: var(--color-accent); }
+```
+
+and in the `max-width: 899px` block, `.drawer-item.is-all { font-size: 15px; }` becomes:
+
+```css
+  .drawer-item.is-lead,
+  .sidebar-feed.is-lead { font-size: 15px; }
+```
+
+In `Sidebar.tsx`, change `drawer-item is-all` to `drawer-item is-lead`, and add `is-lead`
+to the Hidden button's class list. In `Drawer.tsx`, add `is-lead` to the Saved articles
+button's class list. **Do not** add it to any `.sidebar-feed-nested` row.
+
+- [ ] **Step 4: Run the test and the specs that drive these rows**
+
+```
+cd web && CI=1 npx playwright test design-system.spec.ts reading.spec.ts interaction.spec.ts mobile.spec.ts --workers=2
+```
+Four specs reference `.sidebar-feed`; confirm none of them asserted a size or weight that
+this changes, and report anything that did rather than adjusting it silently.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add web/src web/e2e
+git commit -m "fix: Saved and Hidden are set like All feeds
+
+They are peers -- three lists you can be reading -- not children of the
+feed list they sit above. `is-all` becomes `is-lead`, since it now
+describes a role rather than one of its three occupants."
+```
+
+---
+
+## Task 15: Rule off the drawer's sections
+
+**Model: Sonnet.** The smallest diff of the three and the one most likely to be judged
+wrong, because it partly reverses a documented decision. It needs taste and a reason, not
+just a border property.
+
+### What is there now
+
+`.drawer-groups` separates its three groups with `gap: 34px` and nothing else.
+`CLAUDE.md` records why: the drawer *"was five all-caps labelled sections (Feeds, Saved,
+Settings, You, Admin); the headers are gone, because 34px of space between groups says the
+same thing and the labels were the loudest type in the column while saying the least."*
+One `.drawer-divider` already exists — 1px of `--color-divider`, inset 28px — but only
+above the footer.
+
+**The reader has now used that drawer for a while and says the grouping does not read.**
+That is better evidence than the original argument, which was made before anyone lived
+with it. But the fix should honour what that decision got right: **the headers are not
+coming back.** A rule is not a label; it separates without adding the loudest type in the
+column.
+
+### What to build
+
+Extend the existing `.drawer-divider` treatment — same 1px, same `--color-divider`, same
+28px inset — to sit **between** the drawer's groups, so the column reads as:
+
+```
+  Better News / reader · 139 unread
+  ─────────────────────────────────
+  All feeds, its feeds, Saved, Hidden, One at a time, Your stats
+  ─────────────────────────────────
+  Photos · Compact · Tags · Sort · Theme
+  ─────────────────────────────────
+  Profile · Users · Server settings · Ollama log · Shortcuts · Sign out
+```
+
+With rules doing the separating, the 34px gaps can come down — a rule plus 34px of space
+is saying the same thing twice. Use the space you reclaim to keep the drawer scrollable in
+one screen on a phone.
+
+**Judgement calls that are yours, with the constraints they must respect:**
+- The rule goes on the group container, not between individual rows — this separates
+  *sections*, not items.
+- No rule above the first group or below the last: an edge needs no closing.
+- Keep the existing `.drawer-divider` before the footer rather than adding a second
+  mechanism next to it; if the new rules make it redundant, remove it and say so.
+- Reduce `.drawer-groups`' 34px gap to something that reads with a rule in it, and say in
+  the commit what you chose and why.
+- `--color-divider` must already exist in all three theme blocks of `index.css` — verify
+  rather than assume, and if it only exists in some, that is a finding to report, not to
+  paper over with a new token.
+
+**Files:**
+- Modify: `web/src/App.css` (`.drawer-groups`, `.drawer-group`, `.drawer-divider`)
+- Test: `web/e2e/design-system.spec.ts`
+
+**Interfaces:**
+- Consumes: Task 14's `is-lead` — do not reintroduce `is-all`.
+- Produces: nothing. Moves the `drawer-*` baselines (Task 16).
+
+- [ ] **Step 1: Verify the token exists in all three theme blocks**
+
+```bash
+cd web && grep -n "color-divider" src/index.css
+```
+Expect three definitions — light `:root`, `[data-theme=dark]`, and the
+`prefers-color-scheme` fallback. A token defined in only some blocks flashes the wrong
+colour on first paint. **If it is missing from any, report it and stop** rather than
+adding a fourth definition.
+
+- [ ] **Step 2: Write the failing test**
+
+```ts
+test('the drawer rules off its sections without bringing headers back', async ({ page }) => {
+  // The five all-caps section headers were removed on purpose -- they were the
+  // loudest type in the column while saying the least -- and 34px of space was
+  // meant to say the same thing. After living with it the reader says the
+  // grouping does not read. A rule separates without being a label, so the
+  // headers stay gone and the sections get an edge.
+  await signedIn(page);
+  await mockApi(page);
+  await page.goto('/');
+  await openDrawer(page);
+
+  const ruled = await page.evaluate(() => {
+    const groups = [...document.querySelectorAll('.drawer-group')] as HTMLElement[];
+    return groups.map((g) => {
+      const c = getComputedStyle(g);
+      return { top: c.borderTopWidth, colour: c.borderTopColor };
+    });
+  });
+  // Every group but the first is ruled off from the one above it.
+  expect(ruled.length).toBeGreaterThan(1);
+  expect(ruled.slice(1).every((r) => parseFloat(r.top) >= 1),
+    'a group has no rule above it').toBe(true);
+  expect(parseFloat(ruled[0].top), 'the first group has a rule above nothing').toBe(0);
+
+  // And no section headers came back with them.
+  await expect(page.locator('.drawer-group h2, .drawer-group h3')).toHaveCount(0);
+});
+```
+
+- [ ] **Step 3: Implement, then run**
+
+```
+cd web && CI=1 npx playwright test design-system.spec.ts mobile.spec.ts --workers=2
+```
+`mobile.spec.ts`'s *"a long feed list does not strand the lower sections"* is the one to
+watch: it renders thirty feeds and asserts Sign out and the Ollama log are reachable. If
+your spacing changes push them out of reach, that is a real finding.
+
+- [ ] **Step 4: Update `CLAUDE.md`**
+
+Its drawer paragraph still says the groups are separated by space alone. Say what
+separates them now, and keep the part that is still true and still load-bearing: the
+headers are gone and are not coming back.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add web/src/App.css web/e2e CLAUDE.md
+git commit -m "fix: the drawer rules off its sections
+
+Space alone was not reading as grouping. A rule is not a label -- the five
+all-caps headers stay gone -- and with an edge doing the separating the
+gaps come down."
+```
+
+---
+
+## Task 16: Rebuild the baselines and verify
+
+**Model: Sonnet.**
+
+- [ ] **Step 1: Confirm what moved.** `cd web && CI=1 npx playwright test visual.spec.ts --workers=2`
+  Expect `list-*` (Task 13) and `drawer-*` (Tasks 13, 14, 15 — the drawer screenshot is
+  taken over the reading list, so list changes show behind it) to fail. **`signin-*` and
+  `single-story-*` must pass**; either failing means a rule leaked.
+- [ ] **Step 2: Generate, then STOP.** `--update-snapshots`, then hand the images over for
+  inspection before committing. Two real defects on this branch's predecessors were caught
+  at exactly this step and by nothing else.
+- [ ] **Step 3: Full verification.**
+  ```
+  cd web && CI=1 npx playwright test --workers=2
+  cd web && npm run typecheck && npm run build
+  TEST_DATABASE_URL="postgresql+psycopg://betterread:betterread@localhost:5432/betterread" python3 -m pytest tests/ -q
+  ```
+- [ ] **Step 4: On the device.** The drawer's three sections read as three; Saved and
+  Hidden sit level with All feeds; the stories are tighter without running together.
+
+---
+
 ## Task List & Recommended Models
 
 > **Model key** — **Haiku**: the cause is fully diagnosed and the change is a value or a declaration, with no judgment left. **Sonnet**: a contained change that still trades one thing against another, or removes code other callers touch. **Opus**: the fix reverses a decision the codebase argues for in a comment, or changes shared read semantics — the implementer has to re-argue it, not just apply it.
@@ -1843,8 +2263,18 @@ git commit -m "test: rebuild the list baselines for the smaller, lighter type"
 | **10** | *(new)* Gap between articles too large | `#article-list` gap 34px / 40px desktop, set against a 19px bold headline | `web/src/App.css`, `CLAUDE.md`, `e2e/mobile.spec.ts` | **Haiku** |
 | **11** | *(new)* Reader headline is half the screen | No rule at all: browser-default 32px `h1` with `.modal-body`'s body-copy `line-height: 1.8` inherited onto it — 173px for three lines | `web/src/App.css`, `e2e/reading.spec.ts` | **Sonnet** |
 | **12** | — | Baseline rebuild, verification, device check | `e2e/visual.spec.ts-snapshots`, `CLAUDE.md` | **Sonnet** |
+| **13** | *(new)* Space between stories still too large | Second tightening; the neighbour assertion measures the CSS gap alone and ignores the 8px of row padding a side, understating real separation by 16px | `web/src/App.css`, `e2e/mobile.spec.ts`, `e2e/redesign.spec.ts`, `CLAUDE.md` | **Sonnet** |
+| **14** | *(new)* Saved/Hidden don't match All feeds | They render 15/400 against All feeds' 17/600, at the size of the feeds they sit above; `.sidebar-feed` is shared with nested feed rows so the lead treatment must be opt-in | `web/src/App.css`, `Sidebar.tsx`, `Drawer.tsx`, `e2e/design-system.spec.ts` | **Haiku** |
+| **15** | *(new)* Drawer sections don't read as sections | Separated by 34px of space and nothing else — a decision made before anyone had lived with it | `web/src/App.css`, `e2e/design-system.spec.ts`, `CLAUDE.md` | **Sonnet** |
+| **16** | — | Baseline rebuild, verification, device check | `e2e/visual.spec.ts-snapshots` | **Sonnet** |
 
 **Order matters.** Task 1 is independent (backend, plus one line of `App.tsx`) and can run alongside Task 2. Tasks 2–7 all edit `App.css` and must run sequentially. Task 8 closes out that first batch.
+
+**Tasks 13–16 are a third batch**, added after Tasks 9–12 shipped as PR #73 and went live
+on news.lan (verified against the deployed CSS bundle: it already serves `gap: 20px`, so
+Task 13 is a second tightening rather than a stale deploy). Task 14 produces the `is-lead`
+class that Task 15 must not assume away; otherwise 13, 14 and 15 are independent. Task 16
+is last, for the reason Tasks 8 and 12 were.
 
 **Tasks 9–12 are a second batch**, added after the first shipped as PR #72. Task 10 reads against Task 9's smaller type, so land 9 first; Task 11 is independent of both (it touches the reader modal, not the card) and can go in any order. Task 12 must be last, for the same reason Task 8 was: regenerating baselines before every visual change is in means doing it twice and looking at the wrong images the first time.
 

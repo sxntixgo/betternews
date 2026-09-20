@@ -69,9 +69,9 @@ test.describe('list rhythm', () => {
     });
     expect(styles.bg).toBe('rgba(0, 0, 0, 0)');
     expect(styles.borderBottom).toBe('0px');
-    // The rhythm widens with the measure -- 20px on a phone, 24px above 900px.
+    // The rhythm widens with the measure -- 14px on a phone, 18px above 900px.
     // The claim is what does the separating, and at either width it is space.
-    expect(styles.gap).toBe(isMobile ? '20px' : '24px');
+    expect(styles.gap).toBe(isMobile ? '14px' : '18px');
   });
 
   test('a read story is dimmed rather than tinted', async ({ page }) => {
@@ -161,7 +161,7 @@ test.describe('mobile header', () => {
 test.describe('desktop layout', () => {
   test.skip(({ isMobile }) => isMobile, 'desktop only');
 
-  test('the list is held to a 760px measure with a 24px rhythm', async ({ page }) => {
+  test('the list is held to a 760px measure with an 18px rhythm', async ({ page }) => {
     await signedIn(page);
     await mockApi(page);
     await page.goto('/');
@@ -169,7 +169,7 @@ test.describe('desktop layout', () => {
     const list = page.locator('#article-list');
     const box = (await list.boundingBox())!;
     expect(box.width).toBeLessThanOrEqual(760);
-    expect(await list.evaluate((el) => getComputedStyle(el).rowGap)).toBe('24px');
+    expect(await list.evaluate((el) => getComputedStyle(el).rowGap)).toBe('18px');
   });
 
   test('the thumbnail is 104 x 78 on desktop', async ({ page }) => {
@@ -276,7 +276,7 @@ test.describe('below 900px the desktop layout collapses', () => {
     expect(Math.round(thumb.height)).toBe(76);
     expect(
       await page.locator('#article-list').evaluate((el) => getComputedStyle(el).rowGap),
-    ).toBe('20px');
+    ).toBe('14px');
 
     // Rendered at every width and hidden by CSS at this one -- the card does
     // not read the viewport in JavaScript to decide what to build.
@@ -311,14 +311,17 @@ test.describe('drawer', () => {
     await expect(page.locator('.sidebar-section-title')).toHaveCount(0);
   });
 
-  test('is three groups, a settings block and a footer', async ({ page }) => {
+  test('is four groups, one of them the settings block, and a footer', async ({ page }) => {
     await signedIn(page);
     await mockApi(page);
     await page.goto('/');
     await openDrawer(page);
-    // Three, not "at least three": the failure this guards against is a fourth
-    // group added beside the old sections instead of replacing them.
-    await expect(page.locator('.drawer-group')).toHaveCount(3);
+    // Four, not "at least four": the failure this guards against is a group
+    // added beside the old sections instead of replacing them. It was three
+    // until "One at a time" and "Your stats" were split off the lists group --
+    // neither filters the reading list, and left trailing it they read as a
+    // continuation of the hidden feeds above them.
+    await expect(page.locator('.drawer-group')).toHaveCount(4);
     // Task 9 replaces the controls inside this container, not the container.
     await expect(page.locator('.drawer-settings')).toHaveCount(1);
     await expect(page.locator('.drawer-footer')).toHaveCount(1);
@@ -341,12 +344,16 @@ test.describe('drawer', () => {
     await page.goto('/');
     await openDrawer(page);
     const groups = page.locator('.drawer-group');
-    // 1: the feeds. 2: what a reader keeps and what was kept from them.
+    // 1: the feeds. 2: what a reader keeps and what was kept from them -- the
+    // two lists that are not the reading list.
     await expect(groups.nth(0)).toContainText('All feeds');
     await expect(groups.nth(1)).toContainText('Saved articles');
     await expect(groups.nth(1)).toContainText('Hidden');
-    await expect(groups.nth(1)).toContainText('Your stats');
-    // 3: the display preferences, all four of them.
+    // 3: the two rows that are neither a list nor a display preference -- one
+    // switches reading mode, the other opens a dialog.
+    await expect(groups.nth(2)).toContainText('One at a time');
+    await expect(groups.nth(2)).toContainText('Your stats');
+    // 4: the display preferences, all four of them.
     const settings = page.locator('.drawer-settings');
     await expect(settings.getByRole('switch', { name: 'Show photos' })).toBeVisible();
     await expect(settings.getByRole('switch', { name: 'Compact list' })).toBeVisible();

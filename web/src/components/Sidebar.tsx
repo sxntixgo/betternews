@@ -102,7 +102,10 @@ function group(feeds: Feed[]): { tags: [string, Feed[]][]; untagged: Feed[] } {
   };
 }
 
-/** The count beside a row: a bare number, gold on All feeds and muted below. */
+/**
+ * The count beside a row: a bare number, gold on the three top-level lists --
+ * All feeds, Saved and Hidden -- and muted on the feeds nested under them.
+ */
 function Count({ n }: { n: number }) {
   // Plain text, not a pill. `.pill` survives only in Settings, where it was
   // never removed by the redesign.
@@ -155,7 +158,7 @@ export function Sidebar({
     <>
       <div className="drawer-all">
         <button
-          className={`drawer-item is-all ${allActive ? 'active' : ''}`}
+          className={`drawer-item is-lead ${allActive ? 'active' : ''}`}
           onClick={onAll}
         >
           <span className="sidebar-feed-title">All feeds</span>
@@ -208,7 +211,25 @@ export function HiddenFeeds({
 
   return (
     <div className={`sidebar-group ${shut ? 'collapsed' : ''}`}>
+      {/* The caret comes after the row, not before it. Hidden is one of the
+          three top-level lists -- All feeds, Saved, Hidden -- and three rows
+          set alike do not read as peers unless they also start at the same x.
+          Led by the caret this one began 42px in on a phone (the tap-target
+          floor) and 16px on a desktop: level with its own children, which is
+          the one place a parent must not sit. It still has children and they
+          still collapse, so the caret could not simply go; at the trailing
+          edge it keeps the affordance and stops displacing the label. The
+          cost is the unread count sitting a caret's width off the right edge,
+          which is the lesser misalignment: the labels are what a reader scans
+          down, the counts are what they glance at. */}
       <div className="sidebar-group-header">
+        <button
+          className={`sidebar-feed is-lead ${hidden ? 'active' : ''}`}
+          onClick={onHidden}
+        >
+          <span className="sidebar-feed-title">Hidden</span>
+          {feeds && feeds.hidden > 0 && <Count n={feeds.hidden} />}
+        </button>
         <button
           className="sidebar-collapse"
           aria-expanded={!shut}
@@ -216,13 +237,6 @@ export function HiddenFeeds({
           onClick={() => toggle('hidden')}
         >
           ▾
-        </button>
-        <button
-          className={`sidebar-feed ${hidden ? 'active' : ''}`}
-          onClick={onHidden}
-        >
-          <span className="sidebar-feed-title">Hidden</span>
-          {feeds && feeds.hidden > 0 && <Count n={feeds.hidden} />}
         </button>
       </div>
       {!shut && (

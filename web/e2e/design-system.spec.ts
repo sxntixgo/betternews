@@ -591,3 +591,140 @@ test('the reader top bar speaks the app header language', async ({ page }) => {
   await expect(nav).toHaveCSS('border-bottom-color', rule);
   await expect(nav.getByRole('button', { name: 'Back' })).toHaveCSS('font-size', '13px');
 });
+
+test('the three top-level lists are set alike, and share a left edge', async ({ page }) => {
+  // All feeds, Saved and Hidden are peers -- three lists you can be reading.
+  // Individual feeds nest under All feeds behind the indent rule, and stay a
+  // step down. Saved and Hidden used to render at the size of the feeds they
+  // sit above, which read as though they belonged to that level.
+  //
+  // Selected by accessible name, never by `.is-lead`. Picking the subjects
+  // with the class under test still catches the class being removed, but it
+  // passes just as happily with `is-lead` on the wrong two rows -- the exact
+  // defect it exists to catch. The names carry a count ("All feeds 139"), so
+  // they are anchored at the front rather than matched exactly, and `/^Hidden/`
+  // keeps the collapse button ("Collapse Hidden") out of the match.
+  await signedIn(page);
+  await mockApi(page);
+  await page.goto('/');
+  await openDrawer(page);
+
+  const all = page.getByRole('button', { name: /^All feeds/ });
+  const saved = page.getByRole('button', { name: /^Saved articles/ });
+  const hidden = page.getByRole('button', { name: /^Hidden/ });
+  // A feed under All feeds, reached through the indent rule rather than by
+  // name alone: The Verge is listed twice, once here and once under Hidden.
+  const nested = page.locator('.drawer-children').getByRole('button', { name: /^The Verge/ });
+
+  const type = (loc: import('@playwright/test').Locator) => loc.evaluate((el) => {
+    const c = getComputedStyle(el);
+    return `${c.fontSize}/${c.fontWeight}/${c.color}`;
+  });
+
+  const lead = await type(all);
+  expect(await type(saved), 'Saved does not match All feeds').toBe(lead);
+  expect(await type(hidden), 'Hidden does not match All feeds').toBe(lead);
+  // ...and a feed underneath is still visibly subordinate.
+  expect(await type(nested), 'a feed row was promoted to the lead treatment').not.toBe(lead);
+
+  // Set alike is not the same as read as peers: three rows can carry identical
+  // type and still not look like a set if they do not start at the same x.
+  // Hidden's row sat inside `.sidebar-group-header` behind its collapse caret,
+  // which drew it at the indent of its own children -- ~21px in on a desktop,
+  // ~42px on a touch screen, where the caret takes a 40px tap target. Measured
+  // rather than eyeballed, because the type change did not cause that offset;
+  // it only made it visible.
+  const left = (loc: import('@playwright/test').Locator) =>
+    loc.locator('.sidebar-feed-title').evaluate((el) => el.getBoundingClientRect().left);
+  const [allX, savedX, hiddenX, nestedX] =
+    await Promise.all([left(all), left(saved), left(hidden), left(nested)]);
+  expect(savedX, 'Saved does not start where All feeds starts').toBeCloseTo(allX, 1);
+  expect(hiddenX, 'Hidden does not start where All feeds starts').toBeCloseTo(allX, 1);
+  expect(nestedX, 'a nested feed is not indented past the lead rows').toBeGreaterThan(allX);
+
+  // The settings rows open at that same edge. `.drawer-settings` carried its
+  // own `padding: 0 28px` while sitting inside `.drawer-groups`'s, so every
+  // control in it was inset a second 28px from the rest of the column --
+  // invisible until a rule was drawn across the group and stopped short of it.
+  const settingRow = await page.locator('.setting-row').first()
+    .evaluate((el) => el.getBoundingClientRect().left);
+  expect(settingRow, 'the settings rows are inset from the rest of the drawer')
+    .toBeCloseTo(allX, 1);
+});
+
+test('the drawer rules off its sections without bringing headers back', async ({ page }) => {
+  // The five all-caps section headers were removed on purpose -- they were the
+  // loudest type in the column while saying the least -- and 34px of space was
+  // meant to say the same thing. After living with it the reader says the
+  // grouping does not read. A rule separates without being a label, so the
+  // headers stay gone and the sections get an edge.
+  await signedIn(page);
+  await mockApi(page);
+  await page.goto('/');
+  await openDrawer(page);
+
+  const ruled = await page.evaluate(() => {
+    // Resolve the token the way the rule does, so the assertion below compares
+    // computed colour with computed colour rather than with a hex literal.
+    const probe = document.createElement('div');
+    probe.style.borderTopColor = 'var(--color-hairline-strong)';
+    document.body.appendChild(probe);
+    const expected = getComputedStyle(probe).borderTopColor;
+    probe.remove();
+    const groups = [...document.querySelectorAll('.drawer-group')] as HTMLElement[];
+    return {
+      expected,
+      ground: getComputedStyle(document.querySelector('.sidebar')!).backgroundColor,
+      groups: groups.map((g) => {
+        const c = getComputedStyle(g);
+        return { top: c.borderTopWidth, colour: c.borderTopColor };
+      }),
+    };
+  });
+  // Every group but the first is ruled off from the one above it.
+  expect(ruled.groups.length).toBeGreaterThan(1);
+  expect(ruled.groups.slice(1).every((r) => parseFloat(r.top) >= 1),
+    'a group has no rule above it').toBe(true);
+  expect(parseFloat(ruled.groups[0].top), 'the first group has a rule above nothing').toBe(0);
+
+  // And the rule is a colour a reader can actually see. This one carries the
+  // whole of the separation now that the gap around it is 18px rather than
+  // 34px, and `--color-divider` put it at 1.15:1 against the page -- below the
+  // 0.2 YIQ threshold `toHaveScreenshot` works to, so the rule could vanish
+  // outright and all ten visual baselines would still pass. Reading the colour
+  // without asserting on it, which is what this test did, was no guard at all.
+  for (const r of ruled.groups.slice(1)) {
+    expect(r.colour, 'a group rule is not drawn in --color-hairline-strong')
+      .toBe(ruled.expected);
+  }
+  // Against the drawer's own ground, which is not the same in both layouts:
+  // the page colour behind the phone's overlay, `--color-surface` behind the
+  // desktop column. `--color-hairline-strong` measures 1.36:1 and 1.28:1 on
+  // those two. The floor is set below both and above everything this rule
+  // must not quietly become -- `--color-divider` (1.15 / 1.08) and the plain
+  // `--color-hairline` (1.22 / 1.14), the token CLAUDE.md already records as
+  // invisible to the pixel suite.
+  expect(contrastRatio(ruled.expected, ruled.ground),
+    'the rule between the drawer sections is too faint to read').toBeGreaterThan(1.25);
+
+  // "One at a time" and "Your stats" are their own group. With Saved and Hidden
+  // promoted they were the only rows left at the old size, a pixel from the
+  // hidden feeds above them and reading as a continuation of that list -- and
+  // neither of them filters the reading list: one switches reading mode, the
+  // other opens a dialog.
+  const tools = page.locator('.drawer-group').filter({ hasText: 'One at a time' });
+  await expect(tools).toHaveCount(1);
+  await expect(tools).toContainText('Your stats');
+  await expect(tools, '"One at a time" is still trailing the lists group')
+    .not.toContainText('Saved articles');
+
+  // And no section headers came back -- in the shape they would actually take.
+  // The five that were removed were `<span class="sidebar-group-title">`, never
+  // an `<h2>`, so counting headings was a test of nothing. The class survives
+  // on the feed tag labels, which always carry `.sidebar-tag-label` too: a
+  // group-level header is one that does not.
+  await expect(page.locator('.drawer-group .sidebar-group-title:not(.sidebar-tag-label)'))
+    .toHaveCount(0);
+  await expect(page.locator('.drawer-groups h1, .drawer-groups h2, .drawer-groups h3'))
+    .toHaveCount(0);
+});

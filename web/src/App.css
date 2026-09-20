@@ -96,9 +96,23 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
    Three unlabelled groups, a settings block and a footer, where there were
    five all-caps labelled sections: FEEDS / SAVED / SETTINGS / YOU / ADMIN.
    With one or two rows under most of them the headers were the loudest thing
-   in the column and said the least. What groups the rows now is the 34px
-   between the groups; what nests the feeds is the rule their children hang
-   behind. */
+   in the column and said the least. Space alone (34px between groups) was
+   meant to say the same thing, but the reader lived with it and said the
+   grouping did not read. What groups the rows now is a rule on each group but
+   the first -- same treatment as `.drawer-divider` below, 1px of
+   `--color-hairline-strong` inset with the row -- not a second header by
+   another name. `--color-hairline-strong`, not `--color-divider`: at 1.15:1
+   against the page the divider token is fainter than the hairline
+   `CLAUDE.md` already records as sitting under `toHaveScreenshot`'s 0.2
+   threshold, so this rule could have vanished outright with all ten visual
+   baselines still green. At 1.36:1 the strong hairline reads; the rule that
+   carries the whole of the separation is the wrong place for the faintest
+   token in the file. `design-system.spec.ts` asserts the computed colour. With the rule doing that work, the gap it sits in comes down from
+   34px to 18px (matching the row-gap already used inside a group, rather
+   than inventing a new number), plus 10px after the rule before its first
+   row: less than the 18px, because the rule and the section it opens belong
+   together more than the rule belongs to the group above it. What nests the
+   feeds is the separate indent rule their children hang behind. */
 .drawer-head { padding: 56px 28px 40px; }
 .drawer-wordmark {
   font-family: var(--font-serif);
@@ -118,10 +132,18 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 .drawer-groups {
   display: flex;
   flex-direction: column;
-  gap: 34px;
+  gap: 18px;
   padding: 0 28px;
 }
 .drawer-group { display: flex; flex-direction: column; gap: 18px; }
+/* The rule between sections: every group but the first, so an edge needs no
+   closing. `.drawer-group + .drawer-group` catches groups 2 and 3 without an
+   explicit first-child exception, `.drawer-settings` included -- it is still
+   a `.drawer-group`. */
+.drawer-group + .drawer-group {
+  border-top: 1px solid var(--color-hairline-strong);
+  padding-top: 10px;
+}
 
 /* One row shape for everything in the drawer that filters the list or opens a
    screen. `.sidebar-feed` is the same row under its older name -- reading,
@@ -145,8 +167,13 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
   text-align: left;
   cursor: pointer;
 }
-/* All feeds leads its group, and is the only row that does. */
-.drawer-item.is-all { font-size: 17px; font-weight: 600; color: var(--color-ink); }
+/* The three top-level lists -- All feeds, Saved, Hidden -- are peers and are
+   set alike. The feeds nest under All feeds behind the indent rule and stay a
+   step down; `.sidebar-feed` is shared with those nested rows, so the lead
+   treatment is opt-in by class rather than applied to the shared row.
+   Was `is-all`, named for one of its three occupants. */
+.drawer-item.is-lead,
+.sidebar-feed.is-lead { font-size: 17px; font-weight: 600; color: var(--color-ink); }
 .drawer-item.active,
 .sidebar-feed.active { color: var(--color-ink); font-weight: 600; }
 .sidebar-feed-title {
@@ -167,7 +194,8 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
   padding: 2px 0 2px 8px;
   min-width: 0;
 }
-.drawer-item.is-all .sidebar-feed-count { color: var(--color-accent); }
+.drawer-item.is-lead .sidebar-feed-count,
+.sidebar-feed.is-lead .sidebar-feed-count { color: var(--color-accent); }
 
 /* All feeds and the pencil that edits the list share a line. */
 .drawer-all { display: flex; align-items: center; gap: 8px; }
@@ -185,11 +213,25 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 }
 .drawer-children.is-active { border-left-color: var(--color-indent-active); }
 
+/* The last rule in the column, ahead of the footer -- same 1px, same
+   `--color-hairline-strong`, same 28px inset as the ones on `.drawer-group`,
+   and the same 18px of space above it on a phone. Not redundant with them: it
+   is a sibling of `.drawer-groups`, not a fifth `.drawer-group`, because the
+   footer's links are not another reading list -- they open dialogs rather
+   than filtering one.
+
+   The rhythm is *not* uniform on both sides, and this comment used to claim it
+   was: the group rules take 10px below, this one takes the footer's own 24px,
+   and on a desktop `margin: auto 0 0` pushes it to the foot of the column, so
+   the space above it is whatever is left over and the inset is the sidebar's
+   rather than 28px. That is deliberate -- the footer is the end of the column,
+   not another section of it -- but it is a different treatment and saying
+   otherwise made the difference look like a bug. */
 .drawer-divider {
   height: 1px;
   flex: none;
-  background: var(--color-divider);
-  margin: 34px 28px 0;
+  background: var(--color-hairline-strong);
+  margin: 18px 28px 0;
 }
 /* It wraps. On a phone each of these is a 40px touch target and six of them
    do not fit one 260px line. */
@@ -218,7 +260,10 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
    of it. The label is already indented by the chevron's width, so the body has
    to match it or the feeds read as belonging to the row above them -- which is
    what dropping this indent entirely looked like. The chevron is wider on a
-   touch screen (it carries a 40px tap target), so the indent is too. */
+   touch screen (it carries a 40px tap target), so the indent is too.
+   Hidden's group is the one exception: its chevron sits at the trailing edge
+   so that the row itself can start where All feeds and Saved do, and there the same indent is simply the nesting step -- one level in
+   from its parent, and still short of where the feed tags' children sit. */
 .sidebar-group-body { display: flex; flex-direction: column; gap: 18px; padding-left: 21px; }
 @media (pointer: coarse) { .sidebar-group-body { padding-left: 42px; } }
 .sidebar-group.collapsed .sidebar-group-body { display: none; }
@@ -350,7 +395,13 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
    Task 9. `.setting-row` is their shared shell -- a name on the left, the
    control on the right -- rendered by each component rather than by the
    markup that uses them. */
-.drawer-settings { display: flex; flex-direction: column; gap: 22px; padding: 0 28px; }
+/* No padding of its own. It is a `.drawer-group` inside `.drawer-groups`,
+   which already insets the column by 28px, and the duplicate put every control
+   in here 28px further in than every row above it. Pre-existing, and invisible
+   until `.drawer-group + .drawer-group` drew a rule that spans the group's
+   border box: the line ran the full width while the rows it opened started
+   half an inch inside it. */
+.drawer-settings { display: flex; flex-direction: column; gap: 22px; }
 .setting-row { display: flex; align-items: center; justify-content: space-between; }
 .setting-label { font-size: 15px; color: var(--color-ink-secondary); }
 
@@ -396,11 +447,19 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 #article-list {
   display: flex;
   flex-direction: column;
-  /* 20, from 34. That 34 was set against a 19px bold headline; under 15/400 the
-     same gap reads as the list drifting apart rather than as separation.
-     Whitespace is still the only thing between two stories -- no dividers, no
-     row tints -- there is simply less of it needed now. */
-  gap: 20px;
+  /* 14, from 20. The gap is not the whole separation -- each row adds 8px of
+     its own padding on both sides on a phone, 10px on a desktop -- so this is
+     30px of whitespace between two stories, 38px on a desktop. What it has to
+     stay clear of is the largest gap *inside* a card, which is the 10px
+     between the story and its meta line, not the 8px between a headline and
+     its summary: compact hides the summary, so that 8px spans nothing there
+     and measuring against it scored compact 3.75:1 while it was really at
+     2.6. The real figures are 30 : 10 = 3.0:1 on a phone and 38 : 10 = 3.8:1
+     on a desktop, in both densities. 14px is the floor, not a waypoint --
+     another cut takes the phone under 3:1, where the space between two
+     stories stops being clearly more than the space inside one and the column
+     reads as continuous text rather than as a list. */
+  gap: 14px;
   padding: 6px 24px 24px;
   list-style: none;
   margin: 0;
@@ -1102,6 +1161,10 @@ kbd {
    entirely, so tagging a feed was something you could do and never see. */
 .sidebar-group-header { display: flex; align-items: center; gap: 2px; }
 .sidebar-group-header .sidebar-feed { flex: 1; min-width: 0; }
+/* Hidden's header holds a lead row rather than a tag label, and its chevron
+   follows that row instead of leading it -- in DOM order rather than with
+   `order`, so the tab order matches what the eye sees. It needs no rule of its
+   own: the flex row above already lays it out either way round. */
 .sidebar-collapse {
   border: 0;
   background: none;
@@ -1218,7 +1281,15 @@ kbd {
    the meta line is one line in either mode. */
 [data-density='compact'] .article-summary,
 [data-density='compact'] .hidden-reason { display: none; }
-[data-density='compact'] .article-row { padding: 6px 0; }
+/* 8px, from 6. Compact hides the summary, so the 8px inside `.article-text`
+   spans nothing and the card's only internal gap is `.article-row`'s 10px.
+   At 6px the separation between two stories was 14 + 6 + 6 = 26px against
+   that 10px -- 2.6:1, under the 3.0:1 the comfortable list holds and under
+   the floor this branch set for itself. 8px brings it to 30px and 3.0:1,
+   exactly the comfortable ratio: compact buys its density by dropping the
+   summary, not by crowding the stories together. mobile.spec.ts measures both
+   densities; measuring one is how this sat unnoticed. */
+[data-density='compact'] .article-row { padding: 8px 0; }
 
 /* The source is the one item on the meta line with no length limit, so it is
    the one that gives way when the line is short of room. */
@@ -1485,10 +1556,11 @@ kbd {
   .sidebar-scroll { gap: 30px; }
   .drawer-head { padding: 0; }
   .drawer-wordmark { font-size: 19px; }
-  .drawer-groups { padding: 0; gap: 34px; }
+  .drawer-groups { padding: 0; gap: 18px; }
   .drawer-item,
   .sidebar-feed { font-size: 14px; }
-  .drawer-item.is-all { font-size: 15px; }
+  .drawer-item.is-lead,
+  .sidebar-feed.is-lead { font-size: 15px; }
   .sidebar-feed-nested { font-size: 13px; }
   .drawer-children { padding-left: 14px; }
   /* `margin-top: auto` goes on the divider, not the footer: with it on the
@@ -1504,9 +1576,8 @@ kbd {
      card reads as cut off. */
   #article-list {
     max-width: 760px;
-    /* 24, from 40 -- the same proportion the phone took, against a 760px
-       measure that can carry a little more air than a 390px one. */
-    gap: 24px;
+    /* 18, from 24: 38px between cards against a 760px measure. */
+    gap: 18px;
     padding: 34px 48px 24px;
   }
   /* Held to the list's own text measure so the strip and the cards share a

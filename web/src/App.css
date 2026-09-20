@@ -447,11 +447,18 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 #article-list {
   display: flex;
   flex-direction: column;
-  /* 14, from 20. The gap is not the whole separation -- each row adds 8px of its
-     own padding on both sides -- so this is 30px of whitespace between two
-     stories, against 8px between a headline and its own summary. Below roughly
-     24px those two numbers converge and the column reads as continuous text
-     rather than as a list of cards. */
+  /* 14, from 20. The gap is not the whole separation -- each row adds 8px of
+     its own padding on both sides on a phone, 10px on a desktop -- so this is
+     30px of whitespace between two stories, 38px on a desktop. What it has to
+     stay clear of is the largest gap *inside* a card, which is the 10px
+     between the story and its meta line, not the 8px between a headline and
+     its summary: compact hides the summary, so that 8px spans nothing there
+     and measuring against it scored compact 3.75:1 while it was really at
+     2.6. The real figures are 30 : 10 = 3.0:1 on a phone and 38 : 10 = 3.8:1
+     on a desktop, in both densities. 14px is the floor, not a waypoint --
+     another cut takes the phone under 3:1, where the space between two
+     stories stops being clearly more than the space inside one and the column
+     reads as continuous text rather than as a list. */
   gap: 14px;
   padding: 6px 24px 24px;
   list-style: none;
@@ -1274,7 +1281,15 @@ kbd {
    the meta line is one line in either mode. */
 [data-density='compact'] .article-summary,
 [data-density='compact'] .hidden-reason { display: none; }
-[data-density='compact'] .article-row { padding: 6px 0; }
+/* 8px, from 6. Compact hides the summary, so the 8px inside `.article-text`
+   spans nothing and the card's only internal gap is `.article-row`'s 10px.
+   At 6px the separation between two stories was 14 + 6 + 6 = 26px against
+   that 10px -- 2.6:1, under the 3.0:1 the comfortable list holds and under
+   the floor this branch set for itself. 8px brings it to 30px and 3.0:1,
+   exactly the comfortable ratio: compact buys its density by dropping the
+   summary, not by crowding the stories together. mobile.spec.ts measures both
+   densities; measuring one is how this sat unnoticed. */
+[data-density='compact'] .article-row { padding: 8px 0; }
 
 /* The source is the one item on the meta line with no length limit, so it is
    the one that gives way when the line is short of room. */

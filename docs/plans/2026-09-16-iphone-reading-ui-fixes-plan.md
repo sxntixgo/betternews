@@ -2245,6 +2245,173 @@ gaps come down."
 
 ---
 
+## Task 17: Halve the reading list's rhythm
+
+**Model: Sonnet.** Four coupled values that must move together, and a documented floor
+this deliberately goes through.
+
+### The decision, made by the reader
+
+The space between two stories is **30px** on a phone — `gap: 14px` plus `.article-row`'s
+8px of padding on each side. They asked for half. Put to them that halving the between-card
+space alone would leave 15px between stories against 10px *inside* one (1.5:1, at which the
+column reads as continuous text), they chose to **halve the card's own spacing with it**,
+keeping the ratio.
+
+```
+                        now            after
+between cards (phone)   30px           15px    (gap 7 + padding 4 + 4)
+between cards (desktop) 38px           19px    (gap 9 + padding 5 + 5)
+summary -> meta         10px            5px    (`.article-row` gap)
+headline -> summary      8px            4px    (`.article-text` gap)
+ratio (phone)           30:10 = 3.0:1  15:5 = 3.0:1
+```
+
+**This goes through a floor the previous batch set and documented.** Task 13 concluded
+"14px is the floor, not a waypoint — a further tightening has no room", and `CLAUDE.md`
+records it. That conclusion held the card's internals fixed; halving them too is the move
+that makes another halving possible, and the ratio is preserved rather than spent. Say so
+in the comment and in `CLAUDE.md` rather than silently deleting the old claim — the next
+person needs to know the floor moved because the whole rhythm scaled, not because someone
+overrode it.
+
+**Files:**
+- Modify: `web/src/App.css` — `#article-list` (base + the 900px override), `.article-row`
+  (base padding + gap, the `max-width: 899px` padding override, the
+  `[data-density='compact']` padding), `.article-text`
+- Modify: `web/e2e/mobile.spec.ts` (the separation test, both densities),
+  `web/e2e/redesign.spec.ts` (three rhythm pins), `CLAUDE.md`
+
+- [ ] **Step 1: Update the tests first, and run them to see them fail.** The separation
+  test loops both densities against a floor — that floor is now **15**, and the ratio
+  assertion (`sep / inner >= 3`) stays exactly as it is. Do not relax the ratio: it is the
+  thing the reader's choice was made to preserve, and it is what tells you the halving is
+  proportional rather than just smaller. The three `redesign.spec.ts` pins move 14/18 → 7/9;
+  rename the test whose title names the number.
+
+- [ ] **Step 2: Halve all four values.**
+
+```css
+#article-list { gap: 7px; }                          /* was 14 */
+@media (min-width: 900px) { #article-list { gap: 9px; } }   /* was 18 */
+.article-row  { padding: 5px 0; gap: 5px; }          /* was 10px 0, gap 10 */
+@media (max-width: 899px) { .article-row { padding: 4px 0; } }   /* was 8 */
+[data-density='compact'] .article-row { padding: 4px 0; }        /* was 8 */
+.article-text { gap: 4px; }                          /* was 8 */
+```
+
+Every one of these carries a comment explaining a number that is about to be wrong. Rewrite
+them rather than leaving prose that describes the old rhythm.
+
+- [ ] **Step 3: Verify against the FULL suite.** `CI=1 npx playwright test --workers=2`.
+  A scoped run is what let a rhythm change break three tests two batches ago.
+
+- [ ] **Step 4: Correct `CLAUDE.md`.** The whitespace paragraph's numbers, and the
+  "14px is the floor" claim — which becomes 7px, with the reason it could move.
+
+---
+
+## Task 18: Halve both feed menus, and give Hidden its missing rule
+
+**Model: Sonnet.** Small, but the obvious one-line fix produces a double rule.
+
+### What is wrong
+
+Both feed menus use **18px** between rows: `.drawer-children` (All feeds' children) and
+`.sidebar-group-body` (Hidden's children, and the tag groups). Halve both to **9px**.
+
+The reader also spotted that Hidden's feeds hang off nothing. They are right:
+
+```css
+.drawer-children    { border-left: 2px solid var(--color-indent-inactive); padding-left: 16px; }
+.sidebar-group-body { padding-left: 21px; }   /* 42px on coarse pointers -- no rule */
+```
+
+### The trap
+
+`.sidebar-group-body` is **also** the tag groups (ARGENTINA / TECH / UNTAGGED) that live
+*inside* `.drawer-children`, which already draws the rule. Adding `border-left` to
+`.sidebar-group-body` puts a second line inside All feeds' children, nested against the
+first. Scope it to the Hidden group only.
+
+Prefer giving Hidden's body the **same treatment All feeds' children get**, so there is one
+indent rule in the drawer rather than two that must be kept in step — including
+`.drawer-children.is-active`'s gold-while-reading behaviour, which Hidden's feeds should
+also get when one of them is the list being read. How you reach that (a shared class, a
+modifier on the Hidden group) is yours; say in the commit why.
+
+Watch the padding: `.drawer-children` indents 16px, `.sidebar-group-body` 21px (42px
+coarse). Hidden's rows must not jump sideways, and its children must stay clear of the
+caret's tap target.
+
+- [ ] **Step 1: Write the failing test.** Assert (a) both menus' `row-gap` is 9px, (b)
+  Hidden's children sit behind a left border of `--color-indent-inactive` of the same width
+  as All feeds' children, and (c) **there is exactly one** such rule between the drawer's
+  left edge and a tag-group feed row — the assertion that catches the double-rule trap.
+- [ ] **Step 2: Implement, then verify.** Run `design-system.spec.ts`, `mobile.spec.ts` and
+  `reading.spec.ts` in full; the thirty-feed reachability test is the one to watch.
+- [ ] **Step 3:** Update `CLAUDE.md`'s drawer paragraph if it describes the indent rule as
+  belonging only to the feed list.
+
+---
+
+## Task 19: Make the All feeds menu collapsible
+
+**Model: Sonnet.** New state and a new control; the accessibility contract and the
+persistence both have to be right.
+
+### What exists to copy
+
+`HiddenFeeds` already does exactly this (`Sidebar.tsx:205-245`): a `useCollapsed()` hook, a
+`.sidebar-collapse` caret **after** the row (moved there last batch so the three lead rows
+share a left edge — do not undo that), `aria-expanded`, an `aria-label` that names the
+action and the target (`Expand Hidden` / `Collapse Hidden`), and `{!shut && <body>}`.
+
+All feeds has no such control: `.drawer-all` holds the lead button and, for an admin, the
+manage-feeds pencil. `.drawer-children` always renders.
+
+### Requirements
+
+- The caret goes at the **trailing edge**, after the count, matching Hidden. An admin's row
+  also carries the pencil — decide the order, keep both reachable, and keep the three lead
+  labels sharing one left edge (there is a test asserting that; it must still pass).
+- `aria-expanded` and an `aria-label` naming the action and the target, matching Hidden's
+  wording exactly in shape (`Expand All feeds` / `Collapse All feeds`).
+- Use the **same `useCollapsed()` hook** with its own key. Do not add a second persistence
+  mechanism — check how the hook stores state and whether the key namespace collides.
+- Collapsing All feeds hides its children only. It must not change which list is being
+  read, must not clear a feed filter, and must leave Saved / Hidden / everything below
+  untouched.
+
+- [ ] **Step 1: Write the failing test.** Assert the control exists with the right
+  accessible name, that `aria-expanded` tracks state, that clicking hides the feed rows and
+  clicking again restores them, that the choice survives a reload, and that collapsing does
+  **not** change the current list.
+- [ ] **Step 2: Implement, then verify in full.** Include the thirty-feed reachability test
+  and the three-lead-rows alignment test explicitly.
+- [ ] **Step 3:** `CLAUDE.md` — the drawer paragraph should say both feed menus collapse.
+
+---
+
+## Task 20: Rebuild the baselines and verify
+
+**Model: Sonnet.**
+
+- [ ] `CI=1 npx playwright test visual.spec.ts --workers=2` — expect `list-*` (Task 17) and
+  `drawer-*` plus `single-story-*-desktop` (Tasks 18, 19 — the sidebar is a permanent
+  column at that width, so it repaints in every desktop shot). **`signin-*` and
+  `single-story-*-phone` must pass**; either failing is a real leak.
+- [ ] Regenerate with `--update-snapshots`, then **stop** and hand the images over. I
+  inspect before anything is committed — on this plan that rule has caught four defects
+  that every green test missed.
+- [ ] Full verification: the whole Playwright suite, `npm run typecheck && npm run build`,
+  and `TEST_DATABASE_URL=postgresql+psycopg://betterread:betterread@localhost:5432/betterread python3 -m pytest tests/ -q`.
+  Docker is not available; do not run the backend concurrently with Playwright.
+- [ ] On the device: the list is tighter but the stories still read as separate; both feed
+  menus collapse; Hidden's feeds hang off a visible line like All feeds' do.
+
+---
+
 ## Task List & Recommended Models
 
 > **Model key** — **Haiku**: the cause is fully diagnosed and the change is a value or a declaration, with no judgment left. **Sonnet**: a contained change that still trades one thing against another, or removes code other callers touch. **Opus**: the fix reverses a decision the codebase argues for in a comment, or changes shared read semantics — the implementer has to re-argue it, not just apply it.
@@ -2267,6 +2434,10 @@ gaps come down."
 | **14** | *(new)* Saved/Hidden don't match All feeds | They render 15/400 against All feeds' 17/600, at the size of the feeds they sit above; `.sidebar-feed` is shared with nested feed rows so the lead treatment must be opt-in | `web/src/App.css`, `Sidebar.tsx`, `Drawer.tsx`, `e2e/design-system.spec.ts` | **Haiku** |
 | **15** | *(new)* Drawer sections don't read as sections | Separated by 34px of space and nothing else — a decision made before anyone had lived with it | `web/src/App.css`, `e2e/design-system.spec.ts`, `CLAUDE.md` | **Sonnet** |
 | **16** | — | Baseline rebuild, verification, device check | `e2e/visual.spec.ts-snapshots` | **Sonnet** |
+| **17** | *(new)* Halve the list rhythm | 30px between cards; reader chose to halve the card's internals with it, preserving 3:1 | `web/src/App.css`, `e2e/mobile.spec.ts`, `e2e/redesign.spec.ts`, `CLAUDE.md` | **Sonnet** |
+| **18** | *(new)* Halve both feed menus; Hidden's missing indent rule | Both at 18px; `.sidebar-group-body` has no border-left, and it is shared with the tag groups *inside* `.drawer-children`, so the naive fix draws a second nested rule | `web/src/App.css`, `Sidebar.tsx`, `e2e/design-system.spec.ts` | **Sonnet** |
+| **19** | *(new)* All feeds menu collapsible | `.drawer-children` always renders; `HiddenFeeds` already has the pattern to copy | `Sidebar.tsx`, `web/src/App.css`, `e2e/design-system.spec.ts` | **Sonnet** |
+| **20** | — | Baseline rebuild, verification, device check | `e2e/visual.spec.ts-snapshots` | **Sonnet** |
 
 **Order matters.** Task 1 is independent (backend, plus one line of `App.tsx`) and can run alongside Task 2. Tasks 2–7 all edit `App.css` and must run sequentially. Task 8 closes out that first batch.
 

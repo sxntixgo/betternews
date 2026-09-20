@@ -266,6 +266,19 @@ both clients.
   Saved start and the counts give way instead. `design-system.spec.ts` measures the
   three `getBoundingClientRect().left` values and a nested feed's, because this is a
   claim about pixels that a class-name assertion cannot see.
+  **Both feed menus collapse now — All feeds as well as Hidden** — the same
+  `useCollapsed()` hook, the same `sidebar-collapsed` localStorage key, a caret at the
+  same trailing edge. All feeds' key is `'all'`, distinct from `'hidden'` and from the
+  tag groups' own `tag-${tag}` / `'untagged'` keys sharing that one set. An admin's row
+  also carries the manage-feeds pencil; the caret sits between the row and the pencil,
+  directly after the row the way Hidden's does, because the pencil opens a different
+  screen entirely (Manage Feeds) rather than toggling this list, so it stays outside the
+  row/caret pair rather than between them. The rotation on a collapsed caret is keyed
+  off the caret's own `aria-expanded="false"`, not a `.sidebar-group.collapsed`
+  ancestor — All feeds' caret sits directly in `.drawer-all`, and wrapping it in a
+  `.sidebar-group` just to reuse the old ancestor selector would have made
+  `.sidebar-group` matches in the e2e suite ambiguous between that wrapper and the tag
+  group nested inside it.
 - **The drawer is its own component**, `components/Drawer.tsx` — 262 lines pulled
   verbatim out of a 751-line `App.tsx` (608 after). It holds no state of its own: every
   one of its 28 props is required, none optional, because a prop made optional just to

@@ -100,8 +100,14 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
    meant to say the same thing, but the reader lived with it and said the
    grouping did not read. What groups the rows now is a rule on each group but
    the first -- same treatment as `.drawer-divider` below, 1px of
-   `--color-divider` inset with the row -- not a second header by another
-   name. With the rule doing that work, the gap it sits in comes down from
+   `--color-hairline-strong` inset with the row -- not a second header by
+   another name. `--color-hairline-strong`, not `--color-divider`: at 1.15:1
+   against the page the divider token is fainter than the hairline
+   `CLAUDE.md` already records as sitting under `toHaveScreenshot`'s 0.2
+   threshold, so this rule could have vanished outright with all ten visual
+   baselines still green. At 1.36:1 the strong hairline reads; the rule that
+   carries the whole of the separation is the wrong place for the faintest
+   token in the file. `design-system.spec.ts` asserts the computed colour. With the rule doing that work, the gap it sits in comes down from
    34px to 18px (matching the row-gap already used inside a group, rather
    than inventing a new number), plus 10px after the rule before its first
    row: less than the 18px, because the rule and the section it opens belong
@@ -135,7 +141,7 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
    explicit first-child exception, `.drawer-settings` included -- it is still
    a `.drawer-group`. */
 .drawer-group + .drawer-group {
-  border-top: 1px solid var(--color-divider);
+  border-top: 1px solid var(--color-hairline-strong);
   padding-top: 10px;
 }
 
@@ -207,17 +213,24 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 }
 .drawer-children.is-active { border-left-color: var(--color-indent-active); }
 
-/* The fourth rule in the column, ahead of the footer -- same 1px, same
-   `--color-divider`, same 28px inset as the ones now on `.drawer-group`, and
-   the same 18px margin-top so the rhythm is uniform rather than one boundary
-   reading heavier than the others. Not redundant with them: it is a sibling
-   of `.drawer-groups`, not a fourth `.drawer-group`, because the footer's
-   links are not a fourth reading list -- they open dialogs rather than
-   filtering one. */
+/* The last rule in the column, ahead of the footer -- same 1px, same
+   `--color-hairline-strong`, same 28px inset as the ones on `.drawer-group`,
+   and the same 18px of space above it on a phone. Not redundant with them: it
+   is a sibling of `.drawer-groups`, not a fifth `.drawer-group`, because the
+   footer's links are not another reading list -- they open dialogs rather
+   than filtering one.
+
+   The rhythm is *not* uniform on both sides, and this comment used to claim it
+   was: the group rules take 10px below, this one takes the footer's own 24px,
+   and on a desktop `margin: auto 0 0` pushes it to the foot of the column, so
+   the space above it is whatever is left over and the inset is the sidebar's
+   rather than 28px. That is deliberate -- the footer is the end of the column,
+   not another section of it -- but it is a different treatment and saying
+   otherwise made the difference look like a bug. */
 .drawer-divider {
   height: 1px;
   flex: none;
-  background: var(--color-divider);
+  background: var(--color-hairline-strong);
   margin: 18px 28px 0;
 }
 /* It wraps. On a phone each of these is a 40px touch target and six of them
@@ -247,7 +260,10 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
    of it. The label is already indented by the chevron's width, so the body has
    to match it or the feeds read as belonging to the row above them -- which is
    what dropping this indent entirely looked like. The chevron is wider on a
-   touch screen (it carries a 40px tap target), so the indent is too. */
+   touch screen (it carries a 40px tap target), so the indent is too.
+   Hidden's group is the one exception: its chevron sits at the trailing edge
+   so that the row itself can start where All feeds and Saved do, and there the same indent is simply the nesting step -- one level in
+   from its parent, and still short of where the feed tags' children sit. */
 .sidebar-group-body { display: flex; flex-direction: column; gap: 18px; padding-left: 21px; }
 @media (pointer: coarse) { .sidebar-group-body { padding-left: 42px; } }
 .sidebar-group.collapsed .sidebar-group-body { display: none; }
@@ -379,7 +395,13 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
    Task 9. `.setting-row` is their shared shell -- a name on the left, the
    control on the right -- rendered by each component rather than by the
    markup that uses them. */
-.drawer-settings { display: flex; flex-direction: column; gap: 22px; padding: 0 28px; }
+/* No padding of its own. It is a `.drawer-group` inside `.drawer-groups`,
+   which already insets the column by 28px, and the duplicate put every control
+   in here 28px further in than every row above it. Pre-existing, and invisible
+   until `.drawer-group + .drawer-group` drew a rule that spans the group's
+   border box: the line ran the full width while the rows it opened started
+   half an inch inside it. */
+.drawer-settings { display: flex; flex-direction: column; gap: 22px; }
 .setting-row { display: flex; align-items: center; justify-content: space-between; }
 .setting-label { font-size: 15px; color: var(--color-ink-secondary); }
 
@@ -1132,6 +1154,10 @@ kbd {
    entirely, so tagging a feed was something you could do and never see. */
 .sidebar-group-header { display: flex; align-items: center; gap: 2px; }
 .sidebar-group-header .sidebar-feed { flex: 1; min-width: 0; }
+/* Hidden's header holds a lead row rather than a tag label, and its chevron
+   follows that row instead of leading it -- in DOM order rather than with
+   `order`, so the tab order matches what the eye sees. It needs no rule of its
+   own: the flex row above already lays it out either way round. */
 .sidebar-collapse {
   border: 0;
   background: none;

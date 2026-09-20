@@ -57,12 +57,14 @@ export function Drawer({
   setShowShortcuts, setSignedIn,
 }: DrawerProps) {
   return (
-    // Three groups, a settings block and a footer -- no headings at all.
+    // Four groups -- the feeds, the other lists, the two rows that are
+    // neither, and the display preferences -- then a footer, and no headings
+    // at all.
     // It was five all-caps labelled sections (FEEDS / SAVED / SETTINGS /
     // YOU / ADMIN), and with six rows under some of them the labels were
-    // most of the drawer's ink. What groups the rows now is the space
-    // between the groups and, for the feeds, the indent rule their
-    // children hang behind.
+    // most of the drawer's ink. What groups the rows now is a rule on every
+    // group but the first, the 18px it sits in, and -- for the feeds -- the
+    // indent rule their children hang behind.
     <aside className={`sidebar ${drawerOpen ? 'open' : ''}`}>
       {/* The one part that scrolls, and it holds everything: on a phone the
           drawer is taller than the screen, so a head or a footer pinned
@@ -91,9 +93,10 @@ export function Drawer({
             />
           </div>
 
-          {/* 2. The lists that are not the reading list: what the reader
-              kept, what was kept from them, and how well the score has been
-              guessing. Saved and Hidden were two sections of one row each. */}
+          {/* 2. The lists that are not the reading list: what the reader kept
+              and what was kept from them. Saved and Hidden were two sections
+              of one row each. They are peers of All feeds above, set alike and
+              starting at the same left edge. */}
           <div className="drawer-group">
             <button
               className={`sidebar-feed is-lead ${saved ? 'active' : ''}`}
@@ -112,7 +115,18 @@ export function Drawer({
               onHidden={() => choose(() => { setHidden(true); setSaved(false); setFeed(undefined); })}
               onHiddenFeed={(id) => choose(() => { setHidden(true); setSaved(false); setFeed(id); })}
             />
+          </div>
 
+          {/* 3. Neither a list nor a display preference. "One at a time"
+              switches how the stories are read and "Your stats" opens a
+              dialog; neither filters the reading list, so neither belongs with
+              the three lists above. Left trailing that group they were also
+              the only rows still at 15/400 once Saved and Hidden went up to
+              17/600 -- one pixel from the nested hidden feeds, and reading as
+              a continuation of them. A group of their own, ruled off like the
+              rest, says what they are. Not the footer: that is for links that
+              open a dialog, and "One at a time" opens a reading mode. */}
+          <div className="drawer-group">
             {/* The single-story entry point (task 11). A visible control,
                 not a command-palette entry -- design-system.spec asserts
                 nothing in this app is reachable only through the palette.
@@ -136,7 +150,7 @@ export function Drawer({
             )}
           </div>
 
-          {/* 3. Display preferences, and all of them per-device on purpose:
+          {/* 4. Display preferences, and all of them per-device on purpose:
               the right density on a phone is not the right one on a desktop.
               Task 9 replaces the controls in here; the container is what it
               depends on. */}

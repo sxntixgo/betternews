@@ -447,19 +447,21 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 #article-list {
   display: flex;
   flex-direction: column;
-  /* 14, from 20. The gap is not the whole separation -- each row adds 8px of
-     its own padding on both sides on a phone, 10px on a desktop -- so this is
-     30px of whitespace between two stories, 38px on a desktop. What it has to
-     stay clear of is the largest gap *inside* a card, which is the 10px
-     between the story and its meta line, not the 8px between a headline and
-     its summary: compact hides the summary, so that 8px spans nothing there
+  /* 7, from 14. The previous batch called 14 the floor with the card's own
+     spacing held fixed; this batch goes through that floor by halving the
+     card too (`.article-row`'s padding and gap below, `.article-text`'s
+     gap), so the ratio the floor protected moves with it instead of being
+     spent. The gap is not the whole separation -- each row adds 4px of its
+     own padding on both sides on a phone, 5px on a desktop -- so this is
+     15px of whitespace between two stories, 19px on a desktop. What it has
+     to stay clear of is the largest gap *inside* a card, which is the 5px
+     between the story and its meta line, not the 4px between a headline and
+     its summary: compact hides the summary, so that 4px spans nothing there
      and measuring against it scored compact 3.75:1 while it was really at
-     2.6. The real figures are 30 : 10 = 3.0:1 on a phone and 38 : 10 = 3.8:1
-     on a desktop, in both densities. 14px is the floor, not a waypoint --
-     another cut takes the phone under 3:1, where the space between two
-     stories stops being clearly more than the space inside one and the column
-     reads as continuous text rather than as a list. */
-  gap: 14px;
+     2.6. The real figures are 15 : 5 = 3.0:1 on a phone and 19 : 5 = 3.8:1
+     on a desktop, in both densities -- the same ratios the old 14px rhythm
+     held, because both sides of them were halved together. */
+  gap: 7px;
   padding: 6px 24px 24px;
   list-style: none;
   margin: 0;
@@ -477,14 +479,20 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
    read, no longer plainly invisible. `design-system.spec.ts` measures it. */
 .article-row.read { opacity: 0.8; }
 .article-row {
-  padding: 10px 0;
+  /* 5px 0, from 10px 0 -- halved with `#article-list`'s gap above so the
+     30px/38px separation this row's padding used to buy becomes 15px/19px,
+     at the same 3.0:1 / 3.8:1 ratio against this rule's own 5px gap below. */
+  padding: 5px 0;
   /* Two rows, and only two: the story, then one line carrying every fact a
      reader reads and every control they press. The float this replaced was
      bought by a card whose lower rows had to wrap around the photo; with one
      short meta line there is nothing left for a float to buy. */
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  /* 5, from 10: the largest gap inside a card, and the denominator the
+     separation ratio above is measured against. Halved so that ratio holds
+     rather than shrinks. */
+  gap: 5px;
   position: relative;
   cursor: pointer;
 }
@@ -530,7 +538,11 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 
 /* The story: text in a column, the photo beside it. */
 .article-head { display: flex; gap: 16px; align-items: flex-start; }
-.article-text { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+/* 4px, from 8 -- headline to summary, halved with the rest of the rhythm.
+   Not the gap the separation ratio is measured against: compact hides the
+   summary and this gap spans nothing there, which is why `.article-row`'s
+   gap (below) is the denominator instead. */
+.article-text { flex: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 
 /* A span with role="button", never a <button>: a button is an atomic
    inline-level box in every engine, so it can never wrap around anything and
@@ -1268,7 +1280,9 @@ kbd {
      now -- 15px headline, 76px photo, one 11px meta line -- so the desktop no
      longer needs undoing at this width; the tuning that used to live here was
      all for the four-row card and went with it. */
-  .article-row { padding: 8px 0; }
+  /* 4px, from 8 -- halved alongside the base rule's 5px so a phone still gets
+     its own tighter padding on top of the halved rhythm, not the desktop's. */
+  .article-row { padding: 4px 0; }
   /* The rewritten headline is shown under the original in the reader, where
      there is room for it. */
   .original-title { display: none; }}
@@ -1281,15 +1295,18 @@ kbd {
    the meta line is one line in either mode. */
 [data-density='compact'] .article-summary,
 [data-density='compact'] .hidden-reason { display: none; }
-/* 8px, from 6. Compact hides the summary, so the 8px inside `.article-text`
-   spans nothing and the card's only internal gap is `.article-row`'s 10px.
-   At 6px the separation between two stories was 14 + 6 + 6 = 26px against
-   that 10px -- 2.6:1, under the 3.0:1 the comfortable list holds and under
-   the floor this branch set for itself. 8px brings it to 30px and 3.0:1,
-   exactly the comfortable ratio: compact buys its density by dropping the
-   summary, not by crowding the stories together. mobile.spec.ts measures both
-   densities; measuring one is how this sat unnoticed. */
-[data-density='compact'] .article-row { padding: 8px 0; }
+/* 4px, from 8 -- halved with the rest of the rhythm this batch, keeping the
+   ratio it was set to hold rather than spending it. Compact hides the
+   summary, so the 4px inside `.article-text` spans nothing and the card's
+   only internal gap is `.article-row`'s 5px. At the old 6px (before the
+   previous batch's fix) the separation between two stories was
+   14 + 6 + 6 = 26px against that 10px -- 2.6:1, under the 3.0:1 the
+   comfortable list holds. 4px brings the halved rhythm to 7 + 4 + 4 = 15px
+   against 5px -- 3.0:1, exactly the comfortable ratio: compact buys its
+   density by dropping the summary, not by crowding the stories together.
+   mobile.spec.ts measures both densities; measuring one is how this sat
+   unnoticed. */
+[data-density='compact'] .article-row { padding: 4px 0; }
 
 /* The source is the one item on the meta line with no length limit, so it is
    the one that gives way when the line is short of room. */
@@ -1576,8 +1593,9 @@ kbd {
      card reads as cut off. */
   #article-list {
     max-width: 760px;
-    /* 18, from 24: 38px between cards against a 760px measure. */
-    gap: 18px;
+    /* 9, from 18 -- halved with the rest of the rhythm: 19px between cards
+       against a 760px measure, still 3.8:1 against the row's own 5px gap. */
+    gap: 9px;
     padding: 34px 48px 24px;
   }
   /* Held to the list's own text measure so the strip and the cards share a

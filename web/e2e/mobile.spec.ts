@@ -210,18 +210,17 @@ test.describe('phone layout', () => {
 
   test('the list is tighter than a screen-and-a-half per story', async ({ page, isMobile }) => {
     test.skip(!isMobile, 'phone only');
-    // The 34px gap this replaced was set for a 19/600 headline. The list has
-    // been 15/400 for two batches now, and against that type 34px read as
-    // drift rather than as separation. Whitespace is still the only thing
-    // dividing the stories -- no dividers, no row tints -- there is just less
-    // of it. 14px is the floor, not a waypoint: the ratios below are 3.0:1 in
-    // both densities, and the next cut takes them under it.
-    await expect(page.locator('#article-list')).toHaveCSS('row-gap', '14px');
+    // Whitespace is still the only thing dividing the stories -- no dividers,
+    // no row tints -- and this batch halves it again: 7px, from 14. The
+    // previous batch drew 14 as the floor with the card's own spacing held
+    // fixed; halving that too (`.article-row`'s padding and gap, and
+    // `.article-text`'s gap) is what makes another halving legal -- the
+    // ratios below are still 3.0:1 in both densities, so this is the rhythm
+    // scaling down, not the floor being spent.
+    await expect(page.locator('#article-list')).toHaveCSS('row-gap', '7px');
     // Row height *plus* the gap: a story costs a reader both, and dividing by
-    // the row alone counted a list with no space between the cards. It lands
-    // at ~4.2 on an iPhone 13 (~6.0 in compact), which is the whole claim --
-    // four stories and the start of a fifth, where the 34px gap gave three
-    // and a half.
+    // the row alone counted a list with no space between the cards. Halving
+    // the rhythm only shrinks the gap term, so this comfortably clears four.
     const perScreen = await page.evaluate(() => {
       const row = (document.querySelector('.article-row') as HTMLElement)
         .getBoundingClientRect().height;
@@ -231,11 +230,11 @@ test.describe('phone layout', () => {
     expect(perScreen, 'more than four stories must fit a screen').toBeGreaterThan(4);
 
     // Visual separation, not the CSS gap. A bounding box includes the row's own
-    // padding, so `next.top - prev.bottom` is the gap alone and ignores the 8px
-    // each row adds on both sides -- it understated the real separation by 16px
+    // padding, so `next.top - prev.bottom` is the gap alone and ignores the 4px
+    // each row adds on both sides -- it understated the real separation by 8px
     // and would have failed a layout that is in fact well spaced. Against it,
-    // the card's own largest internal gap: the 10px between the story and its
-    // meta line. The 8px inside `.article-text` is the wrong comparison --
+    // the card's own largest internal gap: the 5px between the story and its
+    // meta line. The 4px inside `.article-text` is the wrong comparison --
     // compact hides the summary, so in that density it spans nothing at all,
     // and measuring against it is how compact was scored 3.75:1 while actually
     // sitting at 2.6.
@@ -263,8 +262,8 @@ test.describe('phone layout', () => {
         await expect(page.locator('.sidebar.open')).toHaveCount(0);
       }
       const { sep, inner } = await measure();
-      expect(sep, `${density}: two stories sit closer than 30px apart`)
-        .toBeGreaterThanOrEqual(30);
+      expect(sep, `${density}: two stories sit closer than 15px apart`)
+        .toBeGreaterThanOrEqual(15);
       expect(sep / inner,
         `${density}: the space between two stories is not clearly more than the space inside one`)
         .toBeGreaterThanOrEqual(3);

@@ -69,9 +69,11 @@ test.describe('list rhythm', () => {
     });
     expect(styles.bg).toBe('rgba(0, 0, 0, 0)');
     expect(styles.borderBottom).toBe('0px');
-    // The rhythm widens with the measure -- 14px on a phone, 18px above 900px.
-    // The claim is what does the separating, and at either width it is space.
-    expect(styles.gap).toBe(isMobile ? '14px' : '18px');
+    // The rhythm widens with the measure -- 7px on a phone, 9px above 900px,
+    // halved from 14/18 the same batch that halved the card's own spacing to
+    // hold the 3.0:1 ratio steady. The claim is what does the separating, and
+    // at either width it is space.
+    expect(styles.gap).toBe(isMobile ? '7px' : '9px');
   });
 
   test('a read story is dimmed rather than tinted', async ({ page }) => {
@@ -161,7 +163,7 @@ test.describe('mobile header', () => {
 test.describe('desktop layout', () => {
   test.skip(({ isMobile }) => isMobile, 'desktop only');
 
-  test('the list is held to a 760px measure with an 18px rhythm', async ({ page }) => {
+  test('the list is held to a 760px measure with a 9px rhythm', async ({ page }) => {
     await signedIn(page);
     await mockApi(page);
     await page.goto('/');
@@ -169,7 +171,7 @@ test.describe('desktop layout', () => {
     const list = page.locator('#article-list');
     const box = (await list.boundingBox())!;
     expect(box.width).toBeLessThanOrEqual(760);
-    expect(await list.evaluate((el) => getComputedStyle(el).rowGap)).toBe('18px');
+    expect(await list.evaluate((el) => getComputedStyle(el).rowGap)).toBe('9px');
   });
 
   test('the thumbnail is 104 x 78 on desktop', async ({ page }) => {
@@ -276,7 +278,7 @@ test.describe('below 900px the desktop layout collapses', () => {
     expect(Math.round(thumb.height)).toBe(76);
     expect(
       await page.locator('#article-list').evaluate((el) => getComputedStyle(el).rowGap),
-    ).toBe('14px');
+    ).toBe('7px');
 
     // Rendered at every width and hidden by CSS at this one -- the card does
     // not read the viewport in JavaScript to decide what to build.

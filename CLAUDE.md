@@ -343,18 +343,30 @@ both clients.
   gone, keeping only what it needed (font-size, line-height, padding) on
   `.sidebar-feed-count`. `.pill` remains real chrome in `screens/Settings.tsx` (its
   action tags and the "edited" kind-chip).
-- **Whitespace separates the stories — nothing else does.** 14px between cards, 18px on
-  desktop; each row's own padding brings the real separation a reader sees to 30px and
-  38px, and the floor that matters is that ratio against the largest gap *inside* a
-  card — the 10px between the story and its meta line, so **3.0:1 on a phone and 3.8:1
-  on a desktop**. Not the 8px inside `.article-text`: compact hides the summary, so
+- **Whitespace separates the stories — nothing else does.** 7px between cards, 9px on
+  desktop; each row's own padding brings the real separation a reader sees to 15px and
+  19px, and the floor that matters is that ratio against the largest gap *inside* a
+  card — the 5px between the story and its meta line, so **3.0:1 on a phone and 3.8:1
+  on a desktop**. Not the 4px inside `.article-text`: compact hides the summary, so
   that gap spans nothing there, and measuring against it is how compact was recorded as
-  3.75:1 while it actually sat at 26px against 10px — 2.6:1, below the floor this
-  branch set. Compact's row padding went 6px → 8px, which puts both densities at
-  30px / 3.0:1 on a phone; it buys its density by dropping the summary, not by crowding
-  the stories. **14px is the floor, not a waypoint**: another cut takes the phone under
-  3:1, and `mobile.spec.ts` measures both densities against 30px — it measured one,
-  against 24, which is why none of this was visible.
+  3.75:1 while it actually sat at 26px against 10px — 2.6:1, below the floor a prior
+  branch set. Compact's row padding went 6px → 8px and is now 4px, which puts both
+  densities at 15px / 3.0:1 on a phone; it buys its density by dropping the summary, not
+  by crowding the stories.
+  **A later batch called 14px "the floor, not a waypoint" and went through it anyway —
+  say why rather than treat that as a contradiction.** That conclusion held the card's
+  own spacing (`.article-row`'s padding and gap, `.article-text`'s gap) fixed and found
+  no more room in the gap alone; a further reader was asked, given that fixed floor,
+  to choose between halving only the between-card gap (15px against a 10px inner gap,
+  1.5:1 — the column starts reading as continuous text) or halving the card's own
+  spacing too, keeping the ratio. They chose the second: the whole rhythm — the list's
+  gap, the row's own padding and gap, and `.article-text`'s gap — was halved together,
+  so 14/18/10/10/8 became 7/9/5/5/4 and the ratio the old floor was protecting (3.0:1
+  phone, 3.8:1 desktop) came through unchanged rather than being spent. The floor moved
+  because the rhythm that surrounds it scaled, not because the limit itself was
+  overridden — the next cut would have to repeat the same move, halving the card again,
+  or it does take the ratio under 3:1. `mobile.spec.ts` measures both densities against
+  a 15px floor and asserts the ratio stays ≥ 3, unchanged, on both.
   No dividers, no row background tints, and no vote tints. Read state is two
   things and neither is a background: `opacity: .8` on the row, and the headline moved
   to `--color-ink-muted`. A read story recedes without becoming a second kind of card.

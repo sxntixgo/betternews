@@ -1345,6 +1345,486 @@ git commit -m "test: rebuild the phone visual baselines; document the fixes"
 
 ---
 
+## Task 9: The article list's type is too large and too heavy
+
+**Model: Sonnet.** Small in diff, but it inverts a state the stylesheet already
+encodes — dropping the headline to a normal weight makes the *read* rule heavier than
+the unread one — and it has to keep a hierarchy that is currently carried by weight.
+
+### Current values (measured on the `phone` project)
+
+```
+.article-title    17px / weight 600 / line-height 1.35 / letter-spacing -0.2px
+.article-summary  14px / weight 400
+desktop override  .article-title { font-size: 20px; line-height: 1.3; letter-spacing: -0.35px }
+```
+
+### The trap
+
+`App.css:439` reads:
+
+```css
+.article-row.read .article-title { color: var(--color-ink-muted); font-weight: 500; }
+```
+
+That 500 exists to *lighten* a read headline against an unread 600. Take the unread
+weight to 400 and the rule inverts: read stories become the boldest thing in the list.
+The colour shift to `--color-ink-muted` is what should carry read state, and it already
+does — so the weight declaration goes rather than being re-tuned.
+
+### The hierarchy question
+
+At 15px/400 against a 14px/400 summary, one pixel and a colour token are all that
+separate a headline from its own summary. The summary drops to 13px so the step
+survives. The reader asked for "the article fonts" — plural — so this is inside the ask.
+
+The desktop override sets size, line-height and tracking but **not** weight, so the
+unbolding reaches desktop whether or not its size changes. Size follows proportionally
+(20 → 17) rather than leaving a desktop headline bold-less at its old display size.
+
+**Files:**
+- Modify: `web/src/App.css` — `.article-title` (~463), `.article-row.read .article-title`
+  (~439), `.article-summary` (~478), the desktop `.article-title` override (~1484)
+- Test: `web/e2e/mobile.spec.ts`
+
+**Interfaces:**
+- Consumes: nothing.
+- Produces: nothing other tasks build on. Moves the `list-*` visual baselines (Task 12).
+
+- [ ] **Step 1: Write the failing test**
+
+Add to `web/e2e/mobile.spec.ts`, in the `the top bar and the drawer fit the screen`
+describe block:
+
+```ts
+  test('the list is set in normal weight, with the summary a step below', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'phone only');
+    // The headline carried weight 600, which on a list of forty stories is a
+    // wall of bold. Hierarchy moves onto size and colour: 15px ink over 13px
+    // body ink. Both normal weight.
+    const title = page.locator('.article-title').first();
+    await expect(title).toHaveCSS('font-size', '15px');
+    await expect(title).toHaveCSS('font-weight', '400');
+
+    const summary = page.locator('.article-summary').first();
+    await expect(summary).toHaveCSS('font-size', '13px');
+    // A step, not a tie: the headline must still out-size its own summary.
+    const [t, s] = [
+      parseFloat(await title.evaluate((el) => getComputedStyle(el).fontSize)),
+      parseFloat(await summary.evaluate((el) => getComputedStyle(el).fontSize)),
+    ];
+    expect(t).toBeGreaterThan(s);
+    // ...and they must not be the same colour, or the step is one pixel.
+    const [tc, sc] = [
+      await title.evaluate((el) => getComputedStyle(el).color),
+      await summary.evaluate((el) => getComputedStyle(el).color),
+    ];
+    expect(tc).not.toBe(sc);
+  });
+
+  test('a read story is never bolder than an unread one', async ({ page }) => {
+    // `.article-row.read .article-title` set `font-weight: 500` to lighten a
+    // read headline against an unread 600. With unread at 400 that rule
+    // inverts and read becomes the boldest thing on the screen. Colour is what
+    // carries read state.
+    await page.route('**/api/v1/articles?*', (r) => r.fulfill({ json: {
+      articles: [
+        article(1, { state: { read: true, saved: false, dismissed: false, opinion: null } }),
+        article(2, { state: { read: false, saved: false, dismissed: false, opinion: null } }),
+      ],
+      next_offset: null, diagnosis: null,
+    } }));
+    await page.reload();
+    await page.waitForSelector('.article-row');
+
+    const weight = (sel: string) => page.locator(sel).evaluate(
+      (el) => parseInt(getComputedStyle(el).fontWeight, 10));
+    const read = await weight('.article-row.read .article-title');
+    const unread = await weight('.article-row:not(.read) .article-title');
+    expect(read, 'a read headline outweighs an unread one').toBeLessThanOrEqual(unread);
+    // And read state is still visible, just not through weight.
+    const colours = await Promise.all(['.article-row.read .article-title',
+                                       '.article-row:not(.read) .article-title']
+      .map((s) => page.locator(s).evaluate((el) => getComputedStyle(el).color)));
+    expect(colours[0]).not.toBe(colours[1]);
+  });
+```
+
+- [ ] **Step 2: Run them to verify they fail**
+
+Run: `cd web && CI=1 npx playwright test mobile.spec.ts --project=phone --workers=2 -g "normal weight|never bolder"`
+Expected: the first FAILS on `Expected: "15px" Received: "17px"`. The second **passes today**
+(read 500 < unread 600) — it is the regression guard for Step 3, and must still pass after.
+
+- [ ] **Step 3: Set the list in normal weight**
+
+`.article-title` (~463):
+
+```css
+.article-title {
+  /* 15/400, from 17/600. A reading list is forty headlines in a column, and at
+     600 that is a wall of bold with nothing standing out of it because
+     everything is. Hierarchy moves onto size and colour instead: 15px
+     `--color-ink` over a 13px `--color-ink-body` summary. Tracking goes to 0 --
+     negative tracking is a display-size correction and reads as cramped at 15px
+     in a normal weight. */
+  font-size: 15px;
+  line-height: 1.4;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--color-ink);
+  text-wrap: pretty;
+  cursor: pointer;
+}
+```
+
+`.article-row.read .article-title` (~439) — drop the weight declaration, keep the colour:
+
+```css
+/* Colour only. This used to also set `font-weight: 500`, to lighten a read
+   headline against an unread 600; with unread at 400 that inverted and made
+   read stories the boldest thing in the list. */
+.article-row.read .article-title { color: var(--color-ink-muted); }
+```
+
+`.article-summary` (~478) — 14 → 13, so the headline keeps a size step:
+
+```css
+.article-summary {
+  margin: 0;
+  /* 13, from 14. The headline came down to 15; at 14 the two were a pixel
+     apart and the card read as one undifferentiated block of text. */
+  font-size: 13px;
+  line-height: 1.55;
+  font-weight: 400;
+  color: var(--color-ink-body);
+  text-wrap: pretty;
+}
+```
+
+Desktop override (~1484) — the weight is not restated here, so unbolding reaches desktop
+either way; the size follows proportionally rather than leaving a 20px unbold headline:
+
+```css
+  /* 17, from 20, tracking down with it. The base rule sets the weight for both
+     widths; only size, line-height and tracking are per-width. */
+  .article-title { font-size: 17px; line-height: 1.35; letter-spacing: -0.1px; }
+```
+
+- [ ] **Step 4: Run both tests**
+
+Run: `cd web && CI=1 npx playwright test mobile.spec.ts --project=phone --project=safari --workers=2 -g "normal weight|never bolder"`
+Expected: both PASS on both projects.
+
+- [ ] **Step 5: Re-run the guard tests this could break**
+
+Run: `cd web && CI=1 npx playwright test mobile.spec.ts --project=phone --workers=2 -g "compact mode trades|gets most of the width|is a headline, not a heading|beside the photo"`
+
+`is a headline, not a heading` asserts `font-size: 17px` and `headline > summary + 2`.
+Both are now wrong: the size is 15, and 15 − 13 = 2 is not greater than 2. **Update that
+test to the new values** — it is the same claim at a new size, so change the numbers and
+keep the claim (`toHaveCSS('font-size', '15px')` and `expect(t).toBeGreaterThan(s)`).
+Do not delete it and do not weaken it to an inequality that would pass at any size.
+
+If `compact mode trades summaries for stories on screen` fails its
+`toBeLessThan(comfortable - 30)`, report it rather than loosening the threshold — a
+smaller summary saves fewer pixels when hidden, and that is a real finding about whether
+compact still earns its place.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add web/src/App.css web/e2e/mobile.spec.ts
+git commit -m "fix: the reading list is set at 15/400, not 17/600
+
+Forty headlines at weight 600 is a wall of bold. Size and colour carry the
+hierarchy instead, and the read-state rule loses its font-weight, which
+would otherwise have made read stories the boldest thing on the screen."
+```
+
+---
+
+## Task 10: The gap between articles is too large
+
+**Model: Haiku.** Two numbers, with the reasoning supplied and the one claim it
+invalidates named.
+
+### Current values
+
+`#article-list { gap: 34px }` (~399), and `gap: 40px` inside the
+`@media (min-width: 900px)` block (~1468).
+
+`CLAUDE.md` states the rule this changes: *"Whitespace separates the stories — nothing
+else does. 34px between cards, 40px on desktop; no dividers, no row background tints."*
+The thesis survives — nothing is gaining a divider — but the numbers in that sentence
+become wrong and must be updated with the change.
+
+**Files:**
+- Modify: `web/src/App.css` (~399 and ~1468), `CLAUDE.md`
+- Test: `web/e2e/mobile.spec.ts`
+
+**Interfaces:**
+- Consumes: Task 9's smaller type (a tighter gap reads differently against smaller text;
+  land Task 9 first).
+- Produces: nothing. Moves the `list-*` visual baselines (Task 12).
+
+- [ ] **Step 1: Write the failing test**
+
+```ts
+  test('the list is tighter than a screen-and-a-half per story', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'phone only');
+    // 34px between cards was set when the headline was 19px and bold. Against
+    // 15/400 it reads as drift rather than separation. Whitespace is still the
+    // only thing dividing the stories -- there are no dividers and no row
+    // tints -- there is just less of it.
+    await expect(page.locator('#article-list')).toHaveCSS('row-gap', '20px');
+    const perScreen = await page.evaluate(() =>
+      window.innerHeight /
+      (document.querySelector('.article-row') as HTMLElement).getBoundingClientRect().height);
+    expect(perScreen, 'fewer than four stories fit a screen').toBeGreaterThan(4);
+    // The separation must still be real: no card may touch its neighbour.
+    const gaps = await page.evaluate(() => {
+      const rows = [...document.querySelectorAll('.article-row')];
+      return rows.slice(1).map((r, i) =>
+        r.getBoundingClientRect().top - rows[i].getBoundingClientRect().bottom);
+    });
+    expect(Math.min(...gaps)).toBeGreaterThanOrEqual(16);
+  });
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `cd web && CI=1 npx playwright test mobile.spec.ts --project=phone --workers=2 -g "tighter than a screen"`
+Expected: FAIL — `Expected: "20px" Received: "34px"`.
+
+- [ ] **Step 3: Tighten both gaps**
+
+`#article-list` (~399):
+
+```css
+#article-list {
+  display: flex;
+  flex-direction: column;
+  /* 20, from 34. That 34 was set against a 19px bold headline; under 15/400 the
+     same gap reads as the list drifting apart rather than as separation.
+     Whitespace is still the only thing between two stories -- no dividers, no
+     row tints -- there is simply less of it needed now. */
+  gap: 20px;
+  padding: 6px 24px 24px;
+  list-style: none;
+  margin: 0;
+}
+```
+
+Desktop (~1468):
+
+```css
+  #article-list {
+    max-width: 760px;
+    /* 24, from 40 -- the same proportion the phone took, against a 760px
+       measure that can carry a little more air than a 390px one. */
+    gap: 24px;
+    padding: 34px 48px 24px;
+  }
+```
+
+- [ ] **Step 4: Run the test**
+
+Run: `cd web && CI=1 npx playwright test mobile.spec.ts --project=phone --project=safari --workers=2 -g "tighter than a screen"`
+Expected: PASS on both.
+
+- [ ] **Step 5: Correct the claim in `CLAUDE.md`**
+
+Find *"Whitespace separates the stories — nothing else does. 34px between cards, 40px on
+desktop"* and change the two numbers to **20px** and **24px**. Leave the rest of the
+sentence exactly as it is — no dividers, no row background tints and no vote tints all
+still hold, and read state is still `opacity: .55` rather than a colour.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add web/src/App.css web/e2e/mobile.spec.ts CLAUDE.md
+git commit -m "fix: 20px between stories, 24 on desktop
+
+34 was set against a 19px bold headline. Under 15/400 it read as drift.
+Whitespace is still the only separator -- there is just less of it."
+```
+
+---
+
+## Task 11: The reader's headline is half the screen
+
+**Model: Sonnet.** One rule, but it is a rule that does not exist yet, and where it is
+scoped decides whether it also restyles an unrelated screen.
+
+### Root cause (measured on the `phone` project)
+
+```
+.modal-body h1   font-size 32px   font-weight 700   line-height 57.6px
+                 a three-line headline is 173px tall
+```
+
+There is **no rule for it anywhere**. 32px is the browser default `h1` (`2em` against the
+16px root), and 57.6px is `.modal-body`'s `line-height: 1.8` — a body-copy value —
+inherited onto a heading. The line-height is doing more damage than the size: 1.8 on a
+three-line headline spends 76px on leading alone.
+
+### Scope
+
+`.modal-body h1` is safe. `grep -rn "<h1>" web/src` returns exactly two: `Reader.tsx:64`
+and `App.tsx:347`, and the second is inside `.unreachable`, which is not a modal. So the
+selector reaches the reader's headline and nothing else. Do **not** restyle bare `h1`.
+
+**Files:**
+- Modify: `web/src/App.css` — a new rule beside `.modal-body` (~682)
+- Test: `web/e2e/reading.spec.ts`
+
+**Interfaces:**
+- Consumes: nothing.
+- Produces: nothing. Does not move any committed visual baseline — `visual.spec.ts`
+  covers the reading list, the drawer, sign-in and single-story, not the reader modal.
+
+- [ ] **Step 1: Write the failing test**
+
+Add to `web/e2e/reading.spec.ts`:
+
+```ts
+test('the reader headline is a headline, not a banner', async ({ page }) => {
+  // It had no rule at all: 32px was the browser default h1 and the 57.6px
+  // line-height was `.modal-body`'s 1.8 -- a body-copy value inherited onto a
+  // heading -- so a three-line headline stood 173px tall and the article began
+  // below the fold on a phone. The leading was doing more damage than the size.
+  await signedIn(page);
+  await mockApi(page);
+  await page.goto('/');
+  await page.waitForSelector('.article-row');
+  await page.locator('.article-title').first().click();
+
+  const h1 = page.getByRole('dialog').locator('.modal-body h1');
+  await expect(h1).toBeVisible();
+  await expect(h1).toHaveCSS('font-size', '16px');
+  // The leading is the point: 1.8 on a heading is what made it a banner.
+  const lh = await h1.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight));
+  expect(lh).toBeLessThanOrEqual(21);
+  // At 16px it matches the body copy exactly, so weight is the only thing left
+  // saying "heading". It must not be given up too.
+  const [hw, pw] = await Promise.all([
+    h1.evaluate((el) => parseInt(getComputedStyle(el).fontWeight, 10)),
+    page.getByRole('dialog').locator('.modal-body p').first()
+      .evaluate((el) => parseInt(getComputedStyle(el).fontWeight, 10)),
+  ]);
+  expect(hw, 'at body size, weight is all that marks the heading').toBeGreaterThan(pw);
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `cd web && CI=1 npx playwright test reading.spec.ts --project=phone --workers=2 -g "not a banner"`
+Expected: FAIL — `Expected: "16px" Received: "32px"`.
+
+- [ ] **Step 3: Give the reader headline a rule**
+
+Add directly after the `.modal-body` rule (~682):
+
+```css
+/* The reader's headline, which until now had no rule at all: 32px was the
+   browser's default `h1` and the leading was `.modal-body`'s 1.8 inherited onto
+   a heading, so a three-line headline stood 173px tall and pushed the article
+   itself below the fold on a phone. Halved, and the leading brought to a
+   heading value -- which is where most of the height was.
+
+   At 16px this matches the body copy exactly, so `font-weight` is the only
+   thing left marking it as a heading. That is deliberate, and it is why the
+   weight is restated here rather than left to the browser.
+
+   Scoped to `.modal-body h1`: the only other `<h1>` in the app is the
+   `.unreachable` screen's, which is not inside a modal. */
+.modal-body h1 {
+  font-size: 16px;
+  line-height: 1.25;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  margin: 0 0 12px;
+}
+```
+
+- [ ] **Step 4: Run the test**
+
+Run: `cd web && CI=1 npx playwright test reading.spec.ts --project=phone --project=desktop --project=safari --workers=2 -g "not a banner"`
+Expected: PASS on all three.
+
+- [ ] **Step 5: Check the reader still reads**
+
+Run: `cd web && CI=1 npx playwright test reading.spec.ts design-system.spec.ts --workers=2`
+Expected: PASS. The reader modal's own spec covers the lede, the aside groups and the
+original-title line; none of them should move.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add web/src/App.css web/e2e/reading.spec.ts
+git commit -m "fix: the reader headline is 16/1.25, not 32/1.8
+
+It had no rule at all -- the browser's default h1 size, with .modal-body's
+body-copy leading inherited onto it. A three-line headline was 173px."
+```
+
+---
+
+## Task 12: Rebuild the baselines and verify
+
+**Model: Sonnet.** Procedural, ending in a judgement a human has to make.
+
+**Files:**
+- Modify: `web/e2e/visual.spec.ts-snapshots/*.png` (the `list-*` set), `CLAUDE.md`
+
+- [ ] **Step 1: Confirm which baselines moved**
+
+Run: `cd web && CI=1 npx playwright test visual.spec.ts --workers=2`
+Expected: the four `list-*` snapshots (light/dark × phone/desktop) fail. `drawer-*`,
+`signin-*` and `single-story-*` should **pass** — Tasks 9-11 touch the card and the
+reader, not the drawer or the auth screens. **If a `drawer-*` or `signin-*` snapshot
+fails, stop and report it**: a rule leaked outside the reading list.
+
+- [ ] **Step 2: Generate, then have a human look**
+
+```
+cd web && CI=1 npx playwright test visual.spec.ts --workers=2 --update-snapshots
+```
+
+Then **stop and hand the images over for inspection before committing them.** Check, by
+eye, against the previous baseline: the headlines are smaller and no longer bold; read
+stories still recede; the cards are closer together but still read as separate cards
+rather than as one column of text; nothing else moved. Regenerating to make red go away,
+without looking, is how this suite becomes decoration — and on this branch that rule has
+already caught two defects every green test missed.
+
+- [ ] **Step 3: Full verification**
+
+```
+cd web && CI=1 npx playwright test --workers=2
+cd web && npm run typecheck && npm run build
+TEST_DATABASE_URL="postgresql+psycopg://betterread:betterread@localhost:5432/betterread" python3 -m pytest tests/ -q
+```
+(Backend is unaffected by these three tasks but is the branch's floor; Docker is not
+available, so use the local Postgres.)
+
+- [ ] **Step 4: On the device**
+
+The only checks that matter for a change of this kind, on the iPhone 16 Pro, in Safari
+and the installed PWA: the feed, Hidden and Saved lists all read comfortably at the new
+size; a read story is still visibly read; stories still look like separate stories; and
+an article's headline no longer fills the screen before the text begins.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add web/e2e/visual.spec.ts-snapshots CLAUDE.md
+git commit -m "test: rebuild the list baselines for the smaller, lighter type"
+```
+
+---
+
 ## Task List & Recommended Models
 
 > **Model key** — **Haiku**: the cause is fully diagnosed and the change is a value or a declaration, with no judgment left. **Sonnet**: a contained change that still trades one thing against another, or removes code other callers touch. **Opus**: the fix reverses a decision the codebase argues for in a comment, or changes shared read semantics — the implementer has to re-argue it, not just apply it.
@@ -1359,8 +1839,14 @@ git commit -m "test: rebuild the phone visual baselines; document the fixes"
 | **6** | Reader top bar is off-system | `.btn-icon` / `.btn-external` with arrow glyphs, plus a third set of metrics ≤899px, predating `.header-action` | `components/Reader.tsx`, `web/src/App.css`, `e2e/design-system.spec.ts` | **Sonnet** |
 | **7** | *(new)* Tags switch in the drawer | The topic tag was gated by `min-width: 900px` and had no control at all; the preference replaces that gate | `web/src/tags.ts`, `App.tsx`, `Drawer.tsx`, `App.css`, `e2e/mobile.spec.ts` | **Sonnet** |
 | **8** | — | Baseline rebuild, full verification, device check, docs | `e2e/visual.spec.ts-snapshots`, `CLAUDE.md` | **Sonnet** |
+| **9** | *(new)* List type too large and too heavy | `.article-title` at 17/600; the read-state rule's `font-weight: 500` inverts once unread drops to 400 | `web/src/App.css`, `e2e/mobile.spec.ts` | **Sonnet** |
+| **10** | *(new)* Gap between articles too large | `#article-list` gap 34px / 40px desktop, set against a 19px bold headline | `web/src/App.css`, `CLAUDE.md`, `e2e/mobile.spec.ts` | **Haiku** |
+| **11** | *(new)* Reader headline is half the screen | No rule at all: browser-default 32px `h1` with `.modal-body`'s body-copy `line-height: 1.8` inherited onto it — 173px for three lines | `web/src/App.css`, `e2e/reading.spec.ts` | **Sonnet** |
+| **12** | — | Baseline rebuild, verification, device check | `e2e/visual.spec.ts-snapshots`, `CLAUDE.md` | **Sonnet** |
 
-**Order matters.** Task 1 is independent (backend, plus one line of `App.tsx`) and can run alongside Task 2. Tasks 2–7 all edit `App.css` and must run sequentially. Task 8 must be last — regenerating baselines before every visual change is in means doing it twice and looking at the wrong images the first time.
+**Order matters.** Task 1 is independent (backend, plus one line of `App.tsx`) and can run alongside Task 2. Tasks 2–7 all edit `App.css` and must run sequentially. Task 8 closes out that first batch.
+
+**Tasks 9–12 are a second batch**, added after the first shipped as PR #72. Task 10 reads against Task 9's smaller type, so land 9 first; Task 11 is independent of both (it touches the reader modal, not the card) and can go in any order. Task 12 must be last, for the same reason Task 8 was: regenerating baselines before every visual change is in means doing it twice and looking at the wrong images the first time.
 
 ---
 

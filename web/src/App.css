@@ -396,13 +396,27 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 #article-list {
   display: flex;
   flex-direction: column;
-  gap: 34px;
+  /* 20, from 34. That 34 was set against a 19px bold headline; under 15/400 the
+     same gap reads as the list drifting apart rather than as separation.
+     Whitespace is still the only thing between two stories -- no dividers, no
+     row tints -- there is simply less of it needed now. */
+  gap: 20px;
   padding: 6px 24px 24px;
   list-style: none;
   margin: 0;
 }
-/* Read is expressed by weight, not by a background. */
-.article-row.read { opacity: 0.55; }
+/* Read is expressed by a muted headline colour and a single row-level fade --
+   never by a background tint, which is the thing the whitespace redesign took
+   out. 0.8, from 0.55: at 0.55 over `--color-ink-muted` the read headline
+   measured 2.19:1 against the page in light and 2.42:1 in dark, and the
+   summary -- which compounded a second 0.7 on top -- 1.64:1 and 1.82:1. This
+   rule used to be read alongside a `font-weight: 500`, and stroke weight was
+   carrying what the fade had taken; that weight went when the list came down
+   to 15/400, and nothing replaced it. 0.8 with no compounding is the smallest
+   value that clears 3:1 on both the headline and the summary in both themes,
+   and it leaves a read headline ~5:1 away from an unread one -- still plainly
+   read, no longer plainly invisible. `design-system.spec.ts` measures it. */
+.article-row.read { opacity: 0.8; }
 .article-row {
   padding: 10px 0;
   /* Two rows, and only two: the story, then one line carrying every fact a
@@ -436,8 +450,10 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 }
 .article-row.dismissed:hover { opacity: 0.75; }
 .article-row.focused  { background: var(--color-surface-2); }
-.article-row.read .article-title { color: var(--color-ink-muted); font-weight: 500; }
-.article-row.read .article-summary { opacity: 0.7; }
+/* Colour only. This used to also set `font-weight: 500`, to lighten a read
+   headline against an unread 600; with unread at 400 that inverted and made
+   read stories the boldest thing in the list. */
+.article-row.read .article-title { color: var(--color-ink-muted); }
 .article-row.read .article-thumb { opacity: 0.6; }
 /* Saved has its own colour, not the accent the votes use: it is a keep, not
    an opinion, and it is the one state that outlives retention. */
@@ -461,23 +477,25 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
    inline-level box in every engine, so it can never wrap around anything and
    `font: inherit` has to be undone by hand. Everything here is type. */
 .article-title {
-  /* 17, from 19. At 19 a headline on a 390pt screen sat within a couple of
-     points of the body text while setting the height of every card; the
-     hierarchy against the 14px summary is what carries it, not the size.
-     The desktop override below keeps 20 -- it has a 760px measure to fill.
-     Tracking relaxes with the size: -0.35px is a display-size correction and
-     reads as cramped at 17. */
-  font-size: 17px;
-  line-height: 1.35;
-  font-weight: 600;
-  letter-spacing: -0.2px;
+  /* 15/400, from 17/600. A reading list is forty headlines in a column, and at
+     600 that is a wall of bold with nothing standing out of it because
+     everything is. Hierarchy moves onto size and colour instead: 15px
+     `--color-ink` over a 13px `--color-ink-body` summary. Tracking goes to 0 --
+     negative tracking is a display-size correction and reads as cramped at 15px
+     in a normal weight. */
+  font-size: 15px;
+  line-height: 1.4;
+  font-weight: 400;
+  letter-spacing: 0;
   color: var(--color-ink);
   text-wrap: pretty;
   cursor: pointer;
 }
 .article-summary {
   margin: 0;
-  font-size: 14px;
+  /* 13, from 14. The headline came down to 15; at 14 the two were a pixel
+     apart and the card read as one undifferentiated block of text. */
+  font-size: 13px;
   line-height: 1.55;
   font-weight: 400;
   color: var(--color-ink-body);
@@ -732,6 +750,27 @@ dialog[open] { display: flex; flex-direction: column; }
   width: 100%;
   font-size: 16px;
   line-height: 1.8;
+}
+/* The reader's headline, which until now had no rule at all: 32px was the
+   browser's default `h1` and the leading was `.modal-body`'s 1.8 inherited onto
+   a heading, so a three-line headline stood 173px tall and pushed the article
+   itself below the fold on a phone. Halved, and the leading brought to a
+   heading value -- which is where most of the height was.
+
+   At 16px this matches the body copy exactly, so `font-weight` is the only
+   thing left marking it as a heading. That is deliberate, and it is why the
+   weight is restated here rather than left to the browser.
+
+   Scoped to `.modal-body h1`: the app's other three `<h1>`s -- the
+   `.unreachable` screen's, and the `signin-wordmark` heading in both `SignIn`
+   and `ForcedPasswordChange` -- are none of them descendants of `.modal-body`,
+   so this rule cannot reach them. */
+.modal-body h1 {
+  font-size: 16px;
+  line-height: 1.25;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  margin: 0 0 12px;
 }
 .modal-body p { margin-bottom: 16px; }
 .modal-body p:last-child { margin-bottom: 0; }
@@ -1163,7 +1202,7 @@ kbd {
 
 @media (max-width: 899px) {
   /* Almost nothing left here. The card's type and metrics are the phone's own
-     now -- 19px headline, 76px photo, one 11px meta line -- so the desktop no
+     now -- 15px headline, 76px photo, one 11px meta line -- so the desktop no
      longer needs undoing at this width; the tuning that used to live here was
      all for the four-row card and went with it. */
   .article-row { padding: 8px 0; }
@@ -1465,7 +1504,9 @@ kbd {
      card reads as cut off. */
   #article-list {
     max-width: 760px;
-    gap: 40px;
+    /* 24, from 40 -- the same proportion the phone took, against a 760px
+       measure that can carry a little more air than a 390px one. */
+    gap: 24px;
     padding: 34px 48px 24px;
   }
   /* Held to the list's own text measure so the strip and the cards share a
@@ -1477,11 +1518,16 @@ kbd {
   }
 
   .article-head { gap: 22px; }
-  /* The tracking comes with the size. The base relaxed to -0.2px when phone
-     headlines dropped to 17 -- that is a 17px correction -- and this override
-     set only the size, so 20px desktop headlines were being set at the
-     phone's tracking. -0.35px is the display-size value they had before. */
-  .article-title { font-size: 20px; line-height: 1.3; letter-spacing: -0.35px; }
+  /* 17, from 20, tracking down with it. The base rule sets the weight for both
+     widths; only size, line-height and tracking are per-width. */
+  .article-title { font-size: 17px; line-height: 1.35; letter-spacing: -0.1px; }
+  /* 18, and it belongs beside the rule above rather than anywhere else: the
+     card headline is scaled per width and the reader's was not, so opening a
+     story on a desktop shrank its own headline from 17 to 16. The reader is
+     the wider measure of the two, so it takes the step above the card rather
+     than matching it. Line-height and weight stay the base rule's 1.25/700 --
+     only the size is per-width, exactly as `.article-title` does it. */
+  .modal-body h1 { font-size: 18px; }
   .article-thumb { width: 104px; height: 78px; }
   .article-meta { font-size: 11.5px; }
   .article-actions { gap: 20px; }

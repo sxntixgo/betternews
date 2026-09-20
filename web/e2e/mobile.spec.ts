@@ -208,6 +208,33 @@ test.describe('phone layout', () => {
       .toHaveAttribute('aria-checked', 'true');
   });
 
+  test('the list is tighter than a screen-and-a-half per story', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'phone only');
+    // 34px between cards was set when the headline was 19px and bold. Against
+    // 15/400 it reads as drift rather than separation. Whitespace is still the
+    // only thing dividing the stories -- there are no dividers and no row
+    // tints -- there is just less of it.
+    await expect(page.locator('#article-list')).toHaveCSS('row-gap', '20px');
+    // Row height *plus* the gap: a story costs a reader both, and dividing by
+    // the row alone counted a list with no space between the cards. It lands
+    // at 4.04 on an iPhone 13, which is the whole claim -- four stories and
+    // the start of a fifth, where the 34px gap gave three and a half.
+    const perScreen = await page.evaluate(() => {
+      const row = (document.querySelector('.article-row') as HTMLElement)
+        .getBoundingClientRect().height;
+      const gap = parseFloat(getComputedStyle(document.querySelector('#article-list')!).rowGap);
+      return window.innerHeight / (row + gap);
+    });
+    expect(perScreen, 'more than four stories must fit a screen').toBeGreaterThan(4);
+    // The separation must still be real: no card may touch its neighbour.
+    const gaps = await page.evaluate(() => {
+      const rows = [...document.querySelectorAll('.article-row')];
+      return rows.slice(1).map((r, i) =>
+        r.getBoundingClientRect().top - rows[i].getBoundingClientRect().bottom);
+    });
+    expect(Math.min(...gaps)).toBeGreaterThanOrEqual(16);
+  });
+
   test('the meta line leads with the source and the age', async ({ page }) => {
     // They moved down to the tags row when the card became three rows, and back
     // up again now that there is one line for everything. Same claim either
@@ -606,17 +633,27 @@ test.describe('the top bar and the drawer fit the screen', () => {
   test('the headline is a headline, not a heading', async ({ page, isMobile }) => {
     test.skip(!isMobile, 'phone only');
     // 19px on a 390pt screen sat a headline within a point of the body text
-    // and, at three lines, set the height of every card. 17 keeps the weight
-    // and the hierarchy against the 14px summary and buys back a story a
-    // screen. The desktop keeps 20 -- it has a 760px measure to fill.
+    // and, at three lines, set the height of every card. 15/400 keeps the
+    // hierarchy against the 13px summary through size and colour rather than
+    // weight, and buys back a story a screen. The desktop keeps 17 -- it has
+    // a 760px measure to fill. This test owns the sizes and the step between
+    // them; 'the list carries its hierarchy in colour too' owns the colour.
     const title = page.locator('.article-title').first();
-    await expect(title).toHaveCSS('font-size', '17px');
+    await expect(title).toHaveCSS('font-size', '15px');
+    // The headline carried weight 600, which on a list of forty stories is a
+    // wall of bold with nothing standing out of it.
+    await expect(title).toHaveCSS('font-weight', '400');
     const summary = page.locator('.article-summary').first();
+    await expect(summary).toHaveCSS('font-size', '13px');
     const [t, s] = [
       parseFloat(await title.evaluate((el) => getComputedStyle(el).fontSize)),
       parseFloat(await summary.evaluate((el) => getComputedStyle(el).fontSize)),
     ];
-    expect(t, 'the headline must still outrank the summary').toBeGreaterThan(s + 2);
+    // A step of 2px, stated as a floor rather than as the pair of exact sizes
+    // above it: this is the claim that has to survive either size moving, and
+    // it is the one that was relaxed to `> s` when the headline came down to
+    // 15 -- which a summary back at 14px would have passed.
+    expect(t, 'the headline must still outrank the summary').toBeGreaterThanOrEqual(s + 2);
   });
 
   test('the tags switch shows and hides the topic, on a phone too', async ({ page, isMobile }) => {
@@ -673,6 +710,51 @@ test.describe('the top bar and the drawer fit the screen', () => {
     expect(tag.width, 'the tag took the whole meta line').toBeLessThan(viewport * 0.4);
     expect((await page.locator('.article-meta').first().boundingBox())!.height)
       .toBeLessThan(48);
+  });
+
+  test('the list carries its hierarchy in colour too', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'phone only');
+    // The sizes and the 2px step between them are asserted once, in 'the
+    // headline is a headline, not a heading'; this test used to restate both
+    // and then add `expect(t).toBeGreaterThan(s)` under two exact
+    // `toHaveCSS` assertions that had already fixed t and s. What is only
+    // claimed here is the colour: with the weight gone, 15px `--color-ink`
+    // over a 13px `--color-ink-body` summary is half of what separates a
+    // headline from its own standfirst, and two pixels is the other half.
+    const title = page.locator('.article-title').first();
+    const summary = page.locator('.article-summary').first();
+    const [tc, sc] = [
+      await title.evaluate((el) => getComputedStyle(el).color),
+      await summary.evaluate((el) => getComputedStyle(el).color),
+    ];
+    expect(tc, 'the headline and the summary must not share a colour').not.toBe(sc);
+  });
+
+  test('a read story is never bolder than an unread one', async ({ page }) => {
+    // `.article-row.read .article-title` set `font-weight: 500` to lighten a
+    // read headline against an unread 600. With unread at 400 that rule
+    // inverts and read becomes the boldest thing on the screen. Colour is what
+    // carries read state.
+    await page.route('**/api/v1/articles?*', (r) => r.fulfill({ json: {
+      articles: [
+        article(1, { state: { read: true, saved: false, dismissed: false, opinion: null } }),
+        article(2, { state: { read: false, saved: false, dismissed: false, opinion: null } }),
+      ],
+      next_offset: null, diagnosis: null,
+    } }));
+    await page.reload();
+    await page.waitForSelector('.article-row');
+
+    const weight = (sel: string) => page.locator(sel).evaluate(
+      (el) => parseInt(getComputedStyle(el).fontWeight, 10));
+    const read = await weight('.article-row.read .article-title');
+    const unread = await weight('.article-row:not(.read) .article-title');
+    expect(read, 'a read headline outweighs an unread one').toBeLessThanOrEqual(unread);
+    // And read state is still visible, just not through weight.
+    const colours = await Promise.all(['.article-row.read .article-title',
+                                       '.article-row:not(.read) .article-title']
+      .map((s) => page.locator(s).evaluate((el) => getComputedStyle(el).color)));
+    expect(colours[0]).not.toBe(colours[1]);
   });
 });
 

@@ -301,10 +301,29 @@ both clients.
   gone, keeping only what it needed (font-size, line-height, padding) on
   `.sidebar-feed-count`. `.pill` remains real chrome in `screens/Settings.tsx` (its
   action tags and the "edited" kind-chip).
-- **Whitespace separates the stories — nothing else does.** 34px between cards, 40px on
-  desktop; no dividers, no row background tints, and no vote tints. Read state is
-  `opacity: .55` on the row rather than a colour, so a read story recedes without
-  becoming a second kind of card.
+- **Whitespace separates the stories — nothing else does.** 20px between cards, 24px on
+  desktop; no dividers, no row background tints, and no vote tints. Read state is two
+  things and neither is a background: `opacity: .8` on the row, and the headline moved
+  to `--color-ink-muted`. A read story recedes without becoming a second kind of card.
+  The fade was `.55`, with the summary compounding a second `.7` on top, while the read
+  rule also set `font-weight: 500` against an unread 600. The list went to 15/400 and the
+  weight went with it; the fade stayed, and a read summary was left at **1.64:1** against
+  the page. `.8` with no compounding is the smallest value clearing 3:1 on both the
+  headline and the summary in both themes, and read still sits ~5x the contrast away from
+  unread. **`design-system.spec.ts` measures effective contrast, not declared colour** —
+  it composites the ancestor chain's `opacity`, because the fade is on the row and the
+  colour is on the text, and a sweep reading `color` alone saw a read headline as the
+  5.10:1 it would be on an opaque row. Its fixture carries a read article for the same
+  reason: the default `ARTICLES` has none, so for months the one state it could not
+  measure was also never on the page.
+- **The reader's headline is the one in the list, a step up**: `.modal-body h1` is
+  16/1.25/700 on a phone and **18px** inside the 900px block, because the card headline is
+  15 phone / 17 desktop and a reader that opened a story at 16px shrank the headline it
+  was opened from. It had no rule at all before that — 32px browser default at
+  `.modal-body`'s 1.8 line-height, a 173px banner. `reading.spec.ts` asserts the
+  *relationship* (reader >= card, read off the page) rather than a second magic number.
+  The rule is scoped to `.modal-body h1`: the app's other three `<h1>`s are not
+  descendants of it.
 - **Desktop is a reading measure, not the window**: `#article-list` is capped at 760px
   including its 48px gutters, and the header and the what-you-missed strip are held to
   the same edges. 900px is the one breakpoint, and the reading column's whole desktop

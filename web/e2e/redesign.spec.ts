@@ -69,9 +69,9 @@ test.describe('list rhythm', () => {
     });
     expect(styles.bg).toBe('rgba(0, 0, 0, 0)');
     expect(styles.borderBottom).toBe('0px');
-    // The rhythm widens with the measure -- 34px on a phone, 40px above 900px.
+    // The rhythm widens with the measure -- 20px on a phone, 24px above 900px.
     // The claim is what does the separating, and at either width it is space.
-    expect(styles.gap).toBe(isMobile ? '34px' : '40px');
+    expect(styles.gap).toBe(isMobile ? '20px' : '24px');
   });
 
   test('a read story is dimmed rather than tinted', async ({ page }) => {
@@ -80,7 +80,18 @@ test.describe('list rhythm', () => {
     await page.goto('/');
     const row = page.locator('#card-1');
     await expect(row).toHaveClass(/read/);
-    expect(await row.evaluate((el) => getComputedStyle(el).opacity)).toBe('0.55');
+    // 0.8, from 0.55: at 0.55 a read summary measured 1.64:1 against the page
+    // and a read headline 2.19:1. The floor itself is asserted by measurement
+    // in design-system.spec.ts ('read state stays legible and still reads as
+    // read'); what this test owns is the mechanism -- a fade on the row, and
+    // no tint behind it, because a tinted row is the second kind of card the
+    // redesign took out.
+    const { opacity, bg } = await row.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return { opacity: cs.opacity, bg: cs.backgroundColor };
+    });
+    expect(opacity).toBe('0.8');
+    expect(bg, 'read must not be expressed as a background tint').toBe('rgba(0, 0, 0, 0)');
   });
 });
 
@@ -150,7 +161,7 @@ test.describe('mobile header', () => {
 test.describe('desktop layout', () => {
   test.skip(({ isMobile }) => isMobile, 'desktop only');
 
-  test('the list is held to a 760px measure with a 40px rhythm', async ({ page }) => {
+  test('the list is held to a 760px measure with a 24px rhythm', async ({ page }) => {
     await signedIn(page);
     await mockApi(page);
     await page.goto('/');
@@ -158,7 +169,7 @@ test.describe('desktop layout', () => {
     const list = page.locator('#article-list');
     const box = (await list.boundingBox())!;
     expect(box.width).toBeLessThanOrEqual(760);
-    expect(await list.evaluate((el) => getComputedStyle(el).rowGap)).toBe('40px');
+    expect(await list.evaluate((el) => getComputedStyle(el).rowGap)).toBe('24px');
   });
 
   test('the thumbnail is 104 x 78 on desktop', async ({ page }) => {
@@ -265,7 +276,7 @@ test.describe('below 900px the desktop layout collapses', () => {
     expect(Math.round(thumb.height)).toBe(76);
     expect(
       await page.locator('#article-list').evaluate((el) => getComputedStyle(el).rowGap),
-    ).toBe('34px');
+    ).toBe('20px');
 
     // Rendered at every width and hidden by CSS at this one -- the card does
     // not read the viewport in JavaScript to decide what to build.

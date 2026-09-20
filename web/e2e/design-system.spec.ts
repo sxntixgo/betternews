@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
-import { mockAdmin, mockApi, openDrawer, signedIn } from './fixtures';
+import type { Article } from '../../shared/api';
+import { ARTICLES, article, mockAdmin, mockApi, openDrawer, signedIn } from './fixtures';
 
 // WCAG relative luminance / contrast ratio, computed from a browser's
 // `rgb(...)` / `rgba(...)` computed-style strings.
@@ -399,53 +400,166 @@ test.describe('the drawer', () => {
  * This measures rather than naming tokens, so it fails however the regression
  * arrives.
  */
+/**
+ * Every rendered text node's *effective* colour, composited the way the
+ * browser paints it.
+ *
+ * Two things the first version of this measured wrong, and read state needed
+ * both. It read the *declared* `color`, and it walked to a painting ancestor
+ * while ignoring that ancestor's `opacity` -- it only skipped an element whose
+ * *own* opacity was under 0.3. `.article-row.read` fades the row, not the
+ * text, so a read headline at 2.19:1 was reported as the 5.10:1 its declared
+ * colour would give on an opaque row. This composites the whole ancestor
+ * chain instead: each painted background over the one behind it, every layer
+ * dimmed by the cumulative `opacity` between it and the root, then the text
+ * on top of that. `rgba()` backgrounds are layers rather than walls for the
+ * same reason.
+ */
+const contrastProbe = () => {
+  const lum = (c: number[]) => {
+    const s = c.map((v) => { const x = v / 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; });
+    return 0.2126 * s[0] + 0.7152 * s[1] + 0.0722 * s[2];
+  };
+  const parse = (v: string) => (v.match(/[\d.]+/g) || []).map(Number);
+  const over = (fg: number[], bg: number[], a: number) => fg.map((v, i) => bg[i] + (v - bg[i]) * a);
+
+  const out: {
+    label: string; ratio: number; alpha: number;
+    size: number; large: boolean; read: boolean;
+  }[] = [];
+
+  document.querySelectorAll('*').forEach((el) => {
+    const hasText = Array.from(el.childNodes).some((n) => n.nodeType === 3 && n.textContent?.trim());
+    if (!hasText) return;
+    const cs = getComputedStyle(el);
+    if (cs.visibility === 'hidden' || cs.display === 'none') return;
+    // WCAG 1.4.3 exempts an inactive control, and `button:disabled` is faded
+    // to 0.4 on purpose. Nothing else is skipped for being faint: being hard
+    // to read is the thing this sweep is looking for.
+    if ((el as HTMLButtonElement).disabled || el.getAttribute('aria-disabled') === 'true') return;
+
+    const chain: Element[] = [];
+    for (let n: Element | null = el; n; n = n.parentElement) chain.unshift(n);
+    let bg = [255, 255, 255];
+    let alpha = 1;
+    for (const n of chain) {
+      const ncs = getComputedStyle(n);
+      alpha *= Number(ncs.opacity);
+      const b = parse(ncs.backgroundColor);
+      const ba = b.length > 3 ? b[3] : 1;
+      if (b.length >= 3 && ba > 0) bg = over(b.slice(0, 3), bg, ba * alpha);
+    }
+    if (alpha === 0) return;
+    const c = parse(cs.color);
+    const fg = over(c.slice(0, 3), bg, (c.length > 3 ? c[3] : 1) * alpha);
+    const [l1, l2] = [lum(fg), lum(bg)];
+    const size = parseFloat(cs.fontSize);
+    out.push({
+      label: (el as HTMLElement).className?.toString().split(' ')[0] || el.tagName,
+      ratio: (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05),
+      alpha,
+      size,
+      large: size >= 24 || (size >= 18.66 && Number(cs.fontWeight) >= 700),
+      read: !!el.closest('.article-row.read'),
+    });
+  });
+  return out;
+};
+
+/**
+ * A read row is deliberately recessive, so it is held to 3:1 rather than to
+ * AA's 4.5 -- and held to it, not excused from it: `read state stays legible`
+ * below owns that floor and the distance from unread, and the sweep reports
+ * the number either way.
+ */
+const READ_FLOOR = 3;
+
+/** The default fixture has no read article, so the state that needed
+ *  measuring most was never on the page the sweep scanned. Mixed in here
+ *  rather than in `ARTICLES` itself: visual.spec.ts's baselines are shot from
+ *  that list, and a read first row would move all eight of them. */
+const MIXED: Article[] = [
+  article(1, { state: { read: true, saved: false, dismissed: false, opinion: null } }),
+  ...ARTICLES.slice(1),
+];
+
+/**
+ * Every rendered text node clears WCAG AA, in both themes.
+ *
+ * Added after an audit found 16 classes below 4.5:1 in light and 15 in dark,
+ * the worst at 2.12:1 -- the action buttons on every card. Two of them were
+ * token mix-ups rather than palette choices: the offline bar coloured itself
+ * with the *gold* accent's ink, and a cleanup swapped the what-you-missed
+ * button's `--color-on-accent` for `--color-offline-ink`, putting near-white on
+ * gold. Both are "light ink", which is why the swap read as harmless and why
+ * nothing caught it -- the screenshots cannot see contrast, and no assertion
+ * looked at colour at all.
+ *
+ * This measures rather than naming tokens, so it fails however the regression
+ * arrives.
+ */
 for (const theme of ['light', 'dark'] as const) {
   test(`text clears WCAG AA in ${theme}`, async ({ page }) => {
     await page.addInitScript((t) => localStorage.setItem('theme', t), theme);
     await signedIn(page);
-    await mockApi(page);
+    await mockApi(page, MIXED);
     await page.goto('/');
     await page.locator('.article-row').first().waitFor();
     await openDrawer(page);
 
-    const failures = await page.evaluate(() => {
-      const lum = (c: number[]) => {
-        const s = c.map((v) => { const x = v / 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; });
-        return 0.2126 * s[0] + 0.7152 * s[1] + 0.0722 * s[2];
-      };
-      const parse = (v: string) => (v.match(/[\d.]+/g) || []).map(Number);
-      // The nearest ancestor that actually paints: a transparent parent tells
-      // you nothing about what the text sits on.
-      const bgOf = (el: Element): number[] => {
-        let n: Element | null = el;
-        while (n) {
-          const b = parse(getComputedStyle(n).backgroundColor);
-          if (b.length >= 3 && (b[3] === undefined || b[3] > 0.5)) return b.slice(0, 3);
-          n = n.parentElement;
-        }
-        return [255, 255, 255];
-      };
-      const out: string[] = [];
-      document.querySelectorAll('*').forEach((el) => {
-        const hasText = Array.from(el.childNodes).some((n) => n.nodeType === 3 && n.textContent?.trim());
-        if (!hasText) return;
-        const cs = getComputedStyle(el);
-        if (cs.visibility === 'hidden' || cs.display === 'none' || Number(cs.opacity) < 0.3) return;
-        const l1 = lum(parse(cs.color).slice(0, 3));
-        const l2 = lum(bgOf(el));
-        const ratio = (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
-        const size = parseFloat(cs.fontSize);
-        const large = size >= 24 || (size >= 18.66 && Number(cs.fontWeight) >= 700);
-        const need = large ? 3 : 4.5;
-        if (ratio < need) {
-          const cls = (el as HTMLElement).className?.toString().split(' ')[0] || el.tagName;
-          out.push(`${cls} ${ratio.toFixed(2)}:1 (needs ${need}) ${cs.color} on ${getComputedStyle(el).backgroundColor}`);
-        }
-      });
-      return [...new Set(out)];
-    });
+    const measured = await page.evaluate(contrastProbe);
+    expect(measured.some((m) => m.read), 'no read row was scanned').toBe(true);
+
+    const failures = [...new Set(measured
+      .filter((m) => {
+        const need = m.read ? READ_FLOOR : (m.large ? 3 : 4.5);
+        return m.ratio < need;
+      })
+      .map((m) => `${m.label} ${m.ratio.toFixed(2)}:1 `
+        + `(needs ${m.read ? READ_FLOOR : (m.large ? 3 : 4.5)}, opacity ${m.alpha.toFixed(2)})`))];
 
     expect(failures, `below WCAG AA in ${theme}:\n  ${failures.join('\n  ')}`).toEqual([]);
+  });
+}
+
+/**
+ * Read state recedes without going under.
+ *
+ * The row is faded to 0.8 over a muted headline colour; it used to be 0.55,
+ * with the summary compounding a second 0.7 on top, and it landed at 2.19:1
+ * and 1.64:1 in light. That was survivable while the read rule also set
+ * `font-weight: 500` against an unread 600 -- stroke weight was doing what the
+ * fade had taken -- and the branch that brought the list to 15/400 removed the
+ * weight and left the fade. Both halves are asserted: a floor, so read stays
+ * readable, and a distance, so read never stops looking read.
+ */
+for (const theme of ['light', 'dark'] as const) {
+  test(`read state stays legible and still reads as read in ${theme}`, async ({ page }) => {
+    await page.addInitScript((t) => localStorage.setItem('theme', t), theme);
+    await signedIn(page);
+    await mockApi(page, MIXED);
+    await page.goto('/');
+    await page.locator('.article-row.read').first().waitFor();
+
+    const measured = await page.evaluate(contrastProbe);
+    const pick = (cls: string, read: boolean) => {
+      const m = measured.find((x) => x.label === cls && x.read === read);
+      expect(m, `no ${read ? 'read' : 'unread'} .${cls} on the page`).toBeTruthy();
+      return m!.ratio;
+    };
+
+    const readTitle = pick('article-title', true);
+    const readSummary = pick('article-summary', true);
+    expect(readTitle, `read headline at ${readTitle.toFixed(2)}:1`).toBeGreaterThanOrEqual(READ_FLOOR);
+    expect(readSummary, `read summary at ${readSummary.toFixed(2)}:1`).toBeGreaterThanOrEqual(READ_FLOOR);
+
+    // ...and still unmistakably read: the unread headline is several times
+    // the contrast of the read one. 2 is a floor, not the measurement -- it
+    // lands near 5 -- and it is what stops "make read legible" from being
+    // answered by making read look unread.
+    const unreadTitle = pick('article-title', false);
+    expect(unreadTitle / readTitle, `unread ${unreadTitle.toFixed(2)}:1 vs read ${readTitle.toFixed(2)}:1`)
+      .toBeGreaterThan(2);
   });
 }
 

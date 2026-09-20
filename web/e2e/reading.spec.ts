@@ -312,6 +312,47 @@ test('an embed renders as a card and loads nothing from a third party', async ({
   expect(external, `contacted: ${external.join(', ')}`).toEqual([]);
 });
 
+test('the reader headline is a headline, not a banner', async ({ page, isMobile }) => {
+  // It had no rule at all: 32px was the browser default h1 and the 57.6px
+  // line-height was `.modal-body`'s 1.8 -- a body-copy value inherited onto a
+  // heading -- so a three-line headline stood 173px tall and the article began
+  // below the fold on a phone. The leading was doing more damage than the size.
+  await signedIn(page);
+  await mockApi(page);
+  await page.goto('/');
+  await page.waitForSelector('.article-row');
+  // Read off the page, before the reader covers it. Hard-coding the card's
+  // size here would be a second magic number that rots the moment the list's
+  // type moves again -- which is exactly how this pair got out of step.
+  const card = parseFloat(await page.locator('.article-title').first()
+    .evaluate((el) => getComputedStyle(el).fontSize));
+  await page.locator('.article-title').first().click();
+
+  const h1 = page.getByRole('dialog').locator('.modal-body h1');
+  await expect(h1).toBeVisible();
+  const size = await h1.evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+  if (isMobile) expect(size, 'the phone reader is 16px').toBe(16);
+  // The relationship, at whichever width this ran: opening a story must never
+  // shrink its own headline. The card is scaled per width (15 phone, 17
+  // desktop) and the reader was a flat 16, so on a desktop the reader was a
+  // point *smaller* than the list it was opened from.
+  expect(size, `reader ${size}px against a ${card}px card headline`)
+    .toBeGreaterThanOrEqual(card);
+  // The leading is the point: 1.8 on a heading is what made it a banner. As a
+  // ratio, so it keeps meaning something now that the size moves with width.
+  const lh = await h1.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight));
+  expect(lh / size, 'a heading takes a heading leading, not body copy\'s 1.8')
+    .toBeLessThanOrEqual(1.3);
+  // At 16px it matches the body copy exactly, so weight is the only thing left
+  // saying "heading". It must not be given up too.
+  const [hw, pw] = await Promise.all([
+    h1.evaluate((el) => parseInt(getComputedStyle(el).fontWeight, 10)),
+    page.getByRole('dialog').locator('.modal-body p').first()
+      .evaluate((el) => parseInt(getComputedStyle(el).fontWeight, 10)),
+  ]);
+  expect(hw, 'at body size, weight is all that marks the heading').toBeGreaterThan(pw);
+});
+
 test.describe('keyboard votes', () => {
   test('l likes and d dislikes the focused article', async ({ page }) => {
     // `l` existed and `d` did not, so the keyboard path could approve of things

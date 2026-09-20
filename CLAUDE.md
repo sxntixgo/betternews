@@ -210,31 +210,63 @@ both clients.
   on a 20KB download. The redesign handoff asked for Google Fonts; `index.css` had
   already ruled that out and the ruling stands.
 - **`components/Modal.tsx` is the only modal.** Nine screens hand-rolled one, none with `role="dialog"`, `aria-modal`, a focus trap or focus restoration. Its focus trap filters to elements with a layout box: the OPML `<input type="file">` is `display:none`, matches the focusable selector, sorts last, and can never take focus — so the wrap never fired and Tab walked out of the dialog. `.modal-nav` uses `.header-action`, the same vocabulary as `.app-header`. `.btn-icon` / `.btn-external` remain for the other screens.
-- **The drawer is three unlabelled groups, then settings, then a footer.** It was five
-  all-caps labelled sections (Feeds, Saved, Settings, You, Admin); the headers are gone
+- **The drawer is four unlabelled groups — the last of them the settings block — then a
+  footer.** It was five all-caps labelled sections (Feeds, Saved, Settings, You, Admin); the headers are gone
   and are not coming back — with one or two rows under most of them they were the
   loudest type in the column while saying the least. What separated the groups was
   first tried as 34px of space alone; the reader lived with that and said the grouping
   did not read. A rule now does the separating instead — `.drawer-group + .drawer-group`
-  gets the same 1px `--color-divider` treatment as the footer's existing
-  `.drawer-divider`, on every group but the first, since an edge needs no closing. With
-  a rule doing that work the gap comes down to 18px (from 34px — matching the row-gap
-  already used inside a group rather than inventing a new number), plus a tighter 10px
-  between the rule and the section it opens. `.drawer-divider` itself survives, at the
-  same reduced 18px rhythm, because the groups and the footer are not the same kind of
-  thing — the footer's links open dialogs rather than filtering a list, so it stays a
-  sibling of `.drawer-groups`, not a fourth member of it. The groups are: what to read
-  (feeds), the lists that are not the reading list (Saved, Hidden, Your stats), and the
-  display preferences — `.drawer-settings`, where `Toggle` gives Photos, Compact and
-  Tags and `Segmented` gives Sort and Theme as radiogroups. Sort was a "sort by score instead of
-  date" switch; two positions say it without the double negative. Everything that opens
+  gets the same 1px `--color-hairline-strong` treatment as the footer's existing
+  `.drawer-divider`, on every group but the first, since an edge needs no closing.
+  With a rule doing that work the gap comes down to 18px (from 34px — matching the
+  row-gap already used inside a group rather than inventing a new number), plus a
+  tighter 10px between the rule and the section it opens.
+  **That token is load-bearing, and it is asserted rather than assumed.** The rule was
+  first drawn in `--color-divider`, which measures ~1.15:1 against the page and ~1.08:1
+  against the desktop drawer's surface — fainter than `--color-hairline`, which this
+  file already records as invisible to `toHaveScreenshot`'s 0.2 threshold. With the
+  spacing around it halved, that rule carries the whole of the separation, and at that
+  contrast it could have vanished outright with all ten baselines still green.
+  `--color-hairline-strong` (1.36:1 / 1.28:1) replaced it in both places,
+  `--color-divider` went with the last reference to it, and `design-system.spec.ts` now
+  asserts the rule's *computed* colour and its contrast against the drawer's own
+  ground. Even so it is ~0.13 YIQ against the page, still under the pixel suite's
+  threshold: that assertion is the only thing guarding it. `.drawer-divider` itself survives, with the
+  same 18px above it on a phone — though not the same rhythm on both sides, and it no
+  longer claims one: the group rules take 10px below, this one takes the footer's own
+  24px, and on a desktop `margin: auto 0 0` drops it to the foot of the column. The
+  footer is the end of the column rather than another section of it, so it is not the
+  same kind of thing — the footer's links open dialogs rather than filtering a list, so it stays a
+  sibling of `.drawer-groups`, not a fifth member of it. The groups are: what to read
+  (feeds); the lists that are not the reading list (Saved, Hidden); the two rows that
+  are neither a list nor a preference (One at a time, Your stats — one switches reading
+  mode, the other opens a dialog, and trailing the lists group they read as a
+  continuation of the hidden feeds above them); and the display preferences —
+  `.drawer-settings`, where `Toggle` gives Photos, Compact and
+  Tags and `Segmented` gives Sort and Theme as radiogroups. `.drawer-settings` carries
+  no padding of its own: it is a `.drawer-group` inside `.drawer-groups`'s 28px, and the
+  duplicate inset its rows a second 28px from every other row in the column — which
+  only became visible once a rule was drawn across the group it opens.
+  Sort was a "sort by score instead of date" switch; two positions say it without the double negative. Everything that opens
   a dialog rather than filtering the list sits in `.drawer-footer` as small text, each
   admin entry by name rather than behind one "Admin" word. Density and sort used to sit
   in the top bar, which on a 390px screen cost a whole row of a header that was already
   a quarter of the viewport. `Insights` is offered as *Your stats* because it describes
   this reader's taste, but the endpoint is still `@api_admin`, so it stays hidden from a
   plain reader rather than answering 403.
-- **The drawer is its own component**, `components/Drawer.tsx` — 229 lines pulled
+- **All feeds, Saved and Hidden are one type tier**, and that is this branch's
+  reader-facing decision: three lists you can be reading, set alike at 17/600 on a phone
+  and 15/600 on a desktop (`.is-lead`, on exactly those three rows and on no nested
+  one), with the feeds beneath them a step down. **Set alike is not enough — they also
+  share a left edge.** Hidden's row sat inside `.sidebar-group-header` behind its
+  collapse caret, which drew it 42px in on a phone (the caret's tap-target floor) and
+  16px on a desktop: level with its own children, the one place a parent must not sit.
+  The caret moved to the row's trailing edge rather than being deleted — Hidden has
+  children and they must stay collapsible — so the label starts where All feeds and
+  Saved start and the counts give way instead. `design-system.spec.ts` measures the
+  three `getBoundingClientRect().left` values and a nested feed's, because this is a
+  claim about pixels that a class-name assertion cannot see.
+- **The drawer is its own component**, `components/Drawer.tsx` — 262 lines pulled
   verbatim out of a 751-line `App.tsx` (608 after). It holds no state of its own: every
   one of its 28 props is required, none optional, because a prop made optional just to
   quiet the compiler is how a control comes out of a refactor still rendering and doing
@@ -313,8 +345,17 @@ both clients.
   action tags and the "edited" kind-chip).
 - **Whitespace separates the stories — nothing else does.** 14px between cards, 18px on
   desktop; each row's own padding brings the real separation a reader sees to 30px and
-  38px, and the floor that matters is that ratio against the 8px inside a card — no
-  dividers, no row background tints, and no vote tints. Read state is two
+  38px, and the floor that matters is that ratio against the largest gap *inside* a
+  card — the 10px between the story and its meta line, so **3.0:1 on a phone and 3.8:1
+  on a desktop**. Not the 8px inside `.article-text`: compact hides the summary, so
+  that gap spans nothing there, and measuring against it is how compact was recorded as
+  3.75:1 while it actually sat at 26px against 10px — 2.6:1, below the floor this
+  branch set. Compact's row padding went 6px → 8px, which puts both densities at
+  30px / 3.0:1 on a phone; it buys its density by dropping the summary, not by crowding
+  the stories. **14px is the floor, not a waypoint**: another cut takes the phone under
+  3:1, and `mobile.spec.ts` measures both densities against 30px — it measured one,
+  against 24, which is why none of this was visible.
+  No dividers, no row background tints, and no vote tints. Read state is two
   things and neither is a background: `opacity: .8` on the row, and the headline moved
   to `--color-ink-muted`. A read story recedes without becoming a second kind of card.
   The fade was `.55`, with the summary compounding a second `.7` on top, while the read

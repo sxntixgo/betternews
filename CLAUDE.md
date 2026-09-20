@@ -301,8 +301,10 @@ both clients.
   gone, keeping only what it needed (font-size, line-height, padding) on
   `.sidebar-feed-count`. `.pill` remains real chrome in `screens/Settings.tsx` (its
   action tags and the "edited" kind-chip).
-- **Whitespace separates the stories — nothing else does.** 20px between cards, 24px on
-  desktop; no dividers, no row background tints, and no vote tints. Read state is two
+- **Whitespace separates the stories — nothing else does.** 14px between cards, 18px on
+  desktop; each row's own padding brings the real separation a reader sees to 30px and
+  38px, and the floor that matters is that ratio against the 8px inside a card — no
+  dividers, no row background tints, and no vote tints. Read state is two
   things and neither is a background: `opacity: .8` on the row, and the headline moved
   to `--color-ink-muted`. A read story recedes without becoming a second kind of card.
   The fade was `.55`, with the summary compounding a second `.7` on top, while the read

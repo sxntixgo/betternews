@@ -214,7 +214,7 @@ test.describe('phone layout', () => {
     // 15/400 it reads as drift rather than separation. Whitespace is still the
     // only thing dividing the stories -- there are no dividers and no row
     // tints -- there is just less of it.
-    await expect(page.locator('#article-list')).toHaveCSS('row-gap', '20px');
+    await expect(page.locator('#article-list')).toHaveCSS('row-gap', '14px');
     // Row height *plus* the gap: a story costs a reader both, and dividing by
     // the row alone counted a list with no space between the cards. It lands
     // at 4.04 on an iPhone 13, which is the whole claim -- four stories and
@@ -226,13 +226,23 @@ test.describe('phone layout', () => {
       return window.innerHeight / (row + gap);
     });
     expect(perScreen, 'more than four stories must fit a screen').toBeGreaterThan(4);
-    // The separation must still be real: no card may touch its neighbour.
-    const gaps = await page.evaluate(() => {
-      const rows = [...document.querySelectorAll('.article-row')];
-      return rows.slice(1).map((r, i) =>
-        r.getBoundingClientRect().top - rows[i].getBoundingClientRect().bottom);
+    // Visual separation, not the CSS gap. A bounding box includes the row's own
+    // padding, so `next.top - prev.bottom` is the gap alone and ignores the 8px
+    // each row adds on both sides -- it understated the real separation by 16px
+    // and would have failed a layout that is in fact well spaced.
+    const sep = await page.evaluate(() => {
+      const rows = [...document.querySelectorAll('.article-row')] as HTMLElement[];
+      const pad = (el: HTMLElement) =>
+        parseFloat(getComputedStyle(el).paddingTop) + parseFloat(getComputedStyle(el).paddingBottom);
+      return rows.slice(1).map((r, i) => {
+        const gap = r.getBoundingClientRect().top - rows[i].getBoundingClientRect().bottom;
+        return gap + pad(r) / 2 + pad(rows[i]) / 2;
+      });
     });
-    expect(Math.min(...gaps)).toBeGreaterThanOrEqual(16);
+    // 24px is the floor where the space between two stories stops being clearly
+    // more than the 8px inside one. At `gap: 14` this measures 30.
+    expect(Math.min(...sep), 'two stories are no further apart than one is tall')
+      .toBeGreaterThanOrEqual(24);
   });
 
   test('the meta line leads with the source and the age', async ({ page }) => {

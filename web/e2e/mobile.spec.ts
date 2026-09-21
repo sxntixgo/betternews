@@ -898,14 +898,21 @@ test.describe('photos', () => {
 
     const thumb = (await page.locator('.article-row .article-thumb').first().boundingBox())!;
 
-    const rects = await page.locator('.article-row .article-summary').first().evaluate((el) => {
+    const lineRects = async (selector: string) => page.locator(selector).first().evaluate((el) => {
       const range = document.createRange();
       range.selectNodeContents(el);
-      return [...range.getClientRects()].map((r) => ({ x: r.x, y: r.y, right: r.right }));
+      return [...range.getClientRects()].map((r) => ({ x: r.x, y: r.y, right: r.right, width: r.width }));
     });
+    // Both elements: the headline alone is long enough to run past the
+    // photo's 76px height, so its own later lines -- and the whole summary
+    // after it -- are the ones that should be running the full column width.
+    const rects = [...await lineRects('.article-row .article-title'), ...await lineRects('.article-row .article-summary')];
 
+    const besidePhoto = rects.filter((r) => r.y < thumb.y + thumb.height - 1);
     const belowPhoto = rects.filter((r) => r.y >= thumb.y + thumb.height - 1);
-    expect(belowPhoto.length, 'no summary line rendered below the photo -- the fixture text is not long enough')
+    expect(besidePhoto.length, 'no line rendered beside the photo -- nothing to compare the wrapped width against')
+      .toBeGreaterThan(0);
+    expect(belowPhoto.length, 'no line rendered below the photo -- the fixture text is not long enough')
       .toBeGreaterThan(0);
     // Every line below the photo starts at the text column's left edge --
     // there is no reserved column to indent around any more.
@@ -913,13 +920,17 @@ test.describe('photos', () => {
       expect(r.x, 'a line below the photo must start at the column edge, not indented for a photo that is no longer beside it')
         .toBeLessThan(thumb.x);
     }
-    // And at least one of them -- not necessarily the last, which is a
-    // paragraph's natural short trailing line -- runs all the way under
-    // where the photo was, proving the text fills the column rather than
-    // stopping at a boundary the float doesn't actually have.
-    const widest = Math.max(...belowPhoto.map((r) => r.right));
-    expect(widest, 'no line below the photo reaches under where the photo was')
-      .toBeGreaterThan(thumb.x + thumb.width - 5);
+    // And at least one of them is meaningfully wider than any line that was
+    // still narrowed beside the photo -- comparing rendered widths against
+    // each other, not against a fixed pixel target, so this holds regardless
+    // of exactly where a particular engine's word-wrap happens to break a
+    // line. A fixed target (e.g. "within 5px of the photo's far edge") is
+    // exactly the kind of assertion natural word-wrapping trailing slack
+    // makes flaky across engines with different font metrics.
+    const widestBeside = Math.max(...besidePhoto.map((r) => r.width));
+    const widestBelow = Math.max(...belowPhoto.map((r) => r.width));
+    expect(widestBelow, 'no line below the photo is meaningfully wider than one still narrowed beside it -- the text never reclaimed the column')
+      .toBeGreaterThan(widestBeside + 40);
   });
 
   test('the reader leads with the photo', async ({ page }) => {
@@ -963,7 +974,23 @@ test.describe('the photos toggle', () => {
     // unchanged width and this test would start failing on a photo that
     // really did give the width back. This compares the *rendered first
     // line*, measured with `Range.getClientRects()`, which the float
-    // actually does narrow.
+    // actually does narrow -- but only if the headline is long enough to
+    // still be wrapping once the photo is gone. The default fixture's
+    // headline is short enough to fit on one line on the wide desktop
+    // column even with the photo taking a bite out of it, so on that
+    // project the two states rendered an identical, unwrapped first line
+    // and this test passed for the wrong reason. A headline long enough to
+    // wrap at both widths makes the comparison mean something everywhere.
+    await page.route('**/api/v1/articles?*', (r) => r.fulfill({ json: {
+      articles: [article(1, {
+        thumbnail_url: PIXEL,
+        title: 'This particular headline is deliberately written long enough that it must wrap onto more than one line whether or not the photo is still there beside it, on a phone or on the wider desktop column.',
+      })],
+      next_offset: null, diagnosis: null,
+    } }));
+    await page.reload();
+    await page.waitForSelector('.article-row');
+
     const thumb = page.locator('.article-row .article-thumb').first();
     await expect(thumb).toBeVisible();
     const firstLineWidth = () => page.locator('.article-row .article-title').first().evaluate((el) => {

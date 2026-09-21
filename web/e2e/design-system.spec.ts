@@ -656,6 +656,37 @@ test('the three top-level lists are set alike, and share a left edge', async ({ 
     .toBeCloseTo(allX, 1);
 });
 
+test('the top-level labels are never ellipsised, as an admin, on a phone', async ({ page }) => {
+  // Commit 0787893 gave All feeds a trailing caret to match Hidden, but an
+  // admin's All feeds row also carries the manage-feeds pencil -- four things
+  // (label, count, caret, pencil) in the same width a caret-less row spends
+  // on two. On the `phone` project the label lost the fight by 2px and
+  // rendered "All fee…". Plain readers and Hidden (no pencil) never saw
+  // it, which is exactly why an admin -- signed in here via `mockAdmin` --
+  // is the fixture that has to be asserted, not just any signed-in user.
+  await signedIn(page);
+  await mockApi(page);
+  await mockAdmin(page);
+  await page.goto('/');
+  await openDrawer(page);
+
+  const rows = [
+    page.getByRole('button', { name: /^All feeds/ }),
+    page.getByRole('button', { name: /^Saved articles/ }),
+    page.getByRole('button', { name: /^Hidden/ }),
+  ];
+
+  for (const row of rows) {
+    const title = row.locator('.sidebar-feed-title');
+    const name = await title.textContent();
+    const { scrollWidth, clientWidth } = await title.evaluate((el) => (
+      { scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }
+    ));
+    expect(scrollWidth, `"${name}" is ellipsised: scrollWidth ${scrollWidth} > clientWidth ${clientWidth}`)
+      .toBeLessThanOrEqual(clientWidth);
+  }
+});
+
 test('both feed menus halve their row gap, and Hidden gets All feeds\' rule', async ({ page }) => {
   // Both `.drawer-children` (All feeds' children) and `.sidebar-group-body`
   // (the tag groups, and previously Hidden's children) used 18px between

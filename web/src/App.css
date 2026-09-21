@@ -740,6 +740,24 @@ button:disabled { opacity: 0.4; cursor: default; }
   .pill { min-height: 26px; }
   .btn-icon, .sidebar-collapse, .sidebar-manage { min-width: 40px; }
 
+  /* All feeds' row holds four things on a phone where every other row holds
+     two or three: the label, its count, the trailing caret and -- for an
+     admin only -- the manage-feeds pencil. The caret and pencil both take
+     the 40px floor above, and on a narrow drawer that left the label short
+     by 2px, rendering "All fee…" for the one person (an admin) who reported
+     it. Both controls keep their full 40px box -- shrinking either one is
+     off the table -- but the box does not have to sit exactly where its
+     unpadded glyph would put it. `.drawer-toggle` already overhangs a 40px
+     target into the header's own dead gutter rather than shrinking; this
+     does the same into `.drawer-groups`'s 28px right padding, which nothing
+     else ever draws into. The caret gives back space on both sides (it sits
+     between the label and the pencil, not at an edge); the pencil, at the
+     true trailing edge, gives back more on its one free side. Together they
+     hand the label roughly 24px more than its longest fixture needs, so a
+     fourth digit on the unread count does not reopen this. */
+  .drawer-all .sidebar-collapse { margin: 0 -5px; }
+  .drawer-all .sidebar-manage { margin-right: -16px; }
+
   /* Two controls whose shape *is* their meaning, and for which a height floor
      is the wrong instrument. `.toggle` takes its 44px target from `::after`
      instead; `.segment` sits in a 3px track, so a 40px floor makes the whole

@@ -203,15 +203,32 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 
 /* The indent rule: the feeds hang 16px behind a 2px line, and the line goes
    gold while one of them is the list being read. Between them that is what
-   the deleted "FEEDS" header and the row tint used to say. */
+   the deleted "FEEDS" header and the row tint used to say. 9px between rows,
+   halved with the rest of the drawer's rhythm (was 18px).
+
+   Hidden's children carry this class too (`.hidden-children` alongside it --
+   see `Sidebar.tsx`'s `HiddenFeeds`), rather than a second copy of the rule
+   in `.sidebar-group-body`. Hidden's feeds used to hang off nothing:
+   `.sidebar-group-body` draws no border, and it is also the tag groups
+   (argentina / tech / untagged) that already live *inside* this element, so
+   adding a rule there would have drawn a second one nested against this one.
+   Sharing the class instead means one indent rule for the whole drawer, kept
+   in step by the cascade rather than by hand -- `.is-active` included, so a
+   hidden feed being read gilds the rule exactly as a regular one does. Only
+   the indent itself differs by group, because Hidden's caret sits at the
+   row's trailing edge rather than leading a chevron-indented label, so its
+   children keep the wider step (`.hidden-children` below) instead of
+   drawer-children's own 16px. */
 .drawer-children {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 9px;
   padding-left: 16px;
   border-left: 2px solid var(--color-indent-inactive);
 }
 .drawer-children.is-active { border-left-color: var(--color-indent-active); }
+.drawer-children.hidden-children { padding-left: 21px; }
+@media (pointer: coarse) { .drawer-children.hidden-children { padding-left: 42px; } }
 
 /* The last rule in the column, ahead of the footer -- same 1px, same
    `--color-hairline-strong`, same 28px inset as the ones on `.drawer-group`,
@@ -261,10 +278,12 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
    to match it or the feeds read as belonging to the row above them -- which is
    what dropping this indent entirely looked like. The chevron is wider on a
    touch screen (it carries a 40px tap target), so the indent is too.
-   Hidden's group is the one exception: its chevron sits at the trailing edge
-   so that the row itself can start where All feeds and Saved do, and there the same indent is simply the nesting step -- one level in
-   from its parent, and still short of where the feed tags' children sit. */
-.sidebar-group-body { display: flex; flex-direction: column; gap: 18px; padding-left: 21px; }
+   This is the tag groups only now (argentina / tech / untagged) -- Hidden's
+   body uses `.drawer-children.hidden-children` instead, so it gets the same
+   indent rule All feeds' children draw rather than none at all. Its own
+   21px/42px indent lives on that modifier, matching the values this rule
+   used to share with it. */
+.sidebar-group-body { display: flex; flex-direction: column; gap: 9px; padding-left: 21px; }
 @media (pointer: coarse) { .sidebar-group-body { padding-left: 42px; } }
 .sidebar-group.collapsed .sidebar-group-body { display: none; }
 .sidebar-feed-nested { font-size: 14px; }
@@ -447,19 +466,21 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 #article-list {
   display: flex;
   flex-direction: column;
-  /* 14, from 20. The gap is not the whole separation -- each row adds 8px of
-     its own padding on both sides on a phone, 10px on a desktop -- so this is
-     30px of whitespace between two stories, 38px on a desktop. What it has to
-     stay clear of is the largest gap *inside* a card, which is the 10px
-     between the story and its meta line, not the 8px between a headline and
-     its summary: compact hides the summary, so that 8px spans nothing there
+  /* 7, from 14. The previous batch called 14 the floor with the card's own
+     spacing held fixed; this batch goes through that floor by halving the
+     card too (`.article-row`'s padding and gap below, `.article-text`'s
+     gap), so the ratio the floor protected moves with it instead of being
+     spent. The gap is not the whole separation -- each row adds 4px of its
+     own padding on both sides on a phone, 5px on a desktop -- so this is
+     15px of whitespace between two stories, 19px on a desktop. What it has
+     to stay clear of is the largest gap *inside* a card, which is the 5px
+     between the story and its meta line, not the 4px between a headline and
+     its summary: compact hides the summary, so that 4px spans nothing there
      and measuring against it scored compact 3.75:1 while it was really at
-     2.6. The real figures are 30 : 10 = 3.0:1 on a phone and 38 : 10 = 3.8:1
-     on a desktop, in both densities. 14px is the floor, not a waypoint --
-     another cut takes the phone under 3:1, where the space between two
-     stories stops being clearly more than the space inside one and the column
-     reads as continuous text rather than as a list. */
-  gap: 14px;
+     2.6. The real figures are 15 : 5 = 3.0:1 on a phone and 19 : 5 = 3.8:1
+     on a desktop, in both densities -- the same ratios the old 14px rhythm
+     held, because both sides of them were halved together. */
+  gap: 7px;
   padding: 6px 24px 24px;
   list-style: none;
   margin: 0;
@@ -477,14 +498,20 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
    read, no longer plainly invisible. `design-system.spec.ts` measures it. */
 .article-row.read { opacity: 0.8; }
 .article-row {
-  padding: 10px 0;
+  /* 5px 0, from 10px 0 -- halved with `#article-list`'s gap above so the
+     30px/38px separation this row's padding used to buy becomes 15px/19px,
+     at the same 3.0:1 / 3.8:1 ratio against this rule's own 5px gap below. */
+  padding: 5px 0;
   /* Two rows, and only two: the story, then one line carrying every fact a
      reader reads and every control they press. The float this replaced was
      bought by a card whose lower rows had to wrap around the photo; with one
      short meta line there is nothing left for a float to buy. */
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  /* 5, from 10: the largest gap inside a card, and the denominator the
+     separation ratio above is measured against. Halved so that ratio holds
+     rather than shrinks. */
+  gap: 5px;
   position: relative;
   cursor: pointer;
 }
@@ -528,14 +555,38 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
   font-style: italic;
 }
 
-/* The story: text in a column, the photo beside it. */
-.article-head { display: flex; gap: 16px; align-items: flex-start; }
-.article-text { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+/* The story: the photo floats right, and the headline and summary wrap
+   around it in one flow -- a plain block box, not a flex row, so a line of
+   text can share a row with the photo instead of being pushed below it
+   whole. That is the white space the reader was pointing at: a flex row
+   gives the text column a fixed width and leaves whatever the photo doesn't
+   fill sitting empty once the text runs taller than 76px.
+   `display: flow-root` gives `.article-head` its own block formatting
+   context, which is what makes the element report a height that includes
+   the float rather than collapsing to zero around it -- a `::after {
+   content: ''; display: table; clear: both; }` clearfix would do the same
+   job with an extra pseudo-element; flow-root is the rule written for
+   exactly this and needs neither. Because `.article-head`'s own box already
+   reaches past the float's bottom edge, `.article-meta` -- a sibling flex
+   item below it, not a descendant -- can never land beside the photo: it
+   starts where `.article-head` ends, and that is already past the float.
+   One mechanism answers both risks: the float escaping onto the next card,
+   and the meta line riding up beside this one's photo. */
+.article-head { display: flow-root; }
+/* `.article-text` carries no rule of its own any more: floats don't touch a
+   block box's own width, so the plain <div> already fills `.article-head`
+   at its default width and lets its children's line boxes wrap the float. */
 
 /* A span with role="button", never a <button>: a button is an atomic
-   inline-level box in every engine, so it can never wrap around anything and
-   `font: inherit` has to be undone by hand. Everything here is type. */
+   inline-level box in every engine, so it could never wrap around the float
+   above. That was the whole reason for hand-writing role/tabIndex/onKeyDown
+   here instead of reaching for <button> -- and it now pays for itself.
+   `display: block` is what lets it wrap: as a flex item the span was
+   block-ified for free, but `.article-head` is no longer a flex row, so the
+   same box shape has to be stated explicitly, and `font: inherit` has to be
+   undone by hand. Everything here is type. */
 .article-title {
+  display: block;
   /* 15/400, from 17/600. A reading list is forty headlines in a column, and at
      600 that is a wall of bold with nothing standing out of it because
      everything is. Hierarchy moves onto size and colour instead: 15px
@@ -551,7 +602,11 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
   cursor: pointer;
 }
 .article-summary {
-  margin: 0;
+  /* 4px top, from the `.article-text` flex `gap` this replaced -- `gap` does
+     not apply outside flex/grid, so the space between the headline and the
+     summary moves onto the summary's own margin instead. `.hidden-reason`
+     already carried the same 4px this way, for the same reason. */
+  margin: 4px 0 0;
   /* 13, from 14. The headline came down to 15; at 14 the two were a pixel
      apart and the card read as one undifferentiated block of text. */
   font-size: 13px;
@@ -561,9 +616,15 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
   text-wrap: pretty;
 }
 .article-thumb {
+  float: right;
+  /* The photo sits on the right in the redesign; this is the gap between it
+     and the text that wraps its left edge. No bottom margin: the reader's
+     complaint was exactly the white space a fixed-width column left under a
+     short photo, and `.article-row`'s own 5px gap already separates
+     `.article-head` from `.article-meta` below it. */
+  margin: 0 0 0 16px;
   width: 76px;
   height: 76px;
-  flex: none;
   border-radius: var(--radius-thumb);
   object-fit: cover;
   /* Stripes rather than a flat grey: a slow or missing image reads as a
@@ -678,6 +739,24 @@ button:disabled { opacity: 0.4; cursor: default; }
   }
   .pill { min-height: 26px; }
   .btn-icon, .sidebar-collapse, .sidebar-manage { min-width: 40px; }
+
+  /* All feeds' row holds four things on a phone where every other row holds
+     two or three: the label, its count, the trailing caret and -- for an
+     admin only -- the manage-feeds pencil. The caret and pencil both take
+     the 40px floor above, and on a narrow drawer that left the label short
+     by 2px, rendering "All fee…" for the one person (an admin) who reported
+     it. Both controls keep their full 40px box -- shrinking either one is
+     off the table -- but the box does not have to sit exactly where its
+     unpadded glyph would put it. `.drawer-toggle` already overhangs a 40px
+     target into the header's own dead gutter rather than shrinking; this
+     does the same into `.drawer-groups`'s 28px right padding, which nothing
+     else ever draws into. The caret gives back space on both sides (it sits
+     between the label and the pencil, not at an edge); the pencil, at the
+     true trailing edge, gives back more on its one free side. Together they
+     hand the label roughly 24px more than its longest fixture needs, so a
+     fourth digit on the unread count does not reopen this. */
+  .drawer-all .sidebar-collapse { margin: 0 -5px; }
+  .drawer-all .sidebar-manage { margin-right: -16px; }
 
   /* Two controls whose shape *is* their meaning, and for which a height floor
      is the wrong instrument. `.toggle` takes its 44px target from `::after`
@@ -1175,7 +1254,14 @@ kbd {
   line-height: 1;
   transition: transform 0.15s ease;
 }
-.sidebar-group.collapsed .sidebar-collapse { transform: rotate(-90deg); }
+/* Keyed on the caret's own `aria-expanded`, not on a `.sidebar-group.collapsed`
+   ancestor -- All feeds' caret sits directly in `.drawer-all`, not inside a
+   `.sidebar-group` wrapper (that class is reserved for the tag groups and
+   Hidden, and reusing it here would make `.sidebar-group` selectors in the
+   e2e suite match two nested elements instead of one). The attribute is
+   already on every `.sidebar-collapse` this app renders, so one rule covers
+   the tag groups, Hidden and All feeds alike. */
+.sidebar-collapse[aria-expanded="false"] { transform: rotate(-90deg); }
 .sidebar-tag-label {
   flex: 1;
   padding: 0;
@@ -1268,7 +1354,9 @@ kbd {
      now -- 15px headline, 76px photo, one 11px meta line -- so the desktop no
      longer needs undoing at this width; the tuning that used to live here was
      all for the four-row card and went with it. */
-  .article-row { padding: 8px 0; }
+  /* 4px, from 8 -- halved alongside the base rule's 5px so a phone still gets
+     its own tighter padding on top of the halved rhythm, not the desktop's. */
+  .article-row { padding: 4px 0; }
   /* The rewritten headline is shown under the original in the reader, where
      there is room for it. */
   .original-title { display: none; }}
@@ -1281,15 +1369,18 @@ kbd {
    the meta line is one line in either mode. */
 [data-density='compact'] .article-summary,
 [data-density='compact'] .hidden-reason { display: none; }
-/* 8px, from 6. Compact hides the summary, so the 8px inside `.article-text`
-   spans nothing and the card's only internal gap is `.article-row`'s 10px.
-   At 6px the separation between two stories was 14 + 6 + 6 = 26px against
-   that 10px -- 2.6:1, under the 3.0:1 the comfortable list holds and under
-   the floor this branch set for itself. 8px brings it to 30px and 3.0:1,
-   exactly the comfortable ratio: compact buys its density by dropping the
-   summary, not by crowding the stories together. mobile.spec.ts measures both
-   densities; measuring one is how this sat unnoticed. */
-[data-density='compact'] .article-row { padding: 8px 0; }
+/* 4px, from 8 -- halved with the rest of the rhythm this batch, keeping the
+   ratio it was set to hold rather than spending it. Compact hides the
+   summary, so the 4px inside `.article-text` spans nothing and the card's
+   only internal gap is `.article-row`'s 5px. At the old 6px (before the
+   previous batch's fix) the separation between two stories was
+   14 + 6 + 6 = 26px against that 10px -- 2.6:1, under the 3.0:1 the
+   comfortable list holds. 4px brings the halved rhythm to 7 + 4 + 4 = 15px
+   against 5px -- 3.0:1, exactly the comfortable ratio: compact buys its
+   density by dropping the summary, not by crowding the stories together.
+   mobile.spec.ts measures both densities; measuring one is how this sat
+   unnoticed. */
+[data-density='compact'] .article-row { padding: 4px 0; }
 
 /* The source is the one item on the meta line with no length limit, so it is
    the one that gives way when the line is short of room. */
@@ -1576,8 +1667,9 @@ kbd {
      card reads as cut off. */
   #article-list {
     max-width: 760px;
-    /* 18, from 24: 38px between cards against a 760px measure. */
-    gap: 18px;
+    /* 9, from 18 -- halved with the rest of the rhythm: 19px between cards
+       against a 760px measure, still 3.8:1 against the row's own 5px gap. */
+    gap: 9px;
     padding: 34px 48px 24px;
   }
   /* Held to the list's own text measure so the strip and the cards share a
@@ -1588,7 +1680,6 @@ kbd {
     padding: 16px 20px;
   }
 
-  .article-head { gap: 22px; }
   /* 17, from 20, tracking down with it. The base rule sets the weight for both
      widths; only size, line-height and tracking are per-width. */
   .article-title { font-size: 17px; line-height: 1.35; letter-spacing: -0.1px; }
@@ -1599,7 +1690,10 @@ kbd {
      than matching it. Line-height and weight stay the base rule's 1.25/700 --
      only the size is per-width, exactly as `.article-title` does it. */
   .modal-body h1 { font-size: 18px; }
-  .article-thumb { width: 104px; height: 78px; }
+  /* 22px, from the base rule's 16 -- the gap between the wrapped text and the
+     float, now the thumb's own left margin since `gap` no longer applies
+     once `.article-head` stopped being a flex row. */
+  .article-thumb { width: 104px; height: 78px; margin-left: 22px; }
   .article-meta { font-size: 11.5px; }
   .article-actions { gap: 20px; }
   .article-actions .action-open { display: inline; }

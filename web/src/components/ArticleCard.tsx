@@ -71,11 +71,21 @@ export function ArticleCard({
           score, the buttons, the source and the tags on separate lines, which
           is most of the vertical space this redesign reclaims. */}
       <div className="article-head">
+        {/* Floated right, and first in the markup on purpose: a float only
+            narrows the line boxes of content that comes *after* it in the
+            flow, so a photo placed after the text it should wrap would sit
+            on top of lines already laid out full width. First means the
+            headline and summary below wrap around it correctly. */}
+        {article.thumbnail_url && (
+          <img className="article-thumb" src={article.thumbnail_url} alt="" loading="lazy" />
+        )}
         <div className="article-text">
           {/* Still a span, not a <button>: a button is an atomic inline-level
               box in every engine, so it cannot wrap around a float and gets
               pushed below one whole. role/tabIndex/onKeyDown give back exactly
-              what <button> provided. */}
+              what <button> provided -- and now that `.article-head` floats the
+              photo instead of laying it out as a flex sibling, this is what
+              lets the headline wrap around it. */}
           <span
             className="article-title"
             role="button"
@@ -95,9 +105,6 @@ export function ArticleCard({
             <p className="hidden-reason">Hidden: {article.score_reason}</p>
           )}
         </div>
-        {article.thumbnail_url && (
-          <img className="article-thumb" src={article.thumbnail_url} alt="" loading="lazy" />
-        )}
       </div>
 
       <div className="article-meta">

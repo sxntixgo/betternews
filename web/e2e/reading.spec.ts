@@ -274,6 +274,63 @@ test.describe('the sidebar', () => {
     await hiddenGroup.locator('.sidebar-feed-nested').first().click();
     expect((await request).url()).toContain('feed=');
   });
+
+  test('All feeds collapses its own children and nothing else', async ({ page }) => {
+    // Scoped by class, not by accessible name: the name itself flips between
+    // "Collapse All feeds" and "Expand All feeds" as the state changes, so a
+    // locator bound to one name would stop resolving after the first click.
+    const toggle = page.locator('.drawer-all .sidebar-collapse');
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(toggle).toHaveAttribute('aria-label', 'Collapse All feeds');
+
+    const children = page.locator('.drawer-children:not(.hidden-children)');
+    await expect(children).toHaveCount(1);
+    const hiddenGroup = page.locator('.sidebar-group').filter({ hasText: 'Hidden' });
+    await expect(hiddenGroup.locator('.sidebar-feed-nested')).toHaveCount(2);
+
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(toggle).toHaveAttribute('aria-label', 'Expand All feeds');
+    await expect(children).toHaveCount(0);
+    // A sibling group in a different `.drawer-group` -- untouched.
+    await expect(hiddenGroup.locator('.sidebar-feed-nested')).toHaveCount(2);
+
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(toggle).toHaveAttribute('aria-label', 'Collapse All feeds');
+    await expect(children).toHaveCount(1);
+  });
+
+  test('a collapsed All feeds stays collapsed across a reload', async ({ page }) => {
+    await page.getByRole('button', { name: 'Collapse All feeds' }).click();
+    await expect(page.locator('.drawer-children:not(.hidden-children)')).toHaveCount(0);
+
+    // Same reasoning as a collapsed tag group: re-opening on every load would
+    // make the feature worse than not having it.
+    await page.reload();
+    await page.waitForSelector('.article-row');
+    await expect(page.getByRole('button', { name: 'Expand All feeds' })).toHaveCount(1);
+    await expect(page.locator('.drawer-children:not(.hidden-children)')).toHaveCount(0);
+  });
+
+  test('collapsing All feeds does not change which list is being read', async ({ page, isMobile }) => {
+    // Read a specific feed nested under All feeds first.
+    await page.getByRole('button', { name: /^The Verge/ }).first().click();
+    await expect(page.locator('.header-name')).toHaveText('The Verge');
+
+    // Choosing a feed closes the drawer on a phone; reopen it to reach the
+    // caret.
+    if (isMobile) {
+      await page.locator('.drawer-toggle').click();
+      await expect(page.locator('.sidebar')).toHaveClass(/open/);
+    }
+
+    await page.getByRole('button', { name: 'Collapse All feeds' }).click();
+    // The row that carried the filter is gone from the DOM along with the
+    // rest of the group, but the filter is separate state: the header still
+    // names the feed being read, not "All feeds".
+    await expect(page.locator('.header-name')).toHaveText('The Verge');
+  });
 });
 
 test('a hidden article says why, as text rather than a tooltip', async ({ page }) => {

@@ -266,6 +266,19 @@ both clients.
   Saved start and the counts give way instead. `design-system.spec.ts` measures the
   three `getBoundingClientRect().left` values and a nested feed's, because this is a
   claim about pixels that a class-name assertion cannot see.
+  **Both feed menus collapse now — All feeds as well as Hidden** — the same
+  `useCollapsed()` hook, the same `sidebar-collapsed` localStorage key, a caret at the
+  same trailing edge. All feeds' key is `'all'`, distinct from `'hidden'` and from the
+  tag groups' own `tag-${tag}` / `'untagged'` keys sharing that one set. An admin's row
+  also carries the manage-feeds pencil; the caret sits between the row and the pencil,
+  directly after the row the way Hidden's does, because the pencil opens a different
+  screen entirely (Manage Feeds) rather than toggling this list, so it stays outside the
+  row/caret pair rather than between them. The rotation on a collapsed caret is keyed
+  off the caret's own `aria-expanded="false"`, not a `.sidebar-group.collapsed`
+  ancestor — All feeds' caret sits directly in `.drawer-all`, and wrapping it in a
+  `.sidebar-group` just to reuse the old ancestor selector would have made
+  `.sidebar-group` matches in the e2e suite ambiguous between that wrapper and the tag
+  group nested inside it.
 - **The drawer is its own component**, `components/Drawer.tsx` — 262 lines pulled
   verbatim out of a 751-line `App.tsx` (608 after). It holds no state of its own: every
   one of its 28 props is required, none optional, because a prop made optional just to
@@ -298,14 +311,21 @@ both clients.
   would collapse "since Friday" into "since a minute ago" — a label that resets whenever
   you look at it says nothing. It is not `last_login_at`: with a 90-day session cookie
   that can be months.
-- **The article card is two rows.** `.article-head` — headline, summary and the
-  thumbnail beside them — over a single `.article-meta` line carrying score · source ·
-  age · duplicate count on the left and Save / Up / Down on the right. That one line
-  replaced four separate rows; the earlier layout before those was a four-column grid
-  that reserved a photo column on every card whether or not there was a photo in it, and
-  that reservation was the white space. The headline is still a `<span role="button">`
-  and **not a `<button>`** — a button is an atomic inline-level box in every engine
-  (`display: inline` does not change that), and everything on this card is type.
+- **The article card is two rows.** `.article-head` — the photo floats right and the
+  headline and summary wrap around it — over a single `.article-meta` line carrying
+  score · source · age · duplicate count on the left and Save / Up / Down on the right.
+  That one line replaced four separate rows; the earlier layout before those was a
+  four-column grid that reserved a photo column on every card whether or not there was a
+  photo in it, and that reservation was the white space. `.article-head` then spent a
+  batch as a flex row, which brought a version of the same white space back: a flex
+  column has a fixed width, so once the headline and summary ran taller than the 76px
+  photo, the space below the photo sat empty rather than the text filling it. Floating
+  the thumbnail and giving `.article-head` `display: flow-root` (so its own box still
+  contains the float, and `.article-meta` below it can never land beside the photo) is
+  what makes a later line of text run the full column width under the photo instead. The
+  headline is still a `<span role="button">` and **not a `<button>`** — a button is an
+  atomic inline-level box in every engine (`display: inline` does not change that) and so
+  can never wrap a float — and everything on this card is type.
   Actions are words, not emoji. The score is a bare gold number: **no pill survives on
   the card at all.** The redesign kept a pill only for single-story mode — it was built
   and is on `main` (`components/SingleStory.tsx`'s `.score-pill`); the card itself just
@@ -343,18 +363,30 @@ both clients.
   gone, keeping only what it needed (font-size, line-height, padding) on
   `.sidebar-feed-count`. `.pill` remains real chrome in `screens/Settings.tsx` (its
   action tags and the "edited" kind-chip).
-- **Whitespace separates the stories — nothing else does.** 14px between cards, 18px on
-  desktop; each row's own padding brings the real separation a reader sees to 30px and
-  38px, and the floor that matters is that ratio against the largest gap *inside* a
-  card — the 10px between the story and its meta line, so **3.0:1 on a phone and 3.8:1
-  on a desktop**. Not the 8px inside `.article-text`: compact hides the summary, so
+- **Whitespace separates the stories — nothing else does.** 7px between cards, 9px on
+  desktop; each row's own padding brings the real separation a reader sees to 15px and
+  19px, and the floor that matters is that ratio against the largest gap *inside* a
+  card — the 5px between the story and its meta line, so **3.0:1 on a phone and 3.8:1
+  on a desktop**. Not the 4px inside `.article-text`: compact hides the summary, so
   that gap spans nothing there, and measuring against it is how compact was recorded as
-  3.75:1 while it actually sat at 26px against 10px — 2.6:1, below the floor this
-  branch set. Compact's row padding went 6px → 8px, which puts both densities at
-  30px / 3.0:1 on a phone; it buys its density by dropping the summary, not by crowding
-  the stories. **14px is the floor, not a waypoint**: another cut takes the phone under
-  3:1, and `mobile.spec.ts` measures both densities against 30px — it measured one,
-  against 24, which is why none of this was visible.
+  3.75:1 while it actually sat at 26px against 10px — 2.6:1, below the floor a prior
+  branch set. Compact's row padding went 6px → 8px and is now 4px, which puts both
+  densities at 15px / 3.0:1 on a phone; it buys its density by dropping the summary, not
+  by crowding the stories.
+  **A later batch called 14px "the floor, not a waypoint" and went through it anyway —
+  say why rather than treat that as a contradiction.** That conclusion held the card's
+  own spacing (`.article-row`'s padding and gap, `.article-text`'s gap) fixed and found
+  no more room in the gap alone; a further reader was asked, given that fixed floor,
+  to choose between halving only the between-card gap (15px against a 10px inner gap,
+  1.5:1 — the column starts reading as continuous text) or halving the card's own
+  spacing too, keeping the ratio. They chose the second: the whole rhythm — the list's
+  gap, the row's own padding and gap, and `.article-text`'s gap — was halved together,
+  so 14/18/10/10/8 became 7/9/5/5/4 and the ratio the old floor was protecting (3.0:1
+  phone, 3.8:1 desktop) came through unchanged rather than being spent. The floor moved
+  because the rhythm that surrounds it scaled, not because the limit itself was
+  overridden — the next cut would have to repeat the same move, halving the card again,
+  or it does take the ratio under 3:1. `mobile.spec.ts` measures both densities against
+  a 15px floor and asserts the ratio stays ≥ 3, unchanged, on both.
   No dividers, no row background tints, and no vote tints. Read state is two
   things and neither is a background: `opacity: .8` on the row, and the headline moved
   to `--color-ink-muted`. A read story recedes without becoming a second kind of card.

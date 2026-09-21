@@ -116,6 +116,10 @@ export function Sidebar({
   feeds, feed, saved, hidden, onAll, onFeed, onManageFeeds,
 }: SidebarProps) {
   const [collapsed, toggle] = useCollapsed();
+  // 'all' -- distinct from 'hidden' and from the `tag-${tag}` / 'untagged'
+  // keys the tag groups below use, so collapsing this row cannot collide
+  // with any of them in the one shared localStorage set.
+  const shut = collapsed.has('all');
 
   const { tags, untagged } = group(feeds?.feeds ?? []);
   // With no tags anywhere there is nothing to group by, so the feeds hang
@@ -164,6 +168,21 @@ export function Sidebar({
           <span className="sidebar-feed-title">All feeds</span>
           {feeds && feeds.unread > 0 && <Count n={feeds.unread} />}
         </button>
+        {/* The caret sits right after the row -- trailing edge, matching
+            Hidden's shape, not leading a chevron-indented label the way the
+            tag groups below do. The manage-feeds pencil (admin only) comes
+            last, after the caret: it opens a different screen entirely
+            (Manage Feeds) rather than toggling this list, so it sits outside
+            the row/caret pair the other two form together, the same way it
+            already trailed the row before the caret existed. */}
+        <button
+          className="sidebar-collapse"
+          aria-expanded={!shut}
+          aria-label={`${shut ? 'Expand' : 'Collapse'} All feeds`}
+          onClick={() => toggle('all')}
+        >
+          ▾
+        </button>
         {/* Where the server UI kept it: beside the list it edits, not buried
             in a menu. */}
         {onManageFeeds && (
@@ -180,17 +199,21 @@ export function Sidebar({
 
       {/* The indent rule. It goes gold while one of these feeds is the list
           being read, which is the whole of what the old "FEEDS" label and the
-          row tint used to do between them. */}
-      <div className={`drawer-children ${feed !== undefined && !hidden ? 'is-active' : ''}`}>
-        {flat
-          ? untagged.map(feedButton)
-          : (
-            <>
-              {tags.map(([tag, rows]) => group_(`tag-${tag}`, tag, rows))}
-              {untagged.length > 0 && group_('untagged', 'Untagged', untagged)}
-            </>
-          )}
-      </div>
+          row tint used to do between them. Collapsing hides this element only
+          -- Saved, Hidden and everything below live in their own
+          `.drawer-group`s and never see `shut`. */}
+      {!shut && (
+        <div className={`drawer-children ${feed !== undefined && !hidden ? 'is-active' : ''}`}>
+          {flat
+            ? untagged.map(feedButton)
+            : (
+              <>
+                {tags.map(([tag, rows]) => group_(`tag-${tag}`, tag, rows))}
+                {untagged.length > 0 && group_('untagged', 'Untagged', untagged)}
+              </>
+            )}
+        </div>
+      )}
     </>
   );
 }
@@ -239,8 +262,14 @@ export function HiddenFeeds({
           ▾
         </button>
       </div>
+      {/* `.drawer-children`, not `.sidebar-group-body` -- Hidden gets the same
+          indent rule All feeds' children draw (border-left, gold while one of
+          these is the list being read) rather than a second copy of it.
+          `.hidden-children` carries the wider indent that used to live on
+          `.sidebar-group-body` alone; see the comment on `.drawer-children`
+          in App.css. */}
       {!shut && (
-        <div className="sidebar-group-body">
+        <div className={`drawer-children hidden-children ${hidden && feed !== undefined ? 'is-active' : ''}`}>
           {(feeds?.feeds ?? []).filter((f) => f.hidden > 0).map((f) => (
             <button
               key={f.id}

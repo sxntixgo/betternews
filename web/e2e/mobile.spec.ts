@@ -59,6 +59,13 @@ test.describe('phone layout', () => {
   });
 
   test('the headline gets most of the width', async ({ page }) => {
+    // This suite's default fixture carries no thumbnail (`article()` defaults
+    // `thumbnail_url: null`), so there is no float here for the box to
+    // disagree with the text about: `.article-title`'s bounding box is the
+    // rendered width, exactly as it was when `.article-text` was the sole
+    // flex child. The float-vs-box distinction that forced the other two
+    // tests in `describe('photos')` onto `Range.getClientRects()` does not
+    // apply to this one -- there is nothing here for it to apply to.
     const title = (await page.locator('.article-title').first().boundingBox())!;
     const viewport = page.viewportSize()!.width;
     // Stacking the buttons exists to buy this; on a 390px screen the title was
@@ -195,6 +202,30 @@ test.describe('phone layout', () => {
     // Still reachable, just not as a second paragraph.
     await expect(page.locator('.meta-score').first())
       .toHaveAttribute('title', 'No stated interest in municipal parking policy.');
+  });
+
+  test('compact mode keeps the meta line below the photo, not beside it', async ({ page }) => {
+    // Compact hides the summary, so only a single-line headline sits next to
+    // the photo -- shorter than the 76px float, which makes the float the
+    // taller thing in `.article-head`. This is the case the plan for this
+    // change called most likely to look wrong: without `.article-head`
+    // containing the float (`display: flow-root`), the row's own box would
+    // collapse around the short text and `.article-meta` -- score, source,
+    // Save/Up/Down -- would ride up beside the photo instead of clearing it.
+    await page.route('**/api/v1/articles?*', (r) => r.fulfill({ json: {
+      articles: [article(1, { thumbnail_url: 'https://example.com/thumb.jpg' })],
+      next_offset: null, diagnosis: null,
+    } }));
+    await page.reload();
+    await page.waitForSelector('.article-row');
+    await openDrawer(page);
+    await page.getByRole('switch', { name: 'Compact list' }).click();
+    await expect(page.locator('.article-summary')).toBeHidden();
+
+    const thumb = (await page.locator('.article-row .article-thumb').first().boundingBox())!;
+    const meta = (await page.locator('.article-row .article-meta').first().boundingBox())!;
+    expect(meta.y, 'the meta line rode up beside the photo instead of clearing it')
+      .toBeGreaterThanOrEqual(thumb.y + thumb.height - 1);
   });
 
   test('the density choice survives a reload', async ({ page }) => {
@@ -816,17 +847,80 @@ test.describe('photos', () => {
     // The photo sits to the *right* of the text in the redesign, where it used
     // to float on the left. The claim is unchanged: it must not take a row of
     // its own. Only the side it sits on moved.
+    //
+    // Under a float `.article-title`'s own box always spans the full column
+    // width, no matter where its text actually renders -- a float narrows
+    // line boxes, not the element box that contains them -- so a bounding-box
+    // comparison against the thumb no longer proves anything a reader would
+    // notice. This measures the *rendered first line* instead, with
+    // `Range.getClientRects()`.
     const thumb = (await page.locator('.article-row .article-thumb').first().boundingBox())!;
     expect(thumb.width).toBe(76);
+    // Still on the right: nothing sits further right in the row than it does.
+    const row = (await page.locator('.article-row').first().boundingBox())!;
+    expect(thumb.x, 'the photo moved off the right side of the card')
+      .toBeGreaterThan(row.x + row.width / 2);
 
-    const title = (await page.locator('.article-row .article-title').first().boundingBox())!;
-    expect(title.x, 'the headline was pushed under the photo')
+    const firstLine = await page.locator('.article-row .article-title').first().evaluate((el) => {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const r = range.getClientRects()[0];
+      return { x: r.x, y: r.y, right: r.right };
+    });
+    expect(firstLine.x, 'the headline was pushed under the photo')
       .toBeLessThan(thumb.x);
-    expect(title.y, 'the headline starts level with the photo, not after it')
+    expect(firstLine.y, 'the headline starts level with the photo, not after it')
       .toBeLessThan(thumb.y + thumb.height);
+    expect(firstLine.right, 'the first line runs into the photo instead of stopping beside it')
+      .toBeLessThanOrEqual(thumb.x + 1);
   });
 
+  test('a headline and summary long enough to run past the photo wrap under it', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'phone only');
+    // The reader's actual complaint: a flex row leaves the space below a
+    // short 76px photo empty once the text runs taller than it. Wrapping
+    // means a later line of text starts left of the photo *and* runs under
+    // it -- the text fills the column instead of stopping at a boundary a
+    // float doesn't have. An element's bounding box can't show this: under a
+    // float the box always spans the full column regardless of where the
+    // glyphs are, so this measures the real text with
+    // `Range.getClientRects()`.
+    await page.route('**/api/v1/articles?*', (r) => r.fulfill({ json: {
+      articles: [article(1, {
+        thumbnail_url: PIXEL,
+        title: 'A headline on its own long enough to run past the bottom edge of a seventy-six pixel photo on a phone screen',
+        summary: 'And a summary long enough that, together with the headline above it, the text runs well past the photo and has to fill the rest of the row by itself, line after line, exactly the way the reader asked for it to.',
+      })],
+      next_offset: null, diagnosis: null,
+    } }));
+    await page.reload();
+    await page.waitForSelector('.article-row');
 
+    const thumb = (await page.locator('.article-row .article-thumb').first().boundingBox())!;
+
+    const rects = await page.locator('.article-row .article-summary').first().evaluate((el) => {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      return [...range.getClientRects()].map((r) => ({ x: r.x, y: r.y, right: r.right }));
+    });
+
+    const belowPhoto = rects.filter((r) => r.y >= thumb.y + thumb.height - 1);
+    expect(belowPhoto.length, 'no summary line rendered below the photo -- the fixture text is not long enough')
+      .toBeGreaterThan(0);
+    // Every line below the photo starts at the text column's left edge --
+    // there is no reserved column to indent around any more.
+    for (const r of belowPhoto) {
+      expect(r.x, 'a line below the photo must start at the column edge, not indented for a photo that is no longer beside it')
+        .toBeLessThan(thumb.x);
+    }
+    // And at least one of them -- not necessarily the last, which is a
+    // paragraph's natural short trailing line -- runs all the way under
+    // where the photo was, proving the text fills the column rather than
+    // stopping at a boundary the float doesn't actually have.
+    const widest = Math.max(...belowPhoto.map((r) => r.right));
+    expect(widest, 'no line below the photo reaches under where the photo was')
+      .toBeGreaterThan(thumb.x + thumb.width - 5);
+  });
 
   test('the reader leads with the photo', async ({ page }) => {
     // The detail endpoint is its own fixture; the list mock above does not
@@ -861,9 +955,23 @@ test.describe('the photos toggle', () => {
   test('turns the photos off and gives the width back', async ({ page }) => {
     // Not the same lever as compact. That drops text the model produced; this
     // drops the only thing on a card fetched from a third party.
+    //
+    // `.article-title`'s own box spans the full column width whether or not
+    // the photo is even there -- a block box's width ignores floats
+    // regardless of their presence -- so comparing the box before and after
+    // no longer proves the text reflowed at all: it would report an
+    // unchanged width and this test would start failing on a photo that
+    // really did give the width back. This compares the *rendered first
+    // line*, measured with `Range.getClientRects()`, which the float
+    // actually does narrow.
     const thumb = page.locator('.article-row .article-thumb').first();
     await expect(thumb).toBeVisible();
-    const narrow = (await page.locator('.article-row .article-title').first().boundingBox())!.width;
+    const firstLineWidth = () => page.locator('.article-row .article-title').first().evaluate((el) => {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      return range.getClientRects()[0].width;
+    });
+    const narrow = await firstLineWidth();
 
     await openDrawer(page);
     await page.getByRole('switch', { name: 'Show photos' }).click();
@@ -871,8 +979,17 @@ test.describe('the photos toggle', () => {
     await expect(thumb).toBeHidden();
     // The photo sits to the right now, so the headline reclaims the space by
     // growing wider rather than by moving left. The hole must not simply stay.
-    const wide = (await page.locator('.article-row .article-title').first().boundingBox())!.width;
+    const wide = await firstLineWidth();
     expect(wide).toBeGreaterThan(narrow);
+
+    // No float, no reserved column: the text fills the row's own width, not
+    // a width still leaving room for the photo that is no longer there.
+    const row = (await page.locator('.article-row').first().boundingBox())!;
+    const title = (await page.locator('.article-row .article-title').first().boundingBox())!;
+    expect(title.x, 'the headline left a leftover left margin with photos off')
+      .toBeCloseTo(row.x, 0);
+    expect(title.x + title.width, 'the headline left a reserved gap on the right with photos off')
+      .toBeGreaterThan(row.x + row.width - 2);
   });
 
   test('the choice survives a reload', async ({ page }) => {

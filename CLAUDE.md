@@ -311,14 +311,21 @@ both clients.
   would collapse "since Friday" into "since a minute ago" — a label that resets whenever
   you look at it says nothing. It is not `last_login_at`: with a 90-day session cookie
   that can be months.
-- **The article card is two rows.** `.article-head` — headline, summary and the
-  thumbnail beside them — over a single `.article-meta` line carrying score · source ·
-  age · duplicate count on the left and Save / Up / Down on the right. That one line
-  replaced four separate rows; the earlier layout before those was a four-column grid
-  that reserved a photo column on every card whether or not there was a photo in it, and
-  that reservation was the white space. The headline is still a `<span role="button">`
-  and **not a `<button>`** — a button is an atomic inline-level box in every engine
-  (`display: inline` does not change that), and everything on this card is type.
+- **The article card is two rows.** `.article-head` — the photo floats right and the
+  headline and summary wrap around it — over a single `.article-meta` line carrying
+  score · source · age · duplicate count on the left and Save / Up / Down on the right.
+  That one line replaced four separate rows; the earlier layout before those was a
+  four-column grid that reserved a photo column on every card whether or not there was a
+  photo in it, and that reservation was the white space. `.article-head` then spent a
+  batch as a flex row, which brought a version of the same white space back: a flex
+  column has a fixed width, so once the headline and summary ran taller than the 76px
+  photo, the space below the photo sat empty rather than the text filling it. Floating
+  the thumbnail and giving `.article-head` `display: flow-root` (so its own box still
+  contains the float, and `.article-meta` below it can never land beside the photo) is
+  what makes a later line of text run the full column width under the photo instead. The
+  headline is still a `<span role="button">` and **not a `<button>`** — a button is an
+  atomic inline-level box in every engine (`display: inline` does not change that) and so
+  can never wrap a float — and everything on this card is type.
   Actions are words, not emoji. The score is a bare gold number: **no pill survives on
   the card at all.** The redesign kept a pill only for single-story mode — it was built
   and is on `main` (`components/SingleStory.tsx`'s `.score-pill`); the card itself just

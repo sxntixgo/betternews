@@ -555,18 +555,38 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
   font-style: italic;
 }
 
-/* The story: text in a column, the photo beside it. */
-.article-head { display: flex; gap: 16px; align-items: flex-start; }
-/* 4px, from 8 -- headline to summary, halved with the rest of the rhythm.
-   Not the gap the separation ratio is measured against: compact hides the
-   summary and this gap spans nothing there, which is why `.article-row`'s
-   gap (below) is the denominator instead. */
-.article-text { flex: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+/* The story: the photo floats right, and the headline and summary wrap
+   around it in one flow -- a plain block box, not a flex row, so a line of
+   text can share a row with the photo instead of being pushed below it
+   whole. That is the white space the reader was pointing at: a flex row
+   gives the text column a fixed width and leaves whatever the photo doesn't
+   fill sitting empty once the text runs taller than 76px.
+   `display: flow-root` gives `.article-head` its own block formatting
+   context, which is what makes the element report a height that includes
+   the float rather than collapsing to zero around it -- a `::after {
+   content: ''; display: table; clear: both; }` clearfix would do the same
+   job with an extra pseudo-element; flow-root is the rule written for
+   exactly this and needs neither. Because `.article-head`'s own box already
+   reaches past the float's bottom edge, `.article-meta` -- a sibling flex
+   item below it, not a descendant -- can never land beside the photo: it
+   starts where `.article-head` ends, and that is already past the float.
+   One mechanism answers both risks: the float escaping onto the next card,
+   and the meta line riding up beside this one's photo. */
+.article-head { display: flow-root; }
+/* `.article-text` carries no rule of its own any more: floats don't touch a
+   block box's own width, so the plain <div> already fills `.article-head`
+   at its default width and lets its children's line boxes wrap the float. */
 
 /* A span with role="button", never a <button>: a button is an atomic
-   inline-level box in every engine, so it can never wrap around anything and
-   `font: inherit` has to be undone by hand. Everything here is type. */
+   inline-level box in every engine, so it could never wrap around the float
+   above. That was the whole reason for hand-writing role/tabIndex/onKeyDown
+   here instead of reaching for <button> -- and it now pays for itself.
+   `display: block` is what lets it wrap: as a flex item the span was
+   block-ified for free, but `.article-head` is no longer a flex row, so the
+   same box shape has to be stated explicitly, and `font: inherit` has to be
+   undone by hand. Everything here is type. */
 .article-title {
+  display: block;
   /* 15/400, from 17/600. A reading list is forty headlines in a column, and at
      600 that is a wall of bold with nothing standing out of it because
      everything is. Hierarchy moves onto size and colour instead: 15px
@@ -582,7 +602,11 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
   cursor: pointer;
 }
 .article-summary {
-  margin: 0;
+  /* 4px top, from the `.article-text` flex `gap` this replaced -- `gap` does
+     not apply outside flex/grid, so the space between the headline and the
+     summary moves onto the summary's own margin instead. `.hidden-reason`
+     already carried the same 4px this way, for the same reason. */
+  margin: 4px 0 0;
   /* 13, from 14. The headline came down to 15; at 14 the two were a pixel
      apart and the card read as one undifferentiated block of text. */
   font-size: 13px;
@@ -592,9 +616,15 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
   text-wrap: pretty;
 }
 .article-thumb {
+  float: right;
+  /* The photo sits on the right in the redesign; this is the gap between it
+     and the text that wraps its left edge. No bottom margin: the reader's
+     complaint was exactly the white space a fixed-width column left under a
+     short photo, and `.article-row`'s own 5px gap already separates
+     `.article-head` from `.article-meta` below it. */
+  margin: 0 0 0 16px;
   width: 76px;
   height: 76px;
-  flex: none;
   border-radius: var(--radius-thumb);
   object-fit: cover;
   /* Stripes rather than a flat grey: a slow or missing image reads as a
@@ -1632,7 +1662,6 @@ kbd {
     padding: 16px 20px;
   }
 
-  .article-head { gap: 22px; }
   /* 17, from 20, tracking down with it. The base rule sets the weight for both
      widths; only size, line-height and tracking are per-width. */
   .article-title { font-size: 17px; line-height: 1.35; letter-spacing: -0.1px; }
@@ -1643,7 +1672,10 @@ kbd {
      than matching it. Line-height and weight stay the base rule's 1.25/700 --
      only the size is per-width, exactly as `.article-title` does it. */
   .modal-body h1 { font-size: 18px; }
-  .article-thumb { width: 104px; height: 78px; }
+  /* 22px, from the base rule's 16 -- the gap between the wrapped text and the
+     float, now the thumb's own left margin since `gap` no longer applies
+     once `.article-head` stopped being a flex row. */
+  .article-thumb { width: 104px; height: 78px; margin-left: 22px; }
   .article-meta { font-size: 11.5px; }
   .article-actions { gap: 20px; }
   .article-actions .action-open { display: inline; }

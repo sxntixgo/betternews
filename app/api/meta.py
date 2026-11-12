@@ -10,6 +10,7 @@ from app.api import api_admin, api_auth, bp, current_api_user, error, serializer
 from app.db import get_db, get_setting
 from app.pipeline import ollama_base
 from app.repo import articles as art_repo
+from app.repo import folders as folders_repo
 
 log = logging.getLogger(__name__)
 
@@ -21,6 +22,9 @@ def list_feeds():
     rows = art_repo.sidebar_counts(db, current_api_user())
     return jsonify({
         "feeds": [serializers.feed(r) for r in rows],
+        # Every folder, empty ones included: one made a moment ago has to show
+        # up in the sidebar before anything is filed in it.
+        "folders": [{"id": f["id"], "name": f["name"]} for f in folders_repo.all_(db)],
         "unread": sum((r["unread"] or 0) for r in rows),
         "saved": sum((r["saved"] or 0) for r in rows),
         "hidden": sum((r["hidden"] or 0) for r in rows),

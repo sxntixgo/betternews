@@ -9,11 +9,16 @@ export const ME: Me = {
 
 export const FEEDS: FeedList = {
   feeds: [
-    { id: 7, title: 'The Verge', unread: 16, hidden: 4, saved: 0, paused: false, tags: ['tech'] },
+    { id: 7, title: 'The Verge', unread: 16, hidden: 4, saved: 0, paused: false, tags: ['tech'],
+      folder_id: 2 },
     { id: 8, title: 'LA NACION', unread: 120, hidden: 9, saved: 1, paused: false,
-      tags: ['argentina'] },
-    { id: 9, title: 'Untagged Blog', unread: 3, hidden: 0, saved: 0, paused: false, tags: [] },
+      tags: ['argentina'], folder_id: 1 },
+    { id: 9, title: 'Untagged Blog', unread: 3, hidden: 0, saved: 0, paused: false, tags: [],
+      folder_id: null },
   ],
+  // Folders are the reader's own, not the tags: "Empty" has nothing filed in it
+  // yet and still shows, so a folder just made is visible before it is used.
+  folders: [{ id: 1, name: 'Argentina' }, { id: 3, name: 'Empty' }, { id: 2, name: 'Tech' }],
   unread: 139, saved: 1, hidden: 13,
 };
 
@@ -82,15 +87,30 @@ export async function mockApi(page: Page, articles: Article[] = ARTICLES) {
     json: { feeds: [
       { id: 7, url: 'https://verge.example/rss', title: 'The Verge', paused: false,
         last_polled_at: null, last_success_at: null, last_error: null,
-        consecutive_failures: 0, score_threshold: null, tags: ['tech'] },
+        consecutive_failures: 0, score_threshold: null, tags: ['tech'], folder_id: 2 },
       { id: 8, url: 'https://broken.example/rss', title: 'Broken', paused: true,
         last_polled_at: null, last_success_at: null,
         last_error: 'Name or service not known', consecutive_failures: 5,
-        score_threshold: 0.5, tags: [] },
+        score_threshold: 0.5, tags: [], folder_id: null },
     ] },
   }));
-  await page.route('**/api/v1/feeds/*/pause', (r) => r.fulfill({ json: { id: 7, paused: true, url: '', title: '', last_polled_at: null, last_success_at: null, last_error: null, consecutive_failures: 0, score_threshold: null, tags: [] } }));
-  await page.route('**/api/v1/feeds/*/resume', (r) => r.fulfill({ json: { id: 8, paused: false, url: '', title: '', last_polled_at: null, last_success_at: null, last_error: null, consecutive_failures: 0, score_threshold: null, tags: [] } }));
+  await page.route('**/api/v1/folders', (r) => (r.request().method() === 'POST'
+    ? r.fulfill({ json: { id: 4, name: (r.request().postDataJSON() as { name: string }).name, feeds: 0 } })
+    : r.fulfill({ json: { folders: [
+      { id: 1, name: 'Argentina', feeds: 1 }, { id: 3, name: 'Empty', feeds: 0 },
+      { id: 2, name: 'Tech', feeds: 1 },
+    ] } })));
+  await page.route('**/api/v1/folders/*/rename', (r) => r.fulfill({
+    json: { id: 2, name: (r.request().postDataJSON() as { name: string }).name, feeds: 1 } }));
+  await page.route('**/api/v1/folders/*', (r) => (r.request().method() === 'DELETE'
+    ? r.fulfill({ json: { deleted: 3 } }) : r.fallback()));
+  await page.route('**/api/v1/feeds/*/folder', (r) => r.fulfill({ json: {
+    id: 7, url: 'https://verge.example/rss', title: 'The Verge', paused: false,
+    last_polled_at: null, last_success_at: null, last_error: null,
+    consecutive_failures: 0, score_threshold: null, tags: ['tech'],
+    folder_id: (r.request().postDataJSON() as { folder_id: number | null }).folder_id } }));
+  await page.route('**/api/v1/feeds/*/pause', (r) => r.fulfill({ json: { id: 7, paused: true, url: '', title: '', last_polled_at: null, last_success_at: null, last_error: null, consecutive_failures: 0, score_threshold: null, tags: [], folder_id: null } }));
+  await page.route('**/api/v1/feeds/*/resume', (r) => r.fulfill({ json: { id: 8, paused: false, url: '', title: '', last_polled_at: null, last_success_at: null, last_error: null, consecutive_failures: 0, score_threshold: null, tags: [], folder_id: null } }));
   // Tags and threshold save on blur, so *tabbing through the feeds table*
   // fires them. Unmocked, they reached the real server, 401'd, and signed the
   // reader out -- which looks like a broken focus trap rather than a missing
@@ -98,7 +118,7 @@ export async function mockApi(page: Page, articles: Article[] = ARTICLES) {
   const feedRow = {
     id: 7, url: 'https://verge.example/rss', title: 'The Verge', paused: false,
     last_polled_at: null, last_success_at: null, last_error: null,
-    consecutive_failures: 0, score_threshold: null, tags: ['tech'],
+    consecutive_failures: 0, score_threshold: null, tags: ['tech'], folder_id: null,
   };
   await page.route('**/api/v1/feeds/*/tags', (r) => r.fulfill({ json: feedRow }));
   await page.route('**/api/v1/feeds/*/threshold', (r) => r.fulfill({ json: feedRow }));

@@ -1049,3 +1049,57 @@ test.describe('the photos toggle', () => {
     await expect(page.getByRole('dialog').locator('.modal-lead')).toBeHidden();
   });
 });
+
+test.describe('the photo side', () => {
+  const PIXEL = 'data:image/gif;base64,R0lGODlhAQABAIABAP8AAP///yH5BAEAAAEALAAAAAABAAEAAAICTAEAOw==';
+
+  test.beforeEach(async ({ page }) => {
+    await signedIn(page);
+    await mockApi(page);
+    await page.route('**/api/v1/articles?*', (r) => r.fulfill({ json: {
+      articles: [1, 2].map((i) => article(i, { thumbnail_url: PIXEL })),
+      next_offset: null, diagnosis: null,
+    } }));
+    await page.goto('/');
+    await page.waitForSelector('.article-row');
+  });
+
+  test('offers Left and Right, and Right is the default', async ({ page }) => {
+    await openDrawer(page);
+    const group = page.getByRole('radiogroup', { name: 'Photo side' });
+    await expect(group.getByRole('radio')).toHaveText(['Left', 'Right']);
+    await expect(group.getByRole('radio', { name: 'Right' })).toHaveAttribute('aria-checked', 'true');
+  });
+
+  test('Left puts the photo on the left with the headline beside it', async ({ page }) => {
+    await openDrawer(page);
+    await page.getByRole('radiogroup', { name: 'Photo side' }).getByRole('radio', { name: 'Left' }).click();
+    await expect(page.locator('html')).toHaveAttribute('data-photo-side', 'left');
+    // The drawer covers the list on a phone; close it before measuring.
+    // Clicked at its right edge: the drawer covers the scrim's middle.
+    if (await page.locator('.drawer-scrim.visible').count()) {
+      await page.locator('.drawer-scrim').click({ position: { x: 340, y: 40 } });
+    }
+
+    const row = (await page.locator('.article-row').first().boundingBox())!;
+    const thumb = (await page.locator('.article-row .article-thumb').first().boundingBox())!;
+    expect(thumb.x, 'the photo is not on the left of the card').toBeLessThan(row.x + row.width / 2);
+    const firstLine = await page.locator('.article-row .article-title').first().evaluate((el) => {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const r = range.getClientRects()[0];
+      return { x: r.x, y: r.y };
+    });
+    expect(firstLine.x, 'the headline runs over the photo instead of beside it')
+      .toBeGreaterThanOrEqual(thumb.x + thumb.width - 1);
+    expect(firstLine.y, 'the headline was pushed under the photo').toBeLessThan(thumb.y + thumb.height);
+  });
+
+  test('the choice survives a reload', async ({ page }) => {
+    await openDrawer(page);
+    await page.getByRole('radiogroup', { name: 'Photo side' }).getByRole('radio', { name: 'Left' }).click();
+    await page.reload();
+    await page.waitForSelector('.article-row');
+    await expect(page.locator('html')).toHaveAttribute('data-photo-side', 'left');
+  });
+});

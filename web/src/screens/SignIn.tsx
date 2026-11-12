@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { isNetworkError } from '@shared/api';
+import { useEffect, useState } from 'react';
+import { isNetworkError, type SsoInfo } from '@shared/api';
 import { api } from '../api/client';
 
 /**
@@ -14,6 +14,15 @@ export function SignIn({ onDone }: { onDone: () => void }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Offered only when the server says so. Any failure just leaves it out: the
+  // password form must work whether or not this question gets an answer.
+  const [sso, setSso] = useState<SsoInfo | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    api.ssoInfo().then((info) => { if (live && info.enabled && info.url) setSso(info); }).catch(() => {});
+    return () => { live = false; };
+  }, []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -76,6 +85,14 @@ export function SignIn({ onDone }: { onDone: () => void }) {
         <button type="submit" disabled={busy || !username.trim() || !password}>
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
+        {/* A link, not a button: the provider round trip is a full-page
+            navigation the server drives, and `.signin button` stays the one
+            submit control. */}
+        {sso && (
+          <a className="btn-secondary signin-sso" href={sso.url ?? undefined}>
+            Sign in with {sso.name}
+          </a>
+        )}
       </div>
     </form>
   );

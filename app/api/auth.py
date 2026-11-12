@@ -91,6 +91,19 @@ def register():
     })
 
 
+@bp.get("/auth/sso")
+def sso():
+    """Whether single sign-on is offered, for the SPA's sign-in screen. Public.
+
+    The flow itself stays server-side (`/login/sso`, app/views/oidc.py): the SPA
+    only needs to know whether to show the button and where it goes.
+    """
+    from app.views import oidc
+    if not oidc.configured():
+        return jsonify({"enabled": False, "name": None, "url": None})
+    return jsonify({"enabled": True, "name": oidc.button_name(), "url": "/login/sso"})
+
+
 @bp.post("/auth/logout")
 def logout():
     """Ends the session. Safe to call when not signed in."""

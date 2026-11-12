@@ -7,6 +7,8 @@ still have to be HTML, and they are the only reason this package exists:
   somewhere to land that does not depend on the bundle having loaded. If the
   SPA were the only way in, a broken build would lock everyone out of their own
   reader with no way to tell whether the server was even up.
+* **Single sign-on** (`/login/sso`, `/login/sso/callback`): the provider
+  sends a browser back here, before any bundle exists. Off unless configured.
 * **`/health`.** The container healthcheck curls it, so it must answer without
   a session and without JavaScript.
 
@@ -27,4 +29,4 @@ bp = Blueprint("main", __name__)
 # Imported for their side effect: each module registers its routes on `bp`.
 # Must come last, after `bp` exists -- this is the one place in the codebase
 # where import order is load-bearing.
-from app.views import accounts, ops  # noqa: E402,F401
+from app.views import accounts, oidc, ops  # noqa: E402,F401

@@ -240,11 +240,10 @@ test.describe('the sidebar', () => {
     }
   });
 
-  test('groups feeds under their tags, with untagged last', async ({ page }) => {
-    // The flat list this replaces ignored Feed.tags entirely, so tagging a feed
-    // in Manage Feeds was something you could do and never see the effect of.
+  test('groups feeds under their folders, empty ones too, with unfiled last', async ({ page }) => {
+    // Folders are made by hand in Manage feeds; tags no longer drive this.
     const labels = await page.locator('.sidebar-tag-label').allInnerTexts();
-    expect(labels.map((l) => l.toLowerCase())).toEqual(['argentina', 'tech', 'untagged']);
+    expect(labels.map((l) => l.toLowerCase())).toEqual(['argentina', 'empty', 'tech', 'no folder']);
 
     const tech = page.locator('.sidebar-group').filter({ hasText: 'tech' }).first();
     await expect(tech.locator('.sidebar-feed-nested')).toContainText(['The Verge']);
@@ -540,4 +539,40 @@ test('no article is ever rendered twice', async ({ page }) => {
 
   const ids = await page.locator('.article-row').evaluateAll((els) => els.map((e) => e.id));
   expect(ids).toEqual([...new Set(ids)]);
+});
+
+test.describe('folders', () => {
+  // A folder's name opens every feed filed in it as one list; the caret beside
+  // it still only collapses it.
+  test.beforeEach(async ({ page }) => {
+    await openDrawer(page);
+  });
+
+  const folder = (page: import('@playwright/test').Page, name: string) =>
+    page.locator('.sidebar-folder', { hasText: name });
+
+  test('opening a folder lists every feed in it, and says so in the header', async ({ page }) => {
+    const request = page.waitForRequest((r) => r.url().includes('/articles?') && r.url().includes('folder=2'));
+    await folder(page, 'Tech').click();
+    const url = (await request).url();
+    expect(url, 'a folder is not one feed').not.toContain('feed=');
+    await expect(page.locator('.app-header')).toContainText('Tech');
+  });
+
+  test('a folder shows the unread count of the feeds in it', async ({ page }) => {
+    await expect(folder(page, 'Argentina')).toContainText('120');
+  });
+
+  test('choosing a feed after a folder drops the folder', async ({ page }) => {
+    await folder(page, 'Tech').click();
+    await openDrawer(page);
+    const request = page.waitForRequest((r) => r.url().includes('/articles?') && r.url().includes('feed=8'));
+    await page.locator('.sidebar-feed-nested', { hasText: 'LA NACION' }).first().click();
+    expect((await request).url()).not.toContain('folder=');
+  });
+
+  test('"No folder" is a heading, not a folder', async ({ page }) => {
+    await expect(page.locator('.sidebar-tag-label', { hasText: /^No folder$/i })).toHaveCount(1);
+    await expect(page.locator('.sidebar-folder', { hasText: /No folder/i })).toHaveCount(0);
+  });
 });

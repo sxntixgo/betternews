@@ -61,3 +61,61 @@ test('exporting OPML downloads a file', async ({ page }) => {
   // <a download>, so the URL never carries it.
   expect(download.suggestedFilename()).toBe('betternews-feeds-20260802.opml');
 });
+
+test.describe('folders', () => {
+  test('a feed is filed into a folder from its row', async ({ page }) => {
+    await openFeeds(page);
+    const pick = page.getByRole('combobox', { name: 'Folder for The Verge' });
+    await expect(pick).toHaveValue('2');
+    const request = page.waitForRequest((r) => r.url().endsWith('/feeds/7/folder'));
+    await pick.selectOption({ label: 'Argentina' });
+    expect((await request).postDataJSON()).toEqual({ folder_id: 1 });
+  });
+
+  test('"No folder" takes a feed out of its folder', async ({ page }) => {
+    await openFeeds(page);
+    const request = page.waitForRequest((r) => r.url().endsWith('/feeds/7/folder'));
+    await page.getByRole('combobox', { name: 'Folder for The Verge' }).selectOption({ label: 'No folder' });
+    expect((await request).postDataJSON()).toEqual({ folder_id: null });
+  });
+
+  test('a new folder is created by name', async ({ page }) => {
+    await openFeeds(page);
+    const request = page.waitForRequest((r) => r.url().endsWith('/api/v1/folders') && r.method() === 'POST');
+    await page.getByRole('textbox', { name: 'New folder' }).fill('Travel');
+    await page.getByRole('button', { name: 'Add folder' }).click();
+    expect((await request).postDataJSON()).toEqual({ name: 'Travel' });
+  });
+
+  test('a folder is renamed in place', async ({ page }) => {
+    await openFeeds(page);
+    const name = page.getByRole('textbox', { name: 'Folder name: Tech' });
+    const request = page.waitForRequest((r) => r.url().endsWith('/folders/2/rename'));
+    await name.fill('Technology');
+    await name.blur();
+    expect((await request).postDataJSON()).toEqual({ name: 'Technology' });
+  });
+
+  test('deleting a folder asks first and says the feeds stay', async ({ page }) => {
+    await openFeeds(page);
+    let asked = '';
+    page.once('dialog', (d) => { asked = d.message(); void d.accept(); });
+    const request = page.waitForRequest((r) => r.url().endsWith('/folders/3') && r.method() === 'DELETE');
+    await page.getByRole('button', { name: 'Delete folder Empty' }).click();
+    await request;
+    expect(asked).toContain('Empty');
+    expect(asked).toMatch(/feeds stay/i);
+  });
+
+  test('a plain reader sees folders but cannot change them', async ({ page }) => {
+    await page.route('**/api/v1/me', (r) => r.fulfill({
+      json: { id: 2, username: 'plain', role: 'user', declickbait: false, content_filter_mode: 'off' },
+    }));
+    await page.reload();
+    await page.waitForSelector('.article-row');
+    await openFeeds(page);
+    await expect(page.getByRole('combobox', { name: 'Folder for The Verge' })).toHaveCount(0);
+    await expect(page.getByRole('textbox', { name: 'New folder' })).toHaveCount(0);
+    await expect(page.locator('.feed-table')).toContainText('Tech');
+  });
+});

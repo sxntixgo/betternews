@@ -1036,6 +1036,11 @@ dialog[open] { display: flex; flex-direction: column; }
 /* The way out is not the thing to press first. `.btn-secondary` alone loses to
    `.signin-cta button` on specificity, so without this the escape hatch renders
    as a second identical gold pill beside the action it is the alternative to. */
+.signin-cta .signin-sso {
+  height: 52px; border-radius: var(--radius-pill);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px; font-weight: 600; text-decoration: none;
+}
 .signin-cta .btn-secondary {
   background: none;
   color: var(--color-ink-muted);
@@ -1271,6 +1276,37 @@ kbd {
   text-transform: uppercase;
   color: var(--color-ink-muted);
 }
+/* Manage feeds: the folder list and its add form. */
+.folder-list { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 8px; }
+.folder-list li { display: flex; align-items: center; gap: 12px; }
+.folder-list li input { flex: 1; min-width: 0; }
+.folder-add { display: flex; gap: 8px; margin-bottom: 20px; }
+.folder-add input { flex: 1; min-width: 0; padding: 8px; }
+.feed-folder { max-width: 160px; }
+
+/* A folder's name is a button: it reads every feed under the tag as one list.
+   It keeps the label's small-caps look so the groups still read as headings,
+   and carries the folder's unread count at the same trailing edge as a feed's. */
+.sidebar-folder {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+/* The count sits on a heading row, not a feed row: without this its 16px line
+   and padding made every folder heading 5px taller than the label alone. */
+.sidebar-folder .sidebar-feed-count { line-height: 1; padding-block: 0; }
+.sidebar-folder:hover .sidebar-tag-label,
+.sidebar-folder.active .sidebar-tag-label { color: var(--color-ink); }
+
 /* The nested feeds used to be indented 26px again under the tag label. They
    are already 16px behind `.drawer-children`'s rule, and a second indent on
    top of it left the titles fighting for what was left of a 260px drawer. */
@@ -1623,6 +1659,10 @@ kbd {
 [data-photos='off'] .article-thumb,
 [data-photos='off'] .modal-lead { display: none; }
 
+/* Photo on the left. Only the float changes side: the text still wraps it and
+   reclaims the full width underneath, so nothing else on the card moves. */
+[data-photo-side='left'] .article-thumb { float: left; margin: 0 16px 0 0; }
+
 /* ── Desktop ─────────────────────────────────────────────────────────────
    Everything above is written for a phone and is the base; this is the only
    block that widens it, and below 900px none of it applies -- which is what
@@ -1694,6 +1734,7 @@ kbd {
      float, now the thumb's own left margin since `gap` no longer applies
      once `.article-head` stopped being a flex row. */
   .article-thumb { width: 104px; height: 78px; margin-left: 22px; }
+  [data-photo-side='left'] .article-thumb { margin-left: 0; margin-right: 22px; }
   .article-meta { font-size: 11.5px; }
   .article-actions { gap: 20px; }
   .article-actions .action-open { display: inline; }

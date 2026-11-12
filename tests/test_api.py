@@ -951,7 +951,11 @@ FEED_ADMIN_ENDPOINTS = [
     ("post", f"{API}/feeds/1/resume"),
     ("post", f"{API}/feeds/1/threshold"),
     ("post", f"{API}/feeds/1/tags"),
+    ("post", f"{API}/feeds/1/folder"),
     ("post", f"{API}/feeds/opml"),
+    ("post", f"{API}/folders"),
+    ("post", f"{API}/folders/1/rename"),
+    ("delete", f"{API}/folders/1"),
 ]
 
 
@@ -1918,6 +1922,145 @@ def test_dismiss_all_respects_the_feed_and_saved_filters(client, app, token):
         db.close()
     assert client.post(f"{API}/articles/dismiss-all?saved=1",
                        headers=auth(token)).get_json()["dismissed"] == 1
+
+
+def test_the_feed_list_carries_whole_tags_not_letters(client, app, token):
+    """`list()` on the stored comma-separated string gave one entry per letter."""
+    from sqlalchemy import update
+
+    from app.db import get_db_direct
+    from app.models import feeds
+    with app.app_context():
+        db = get_db_direct()
+        fid = add_feed(db, url="http://tags.example/f")
+        db.execute(update(feeds).where(feeds.c.id == fid).values(tags="security news,tech"))
+        db.commit()
+        db.close()
+    got = client.get(f"{API}/feeds", headers=auth(token)).get_json()["feeds"]
+    assert [f["tags"] for f in got] == [["security news", "tech"]]
+
+
+# ── folders: groups of feeds the reader makes by hand ─────────────────────────
+
+def _feeds(app, *names):
+    from app.db import get_db_direct
+    with app.app_context():
+        db = get_db_direct()
+        made = {}
+        for i, name in enumerate(names, 1):
+            fid = add_feed(db, url=f"http://{name}.example/f", title=name)
+            add_article(db, fid, seq=i, guid=f"g-{name}", title=f"From {name}")
+            made[name] = fid
+        db.commit()
+        db.close()
+    return made
+
+
+def _folder(client, token, name):
+    r = client.post(f"{API}/folders", headers=auth(token), json={"name": name})
+    assert r.status_code == 200, r.get_json()
+    return r.get_json()["id"]
+
+
+def _file(client, token, feed_id, folder_id):
+    r = client.post(f"{API}/feeds/{feed_id}/folder", headers=auth(token),
+                    json={"folder_id": folder_id})
+    assert r.status_code == 200, r.get_json()
+    return r.get_json()
+
+
+def test_folders_are_created_listed_and_named_once(client, token):
+    tech = _folder(client, token, "  Tech  ")
+    assert client.get(f"{API}/folders", headers=auth(token)).get_json() == {
+        "folders": [{"id": tech, "name": "Tech", "feeds": 0}]}
+    # Case-insensitive: "tech" and "Tech" would be two identical-looking rows.
+    dup = client.post(f"{API}/folders", headers=auth(token), json={"name": "tech"})
+    assert dup.status_code == 409 and dup.is_json
+    empty = client.post(f"{API}/folders", headers=auth(token), json={"name": "  "})
+    assert empty.status_code == 400
+
+
+def test_folders_list_alphabetically(client, token):
+    for name in ["travel", "Argentina", "Security News"]:
+        _folder(client, token, name)
+    got = client.get(f"{API}/folders", headers=auth(token)).get_json()["folders"]
+    assert [f["name"] for f in got] == ["Argentina", "Security News", "travel"]
+
+
+def test_a_feed_goes_into_one_folder_and_back_out(client, app, token):
+    made = _feeds(app, "verge")
+    a, b = _folder(client, token, "A"), _folder(client, token, "B")
+    assert _file(client, token, made["verge"], a)["folder_id"] == a
+    assert _file(client, token, made["verge"], b)["folder_id"] == b    # moved, not copied
+    assert _file(client, token, made["verge"], None)["folder_id"] is None
+
+    feeds = client.get(f"{API}/feeds", headers=auth(token)).get_json()
+    assert feeds["feeds"][0]["folder_id"] is None
+    # The sidebar shows empty folders too, so a new one is visible before it is used.
+    assert [f["name"] for f in feeds["folders"]] == ["A", "B"]
+
+
+def test_filing_into_a_missing_folder_or_feed_is_a_404(client, app, token):
+    made = _feeds(app, "verge")
+    assert client.post(f"{API}/feeds/{made['verge']}/folder", headers=auth(token),
+                       json={"folder_id": 999}).status_code == 404
+    f = _folder(client, token, "A")
+    assert client.post(f"{API}/feeds/999/folder", headers=auth(token),
+                       json={"folder_id": f}).status_code == 404
+
+
+def test_renaming_a_folder(client, token):
+    a, _ = _folder(client, token, "A"), _folder(client, token, "B")
+    r = client.post(f"{API}/folders/{a}/rename", headers=auth(token), json={"name": "Argentina"})
+    assert r.get_json() == {"id": a, "name": "Argentina", "feeds": 0}
+    assert client.post(f"{API}/folders/{a}/rename", headers=auth(token),
+                       json={"name": "b"}).status_code == 409
+    assert client.post(f"{API}/folders/999/rename", headers=auth(token),
+                       json={"name": "x"}).status_code == 404
+
+
+def test_deleting_a_folder_keeps_its_feeds(client, app, token):
+    made = _feeds(app, "verge")
+    a = _folder(client, token, "A")
+    _file(client, token, made["verge"], a)
+    assert client.delete(f"{API}/folders/{a}", headers=auth(token)).get_json() == {"deleted": a}
+    feeds = client.get(f"{API}/feeds", headers=auth(token)).get_json()
+    assert feeds["folders"] == []
+    assert [(f["title"], f["folder_id"]) for f in feeds["feeds"]] == [("verge", None)]
+    assert client.delete(f"{API}/folders/{a}", headers=auth(token)).status_code == 404
+
+
+def test_management_rows_carry_the_folder(client, app, token):
+    made = _feeds(app, "verge")
+    a = _folder(client, token, "A")
+    _file(client, token, made["verge"], a)
+    rows = client.get(f"{API}/feeds/manage", headers=auth(token)).get_json()["feeds"]
+    assert rows[0]["folder_id"] == a
+
+
+def test_the_list_can_be_filtered_by_folder(client, app, token):
+    made = _feeds(app, "verge", "techcrunch", "lanacion")
+    tech = _folder(client, token, "Tech")
+    _file(client, token, made["verge"], tech)
+    _file(client, token, made["techcrunch"], tech)
+
+    def titles(q):
+        r = client.get(f"{API}/articles?{q}", headers=auth(token)).get_json()
+        return sorted(a["title"] for a in r["articles"])
+
+    assert titles(f"folder={tech}") == ["From techcrunch", "From verge"]
+    assert titles("folder=999") == []
+
+
+def test_dismiss_all_respects_the_folder_filter(client, app, token):
+    made = _feeds(app, "verge", "lanacion")
+    tech = _folder(client, token, "Tech")
+    _file(client, token, made["verge"], tech)
+    dismissed = client.post(f"{API}/articles/dismiss-all?folder={tech}",
+                            headers=auth(token)).get_json()
+    assert dismissed["dismissed"] == 1
+    left = client.get(f"{API}/articles?feed={made['lanacion']}", headers=auth(token)).get_json()
+    assert [a["state"]["dismissed"] for a in left["articles"]] == [False]
 
 
 # ── prompt inspection and editing ─────────────────────────────────────────────

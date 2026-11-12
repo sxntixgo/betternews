@@ -26,5 +26,12 @@
       {% endif %}
     </div>
   </form>
+  {% if sso_name %}
+    <form method="get" action="{{ url_for('main.sso_start') }}" class="models-form">
+      <div class="models-actions">
+        <button type="submit">Sign in with {{ sso_name }}</button>
+      </div>
+    </form>
+  {% endif %}
 </div>
 {% endblock %}

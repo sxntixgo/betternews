@@ -3,6 +3,7 @@ import type { FeedList, Me } from '@shared/api';
 import { api } from '../api/client';
 import { setDensity, type Density } from '../density';
 import { setPhotos, type Photos } from '../photos';
+import { setPhotoSide, type PhotoSide } from '../photoSide';
 import { setTags, type Tags } from '../tags';
 import { setTheme, type ThemePreference } from '../theme';
 import { Toggle } from './Toggle';
@@ -14,9 +15,11 @@ interface DrawerProps {
   me: Me | null;
   feeds: FeedList | null;
   feed: number | undefined;
+  folder: number | undefined;
   saved: boolean;
   hidden: boolean;
   photos: Photos;
+  photoSide: PhotoSide;
   tags: Tags;
   density: Density;
   sort: 'date' | 'score';
@@ -24,6 +27,7 @@ interface DrawerProps {
   // Choosing anything closes the drawer: on a phone the list is behind it.
   choose: (fn: () => void) => void;
   setFeed: Dispatch<SetStateAction<number | undefined>>;
+  setFolder: Dispatch<SetStateAction<number | undefined>>;
   setSaved: Dispatch<SetStateAction<boolean>>;
   setHidden: Dispatch<SetStateAction<boolean>>;
   setSingleStoryMode: Dispatch<SetStateAction<boolean>>;
@@ -31,6 +35,7 @@ interface DrawerProps {
   setShowFeeds: Dispatch<SetStateAction<boolean>>;
   setShowInsights: Dispatch<SetStateAction<boolean>>;
   setPhotosState: Dispatch<SetStateAction<Photos>>;
+  setPhotoSideState: Dispatch<SetStateAction<PhotoSide>>;
   setTagsState: Dispatch<SetStateAction<Tags>>;
   setDensityState: Dispatch<SetStateAction<Density>>;
   setSort: Dispatch<SetStateAction<'date' | 'score'>>;
@@ -50,9 +55,10 @@ interface DrawerProps {
  * holds none of its own.
  */
 export function Drawer({
-  drawerOpen, me, feeds, feed, saved, hidden, photos, tags, density, sort, theme,
-  choose, setFeed, setSaved, setHidden, setSingleStoryMode, setSingleIndex,
-  setShowFeeds, setShowInsights, setPhotosState, setTagsState, setDensityState, setSort,
+  drawerOpen, me, feeds, feed, folder, saved, hidden, photos, photoSide, tags, density, sort,
+  theme, choose, setFeed, setFolder, setSaved, setHidden, setSingleStoryMode, setSingleIndex,
+  setShowFeeds, setShowInsights, setPhotosState, setPhotoSideState, setTagsState,
+  setDensityState, setSort,
   setThemeState, setShowProfile, setShowUsers, setShowSettings, setShowLog,
   setShowShortcuts, setSignedIn,
 }: DrawerProps) {
@@ -85,8 +91,12 @@ export function Drawer({
             <Sidebar
               feeds={feeds}
               feed={feed}
+              folder={folder}
               saved={saved}
               hidden={hidden}
+              onFolder={(id) => choose(() => {
+                setFolder(id); setFeed(undefined); setSaved(false); setHidden(false);
+              })}
               onAll={() => choose(() => { setFeed(undefined); setSaved(false); setHidden(false); })}
               onFeed={(id) => choose(() => { setFeed(id); setSaved(false); setHidden(false); })}
               onManageFeeds={me?.role === 'admin' ? () => setShowFeeds(true) : undefined}
@@ -163,6 +173,19 @@ export function Drawer({
                 const next = v ? 'on' : 'off';
                 setPhotos(next); setPhotosState(next);
               }}
+            />
+
+            {/* Which side of the card the photo floats to. Two positions, so
+                a radiogroup like Sort rather than a switch: "on" would not
+                say which side. */}
+            <Segmented
+              label="Photo side"
+              value={photoSide}
+              options={[
+                { value: 'left', label: 'Left' },
+                { value: 'right', label: 'Right' },
+              ]}
+              onChange={(v) => { setPhotoSide(v); setPhotoSideState(v); }}
             />
 
             <Toggle

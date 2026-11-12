@@ -106,10 +106,27 @@ export interface Feed {
   saved: number;
   paused: boolean;
   tags: string[];
+  /** The folder it is filed in, or null. */
+  folder_id: number | null;
+}
+
+/** A group of feeds the reader makes by hand. */
+export interface Folder {
+  id: number;
+  name: string;
+}
+
+export interface FolderWithCount {
+  id: number;
+  name: string;
+  /** How many feeds are filed in it. */
+  feeds: number;
 }
 
 export interface FeedList {
   feeds: Feed[];
+  /** Every folder, empty ones included, alphabetically. */
+  folders: Folder[];
   unread: number;
   saved: number;
   hidden: number;
@@ -124,6 +141,12 @@ export interface Topic {
 }
 
 /** What a successful password login returns. Deliberately not a credential. */
+export interface SsoInfo {
+  enabled: boolean;
+  name: string | null;
+  url: string | null;
+}
+
 export interface LoginResult {
   id: number;
   username: string;
@@ -185,6 +208,7 @@ export interface ManagedFeed {
   /** null means "use the global threshold". */
   score_threshold: number | null;
   tags: string[];
+  folder_id: number | null;
 }
 
 export interface Digest {
@@ -413,6 +437,8 @@ export interface PromptSettings {
 
 export interface ListQuery {
   feed?: number;
+  /** A folder: every feed filed in it. */
+  folder?: number;
   topic?: string;
   hidden?: boolean;
   saved?: boolean;
@@ -609,6 +635,14 @@ export class BetterNewsClient {
     return this.request<{ ok: boolean }>('/auth/logout', { method: 'POST' });
   }
 
+  /**
+   * Whether the server offers single sign-on. Public. The flow is a full-page
+   * navigation to `url` (the server talks to the provider), never a fetch.
+   */
+  ssoInfo() {
+    return this.request<SsoInfo>('/auth/sso');
+  }
+
   articles(q: ListQuery = {}, init?: RequestInit) {
     // Built by hand rather than with URLSearchParams: bare React Native ships a
     // polyfill whose `set` throws, so this file would only work on runtimes
@@ -618,6 +652,7 @@ export class BetterNewsClient {
     const add = (k: string, v: string) =>
       parts.push(`${encodeURIComponent(k)}=${encodeURIComponent(v)}`);
     if (q.feed !== undefined) add('feed', String(q.feed));
+    if (q.folder !== undefined) add('folder', String(q.folder));
     if (q.topic) add('topic', q.topic);
     if (q.hidden) add('hidden', '1');
     if (q.saved) add('saved', '1');
@@ -694,6 +729,7 @@ export class BetterNewsClient {
   dismissAll(q: ListQuery = {}) {
     const parts: string[] = [];
     if (q.feed !== undefined) parts.push(`feed=${encodeURIComponent(String(q.feed))}`);
+    if (q.folder !== undefined) parts.push(`folder=${encodeURIComponent(String(q.folder))}`);
     if (q.topic) parts.push(`topic=${encodeURIComponent(q.topic)}`);
     if (q.hidden) parts.push('hidden=1');
     if (q.saved) parts.push('saved=1');
@@ -733,6 +769,33 @@ export class BetterNewsClient {
     return this.request<ManagedFeed>(`/feeds/${id}/threshold`, {
       method: 'POST', body: JSON.stringify({ threshold }),
     });
+  }
+
+  /** Put a feed in a folder, or take it out with null. */
+  setFeedFolder(id: number, folderId: number | null) {
+    return this.request<ManagedFeed>(`/feeds/${id}/folder`, {
+      method: 'POST', body: JSON.stringify({ folder_id: folderId }),
+    });
+  }
+
+  folders() {
+    return this.request<{ folders: FolderWithCount[] }>('/folders');
+  }
+
+  createFolder(name: string) {
+    return this.request<FolderWithCount>('/folders', {
+      method: 'POST', body: JSON.stringify({ name }),
+    });
+  }
+
+  renameFolder(id: number, name: string) {
+    return this.request<FolderWithCount>(`/folders/${id}/rename`, {
+      method: 'POST', body: JSON.stringify({ name }),
+    });
+  }
+
+  deleteFolder(id: number) {
+    return this.request<{ deleted: number }>(`/folders/${id}`, { method: 'DELETE' });
   }
 
   setFeedTags(id: number, tags: string | string[]) {

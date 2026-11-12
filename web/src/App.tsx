@@ -16,6 +16,7 @@ import { useSwipe } from './useSwipe';
 import { applyTheme, loadTheme, setTheme, watchSystemTheme, type ThemePreference } from './theme';
 import { applyDensity, loadDensity, setDensity, type Density } from './density';
 import { applyPhotos, loadPhotos, setPhotos, type Photos } from './photos';
+import { applyPhotoSide, loadPhotoSide, type PhotoSide } from './photoSide';
 import { applyTags, loadTags, setTags, type Tags } from './tags';
 import { Toolbar } from './components/Toolbar';
 import { Drawer } from './components/Drawer';
@@ -55,6 +56,8 @@ export default function App() {
   const [feeds, setFeeds] = useState<FeedList | null>(null);
   const [digestMeta, setDigestMeta] = useState<DigestMeta | null>(null);
   const [feed, setFeed] = useState<number | undefined>();
+  // A folder (by id), read as one list. Never set together with `feed`.
+  const [folder, setFolder] = useState<number | undefined>();
   const [saved, setSaved] = useState(false);
   const [sort, setSort] = useState<'date' | 'score'>('date');
   const [hidden, setHidden] = useState(false);
@@ -78,6 +81,8 @@ export default function App() {
   useEffect(() => applyDensity(density), [density]);
   const [photos, setPhotosState] = useState<Photos>(() => loadPhotos());
   useEffect(() => applyPhotos(photos), [photos]);
+  const [photoSide, setPhotoSideState] = useState<PhotoSide>(() => loadPhotoSide());
+  useEffect(() => applyPhotoSide(photoSide), [photoSide]);
 
   const [tags, setTagsState] = useState<Tags>(() => loadTags());
   useEffect(() => applyTags(tags), [tags]);
@@ -109,7 +114,7 @@ export default function App() {
   }, [theme]);
 
   const { articles, diagnosis, loading, error, loadMore, hasMore, patch } = useArticles(
-    { feed, saved: saved || undefined, hidden: hidden || undefined, topic,
+    { feed, folder, saved: saved || undefined, hidden: hidden || undefined, topic,
       sort, limit: 50, reloads } as ListQuery & { reloads: number },
     signedIn === true,
     search,
@@ -128,7 +133,7 @@ export default function App() {
    */
   const [showDismissed, setShowDismissed] = useState(false);
   const pile = useArticles(
-    { feed, saved: saved || undefined, hidden: hidden || undefined, topic,
+    { feed, folder, saved: saved || undefined, hidden: hidden || undefined, topic,
       sort, limit: 50, dismissed: true, reloads } as ListQuery & { reloads: number },
     signedIn === true && showDismissed,
     '',
@@ -143,7 +148,7 @@ export default function App() {
   const offersDismissed = !search && !hidden && !saved;
   useEffect(() => {
     setShowDismissed(false);
-  }, [feed, saved, hidden, topic, search]);
+  }, [feed, folder, saved, hidden, topic, search]);
 
   /**
    * An updated article can belong to either list, so offer it to both.
@@ -255,7 +260,7 @@ export default function App() {
           break;
         case 'D':
           e.preventDefault();
-          void api.dismissAll({ feed, saved: saved || undefined,
+          void api.dismissAll({ feed, folder, saved: saved || undefined,
                                 hidden: hidden || undefined, topic })
             .then(() => setReloads((n) => n + 1))
             .catch(() => {});
@@ -282,7 +287,7 @@ export default function App() {
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [rows, focused, patch, feed, saved, hidden, topic]);
+  }, [rows, focused, patch, feed, folder, saved, hidden, topic]);
 
   useSwipe(
     useCallback((id: number) => { void api.vote(id, 1).then(patch).catch(() => {}); }, [patch]),
@@ -291,15 +296,15 @@ export default function App() {
   );
 
   // A filter change makes the old index meaningless.
-  useEffect(() => setFocused(-1), [feed, saved, hidden, topic, search]);
+  useEffect(() => setFocused(-1), [feed, folder, saved, hidden, topic, search]);
 
   const commands = useMemo<Command[]>(() => [
     { id: 'all', label: 'Go to all feeds',
-      run: () => { setFeed(undefined); setSaved(false); setHidden(false); } },
+      run: () => { setFolder(undefined); setFeed(undefined); setSaved(false); setHidden(false); } },
     { id: 'saved', label: 'Go to saved articles',
-      run: () => { setSaved(true); setFeed(undefined); setHidden(false); } },
+      run: () => { setFolder(undefined); setSaved(true); setFeed(undefined); setHidden(false); } },
     { id: 'hidden', label: 'Go to hidden articles',
-      run: () => { setHidden(true); setSaved(false); setFeed(undefined); } },
+      run: () => { setFolder(undefined); setHidden(true); setSaved(false); setFeed(undefined); } },
     { id: 'search', label: 'Search articles',
       run: () => document.getElementById('search')?.focus() },
     { id: 'sort-date', label: 'Sort by date', run: () => setSort('date') },
@@ -333,7 +338,11 @@ export default function App() {
     { id: 'shortcuts', label: 'Show keyboard shortcuts', run: () => setShowShortcuts(true) },
     ...(feeds?.feeds ?? []).map((f) => ({
       id: `feed-${f.id}`, label: `Go to ${f.title}`,
-      run: () => { setFeed(f.id); setSaved(false); setHidden(false); },
+      run: () => { setFolder(undefined); setFeed(f.id); setSaved(false); setHidden(false); },
+    })),
+    ...(feeds?.folders ?? []).map((d) => ({
+      id: `folder-${d.id}`, label: `Go to folder ${d.name}`,
+      run: () => { setFolder(d.id); setFeed(undefined); setSaved(false); setHidden(false); },
     })),
   ], [feeds, me, density]);
 
@@ -390,6 +399,8 @@ export default function App() {
 
   // Choosing anything closes the drawer: on a phone the list is behind it.
   const choose = (fn: () => void) => {
+    // Any choice leaves the folder; choosing a folder sets it again inside `fn`.
+    setFolder(undefined);
     fn();
     setTopic(undefined);
     setSearch('');
@@ -404,7 +415,9 @@ export default function App() {
       ? 'Hidden'
       : feed
         ? (feeds?.feeds.find((f) => f.id === feed)?.title ?? 'Feed')
-        : 'All feeds';
+        : folder !== undefined
+          ? (feeds?.folders.find((d) => d.id === folder)?.name ?? 'Folder')
+          : 'All feeds';
 
   return (
     <div className="site-layout">
@@ -418,15 +431,18 @@ export default function App() {
         me={me}
         feeds={feeds}
         feed={feed}
+        folder={folder}
         saved={saved}
         hidden={hidden}
         photos={photos}
+        photoSide={photoSide}
         tags={tags}
         density={density}
         sort={sort}
         theme={theme}
         choose={choose}
         setFeed={setFeed}
+        setFolder={setFolder}
         setSaved={setSaved}
         setHidden={setHidden}
         setSingleStoryMode={setSingleStoryMode}
@@ -434,6 +450,7 @@ export default function App() {
         setShowFeeds={setShowFeeds}
         setShowInsights={setShowInsights}
         setPhotosState={setPhotosState}
+        setPhotoSideState={setPhotoSideState}
         setTagsState={setTagsState}
         setDensityState={setDensityState}
         setSort={setSort}
@@ -478,7 +495,7 @@ export default function App() {
               onRefreshed={() => setReloads((n) => n + 1)}
               onDigest={() => setShowDigest(true)}
               onDismissAll={async () => {
-                await api.dismissAll({ feed, saved: saved || undefined,
+                await api.dismissAll({ feed, folder, saved: saved || undefined,
                                        hidden: hidden || undefined, topic });
                 setReloads((n) => n + 1);
               }}

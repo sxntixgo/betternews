@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import type { Feed, FeedList } from '@shared/api';
+import type { Feed, FeedList, Folder } from '@shared/api';
 
 /**
  * The feed list, grouped by tag: the drawer's first group.
@@ -62,9 +62,13 @@ function useCollapsed() {
 export interface SidebarProps {
   feeds: FeedList | null;
   feed: number | undefined;
+  /** The open folder's id, if the list being read is one. */
+  folder?: number;
   saved: boolean;
   hidden: boolean;
   onAll: () => void;
+  /** Read every feed in a folder as one list. */
+  onFolder?: (id: number) => void;
   onFeed: (id: number) => void;
   /** Admin only, and omitted for everyone else rather than shown disabled. */
   onManageFeeds?: () => void;
@@ -79,26 +83,21 @@ export interface HiddenFeedsProps {
   onHiddenFeed: (id: number) => void;
 }
 
-/** Feeds under each tag, plus whatever carries no tag at all. */
-function group(feeds: Feed[]): { tags: [string, Feed[]][]; untagged: Feed[] } {
-  const byTag = new Map<string, Feed[]>();
-  const untagged: Feed[] = [];
-  for (const f of feeds) {
-    if (f.tags.length === 0) {
-      untagged.push(f);
-      continue;
-    }
-    // A feed with two tags appears under both. It is one subscription seen from
-    // two angles, not a thing that has to pick a home.
-    for (const t of f.tags) {
-      const bucket = byTag.get(t);
-      if (bucket) bucket.push(f);
-      else byTag.set(t, [f]);
-    }
+/** Feeds under each folder, in the folders' own (alphabetical) order, plus
+ *  the feeds filed nowhere. Empty folders are kept: one made a moment ago has
+ *  to show before anything is filed in it. */
+function group(list: FeedList | null): { folders: [Folder, Feed[]][]; unfiled: Feed[] } {
+  const byFolder = new Map<number, Feed[]>();
+  for (const d of list?.folders ?? []) byFolder.set(d.id, []);
+  const unfiled: Feed[] = [];
+  for (const f of list?.feeds ?? []) {
+    const bucket = f.folder_id === null ? undefined : byFolder.get(f.folder_id);
+    if (bucket) bucket.push(f);
+    else unfiled.push(f);
   }
   return {
-    tags: [...byTag.entries()].sort(([a], [b]) => a.localeCompare(b)),
-    untagged,
+    folders: (list?.folders ?? []).map((d) => [d, byFolder.get(d.id) ?? []]),
+    unfiled,
   };
 }
 
@@ -113,7 +112,7 @@ function Count({ n }: { n: number }) {
 }
 
 export function Sidebar({
-  feeds, feed, saved, hidden, onAll, onFeed, onManageFeeds,
+  feeds, feed, folder, saved, hidden, onAll, onFeed, onFolder, onManageFeeds,
 }: SidebarProps) {
   const [collapsed, toggle] = useCollapsed();
   // 'all' -- distinct from 'hidden' and from the `tag-${tag}` / 'untagged'
@@ -121,11 +120,11 @@ export function Sidebar({
   // with any of them in the one shared localStorage set.
   const shut = collapsed.has('all');
 
-  const { tags, untagged } = group(feeds?.feeds ?? []);
-  // With no tags anywhere there is nothing to group by, so the feeds hang
-  // straight off the indent rule rather than under a single "Untagged".
-  const flat = tags.length === 0;
-  const allActive = feed === undefined && !saved && !hidden;
+  const { folders, unfiled } = group(feeds);
+  // With no folders at all there is nothing to group by, so the feeds hang
+  // straight off the indent rule rather than under a single "No folder".
+  const flat = folders.length === 0;
+  const allActive = feed === undefined && folder === undefined && !saved && !hidden;
 
   const feedButton = (f: Feed) => (
     <button
@@ -138,8 +137,11 @@ export function Sidebar({
     </button>
   );
 
-  const group_ = (name: string, label: string, rows: Feed[]) => {
+  /** `id` is set for a real folder; "No folder" has nothing to ask the server
+   *  for, so its label stays a plain heading. */
+  const group_ = (name: string, label: string, rows: Feed[], id?: number) => {
     const shut = collapsed.has(name);
+    const unread = rows.reduce((n, f) => n + f.unread, 0);
     return (
       <div className={`sidebar-group ${shut ? 'collapsed' : ''}`} key={name}>
         <div className="sidebar-group-header">
@@ -151,9 +153,23 @@ export function Sidebar({
           >
             ▾
           </button>
-          <span className="sidebar-group-title sidebar-tag-label">{label}</span>
+          {id !== undefined && onFolder ? (
+            // The name opens the folder; the caret beside it only collapses.
+            <button
+              className={`sidebar-folder ${folder === id && !hidden ? 'active' : ''}`}
+              onClick={() => onFolder(id)}
+            >
+              <span className="sidebar-group-title sidebar-tag-label">{label}</span>
+              {unread > 0 && <Count n={unread} />}
+            </button>
+          ) : (
+            <span className="sidebar-group-title sidebar-tag-label">{label}</span>
+          )}
         </div>
-        {!shut && <div className="sidebar-group-body">{rows.map(feedButton)}</div>}
+        {/* No body for an empty folder: its gap would read as a missing row. */}
+        {!shut && rows.length > 0 && (
+          <div className="sidebar-group-body">{rows.map(feedButton)}</div>
+        )}
       </div>
     );
   };
@@ -205,11 +221,11 @@ export function Sidebar({
       {!shut && (
         <div className={`drawer-children ${feed !== undefined && !hidden ? 'is-active' : ''}`}>
           {flat
-            ? untagged.map(feedButton)
+            ? unfiled.map(feedButton)
             : (
               <>
-                {tags.map(([tag, rows]) => group_(`tag-${tag}`, tag, rows))}
-                {untagged.length > 0 && group_('untagged', 'Untagged', untagged)}
+                {folders.map(([d, rows]) => group_(`folder-${d.id}`, d.name, rows, d.id))}
+                {unfiled.length > 0 && group_('unfiled', 'No folder', unfiled)}
               </>
             )}
         </div>

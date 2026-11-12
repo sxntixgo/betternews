@@ -56,6 +56,15 @@ users = Table(
 Index("ix_users_username_lower", func.lower(users.c.username), unique=True)
 
 
+# Groups of feeds the reader makes by hand; see migration a7c3d5e9f1b2.
+folders = Table(
+    "folders", metadata,
+    Column("id", Integer, primary_key=True),
+    Column("name", Text, nullable=False),
+)
+Index("uq_folders_lower_name", func.lower(folders.c.name), unique=True)
+
+
 feeds = Table(
     "feeds", metadata,
     Column("id", Integer, primary_key=True),
@@ -70,6 +79,8 @@ feeds = Table(
     Column("etag", Text),
     Column("last_modified", Text),          # opaque HTTP header, not a timestamp
     Column("tags", Text),
+    # At most one folder; deleting the folder leaves the feed, unfiled.
+    Column("folder_id", Integer, ForeignKey("folders.id", ondelete="SET NULL")),
 )
 
 

@@ -13,6 +13,7 @@ from app import opml
 from app.api import api_admin, api_auth, bp, error
 from app import tags as tag_util
 from app.db import get_db
+from app.repo import folders as folders_repo
 
 
 def _feed_row(r) -> dict:
@@ -32,13 +33,14 @@ def _feed_row(r) -> dict:
         # tags is a comma-separated string, not an array -- list() on it
         # iterates characters, which is exactly what the first version did.
         "tags": tag_util.split(r["tags"]),
+        "folder_id": r["folder_id"],
     }
 
 
 def _all_feeds(db):
     return db.execute(sql(
         "SELECT id, url, title, last_polled_at, last_success_at, last_error, "
-        "consecutive_failures, paused, score_threshold, tags "
+        "consecutive_failures, paused, score_threshold, tags, folder_id "
         "FROM feeds ORDER BY id"
     )).mappings().all()
 
@@ -46,7 +48,7 @@ def _all_feeds(db):
 def _one(db, feed_id: int):
     return db.execute(sql(
         "SELECT id, url, title, last_polled_at, last_success_at, last_error, "
-        "consecutive_failures, paused, score_threshold, tags "
+        "consecutive_failures, paused, score_threshold, tags, folder_id "
         "FROM feeds WHERE id = :i"), {"i": feed_id}).mappings().first()
 
 
@@ -91,6 +93,23 @@ def _set_paused(feed_id: int, paused: bool):
         return error("No such feed.", 404)
     db.execute(sql("UPDATE feeds SET paused = :p, consecutive_failures = 0 "
                    "WHERE id = :i"), {"p": paused, "i": feed_id})
+    db.commit()
+    return jsonify(_feed_row(_one(db, feed_id)))
+
+
+@bp.post("/feeds/<int:feed_id>/folder")
+@api_admin
+def file_feed(feed_id: int):
+    """Put a feed in a folder, or (folder_id null) take it out of one."""
+    db = get_db()
+    if _one(db, feed_id) is None:
+        return error("No such feed.", 404)
+    folder_id = (request.get_json(silent=True) or {}).get("folder_id")
+    if folder_id is not None and (not isinstance(folder_id, int)
+                                  or folders_repo.get(db, folder_id) is None):
+        return error("No such folder.", 404)
+    db.execute(sql("UPDATE feeds SET folder_id = :f WHERE id = :i"),
+               {"f": folder_id, "i": feed_id})
     db.commit()
     return jsonify(_feed_row(_one(db, feed_id)))
 

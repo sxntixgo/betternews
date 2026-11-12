@@ -6,6 +6,29 @@ import { mockApi, mockEverything, signInFlow, signedIn } from './fixtures';
  * is revoked. Neither was covered: the layout tests all start signed in.
  */
 test.describe('signing in', () => {
+  test('single sign-on is offered only when the server says so', async ({ page }) => {
+    await page.route('**/api/v1/me', (r) =>
+      r.fulfill({ status: 401, json: { error: 'Not signed in.', status: 401 } }));
+    await page.route('**/api/v1/auth/sso', (r) =>
+      r.fulfill({ json: { enabled: true, name: 'SSO', url: '/login/sso' } }));
+    await page.goto('/');
+    const link = page.locator('.signin a.signin-sso');
+    await expect(link).toHaveText('Sign in with SSO');
+    // A plain link: the provider round trip is a full-page navigation.
+    await expect(link).toHaveAttribute('href', '/login/sso');
+    // The password form is untouched and still the one submit button.
+    await expect(page.locator('.signin button')).toHaveCount(1);
+  });
+
+  test('no single sign-on button when it is off or the question fails', async ({ page }) => {
+    await page.route('**/api/v1/me', (r) =>
+      r.fulfill({ status: 401, json: { error: 'Not signed in.', status: 401 } }));
+    await page.route('**/api/v1/auth/sso', (r) => r.fulfill({ status: 500, json: { error: 'x', status: 500 } }));
+    await page.goto('/');
+    await expect(page.locator('input[name=username]')).toBeVisible();
+    await expect(page.locator('.signin-sso')).toHaveCount(0);
+  });
+
   test('a wrong password is refused at the form, not as an empty list', async ({ page }) => {
     await page.route('**/api/v1/me', (r) =>
       r.fulfill({ status: 401, json: { error: 'Not signed in.', status: 401 } }));

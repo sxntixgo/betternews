@@ -186,6 +186,15 @@ def test_managed_feed_fields_match_the_contract(client, token, seeded):
     assert set(got) == declared_fields("ManagedFeed")
 
 
+def test_folder_fields_match_the_contract(client, token):
+    client.post("/api/v1/folders", headers=token, json={"name": "Tech"})
+    got = client.get("/api/v1/folders", headers=token).get_json()["folders"][0]
+    assert set(got) == declared_fields("FolderWithCount")
+    listed = client.get("/api/v1/feeds", headers=token).get_json()
+    assert set(listed) == declared_fields("FeedList")
+    assert set(listed["folders"][0]) == declared_fields("Folder")
+
+
 # ── admin and ops ─────────────────────────────────────────────────────────────
 
 def test_admin_user_fields_match_the_contract(client, token):

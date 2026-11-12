@@ -1,10 +1,10 @@
 from unittest.mock import patch
 
 
-def test_the_server_renders_exactly_four_things(app):
+def test_the_server_renders_exactly_these_things(app):
     """The cut-over check, kept as a test rather than done once by eye.
 
-    Everything a reader does is the SPA against `/api/v1`. Four HTML routes
+    Everything a reader does is the SPA against `/api/v1`. Six HTML routes
     survive, each for a reason that is not "we did not get round to it":
 
       * /login, /register — a browser with no session needs somewhere to land
@@ -13,13 +13,16 @@ def test_the_server_renders_exactly_four_things(app):
         whether the server was even up.
       * /logout — clears the cookie the SPA cannot touch, being HttpOnly.
       * /health — the container healthcheck curls it.
+      * /login/sso, /login/sso/callback — single sign-on: the provider sends a
+        browser back to a URL, before any bundle exists. 404 unless configured.
 
     An exact set, not a subset: a route creeping back in is how two UIs start
     disagreeing again, and that is the thing this phase existed to stop.
     """
     html = {r.rule for r in app.url_map.iter_rules()
             if not r.rule.startswith("/api/v1") and r.endpoint != "static"}
-    assert html == {"/login", "/register", "/logout", "/health"}
+    assert html == {"/login", "/register", "/logout", "/health",
+                    "/login/sso", "/login/sso/callback"}
 
 
 def test_scheduler_init_does_not_raise(app):

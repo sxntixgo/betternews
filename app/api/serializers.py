@@ -6,6 +6,7 @@ skipping it puts the phone and the browser a month away from disagreeing.
 """
 
 from app import presenters
+from app import tags as tag_util
 
 
 def _iso(value):
@@ -68,5 +69,7 @@ def feed(row) -> dict:
         "hidden": row["hidden"] or 0,
         "saved": row["saved"] or 0,
         "paused": bool(row["paused"]),
-        "tags": list(row["tags"] or []),
+        # Stored comma-separated: list() on it gave one folder per letter.
+        "tags": tag_util.split(row["tags"]),
+        "folder_id": row["folder_id"],
     }

@@ -146,5 +146,6 @@ def _unhandled(exc):
 # the same pattern and the same reason.
 from app.api import (admin as admin_routes, articles,  # noqa: E402,F401
                      auth as auth_routes, feeds as feed_routes,
+                     folders as folder_routes,
                      me as me_routes, meta,
                      settings as settings_routes)

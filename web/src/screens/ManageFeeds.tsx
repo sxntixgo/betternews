@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import type { ManagedFeed } from '@shared/api';
+import type { FolderWithCount, ManagedFeed } from '@shared/api';
 import { api } from '../api/client';
 import { downloadBlob } from '../download';
 import { Modal } from '../components/Modal';
 
 /**
- * Adding, pausing, tagging and deleting feeds, plus OPML.
+ * Adding, pausing, filing, tagging and deleting feeds, plus OPML and the
+ * folders feeds are filed in.
  *
  * Every mutation here is admin-only server-side. The screen is still readable
  * by anyone — seeing that a feed is failing is not a privilege — but the
@@ -14,11 +15,17 @@ import { Modal } from '../components/Modal';
  */
 export function ManageFeeds({ isAdmin, onClose }: { isAdmin: boolean; onClose: () => void }) {
   const [feeds, setFeeds] = useState<ManagedFeed[]>([]);
+  const [folders, setFolders] = useState<FolderWithCount[]>([]);
   const [url, setUrl] = useState('');
+  const [newFolder, setNewFolder] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
-  const load = () => api.manageFeeds().then((r) => setFeeds(r.feeds)).catch(() => {});
+  const load = () => Promise.all([
+    api.manageFeeds().then((r) => setFeeds(r.feeds)),
+    api.folders().then((r) => setFolders(r.folders)),
+  ]).catch(() => {});
+  const folderName = (id: number | null) => folders.find((d) => d.id === id)?.name ?? '';
   useEffect(() => { void load(); }, []);
 
   async function run(fn: () => Promise<unknown>) {
@@ -59,6 +66,60 @@ export function ManageFeeds({ isAdmin, onClose }: { isAdmin: boolean; onClose: (
           </form>
         )}
 
+        {/* Folders are the reader's own groups for the sidebar. Each feed is
+            in at most one; deleting a folder leaves its feeds, unfiled. */}
+        <h3>Folders</h3>
+        <ul className="folder-list">
+          {folders.map((d) => (
+            <li key={d.id}>
+              {isAdmin ? (
+                <input
+                  aria-label={`Folder name: ${d.name}`}
+                  defaultValue={d.name}
+                  onBlur={(e) => {
+                    const name = e.target.value.trim();
+                    if (name && name !== d.name) void run(() => api.renameFolder(d.id, name));
+                    else e.target.value = d.name;
+                  }}
+                />
+              ) : (
+                <span>{d.name}</span>
+              )}
+              <span className="muted">{d.feeds} feed{d.feeds === 1 ? '' : 's'}</span>
+              {isAdmin && (
+                <button
+                  className="btn-icon"
+                  aria-label={`Delete folder ${d.name}`}
+                  onClick={() => {
+                    if (confirm(`Delete the folder ${d.name}? Its feeds stay, just not in a folder.`)) {
+                      void run(() => api.deleteFolder(d.id));
+                    }
+                  }}
+                >
+                  Delete
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+        {isAdmin && (
+          <form
+            className="folder-add"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void run(async () => {
+                await api.createFolder(newFolder.trim());
+                setNewFolder('');
+              });
+            }}
+          >
+            <input value={newFolder} onChange={(e) => setNewFolder(e.target.value)}
+                   aria-label="New folder" placeholder="New folder" required />
+            <button type="submit">Add folder</button>
+          </form>
+        )}
+
+        <h3>Feeds</h3>
         <table className="feed-table">
           <tbody>
             {feeds.map((f) => (
@@ -72,6 +133,22 @@ export function ManageFeeds({ isAdmin, onClose }: { isAdmin: boolean; onClose: (
                     <div className="feed-error">
                       {f.consecutive_failures}× — {f.last_error}
                     </div>
+                  )}
+                </td>
+                <td>
+                  {isAdmin ? (
+                    <select
+                      className="feed-folder"
+                      aria-label={`Folder for ${f.title ?? f.url}`}
+                      value={f.folder_id ?? ''}
+                      onChange={(e) => void run(() => api.setFeedFolder(
+                        f.id, e.target.value === '' ? null : Number(e.target.value)))}
+                    >
+                      <option value="">No folder</option>
+                      {folders.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                    </select>
+                  ) : (
+                    <span className="muted">{folderName(f.folder_id)}</span>
                   )}
                 </td>
                 <td>

@@ -19,6 +19,11 @@ from app.user_topics import BOOST_SQL, NOT_HIDDEN_SQL
 VISIBLE_STATUSES = ("summarized",)
 HIDDEN_STATUSES = ("hidden",)
 
+def _in_folder(folder_id: int):
+    """Articles from every feed filed in this folder."""
+    return A.c.feed_id.in_(select(F.c.id).where(F.c.folder_id == folder_id))
+
+
 _FULL_TEXT_HEAD = func.substr(A.c.full_text, 1, 400).label("full_text_head")
 
 
@@ -77,7 +82,7 @@ class Page(list):
 def list_for_user(db, user_id: int, *, hidden: bool = False, saved: bool = False,
                   feed_id: int | None = None, sort: str = "date",
                   topic: str | None = None, limit: int = 50, offset: int = 0,
-                  dismissed: bool = False):
+                  dismissed: bool = False, folder_id: int | None = None):
     # Saved is the one list the dismissed split does not apply to, for the same
     # reason `search` below opts out of it: saving is an explicit keep, and
     # asking for the things you kept is not asking whether you have dealt with
@@ -110,6 +115,8 @@ def list_for_user(db, user_id: int, *, hidden: bool = False, saved: bool = False
         stmt = stmt.where(S.c.saved_at.isnot(None))
     if feed_id is not None:
         stmt = stmt.where(A.c.feed_id == feed_id)
+    if folder_id is not None:
+        stmt = stmt.where(_in_folder(folder_id))
 
     # The boost reorders within this user's list; the stored score is untouched.
     effective = (func.coalesce(A.c.score, 0) + BOOST_SQL).label("effective_score")
@@ -226,7 +233,7 @@ def dismiss(db, user_id: int, article_id: int) -> None:
 
 def dismiss_all(db, user_id: int, feed_id: int | None = None, *,
                 hidden: bool = False, saved: bool = False,
-                topic: str | None = None) -> int:
+                topic: str | None = None, folder_id: int | None = None) -> int:
     """Dismiss everything currently listed for this user.
 
     "Currently listed" has to mean the list actually on screen. This only ever
@@ -254,6 +261,8 @@ def dismiss_all(db, user_id: int, feed_id: int | None = None, *,
     stmt = select(A.c.id).where(A.c.status.in_(statuses))
     if feed_id is not None:
         stmt = stmt.where(A.c.feed_id == feed_id)
+    if folder_id is not None:
+        stmt = stmt.where(_in_folder(folder_id))
     if topic:
         stmt = stmt.where(A.c.topics.any(topic))
     if saved:
@@ -367,7 +376,7 @@ def sidebar_counts(db, user_id: int):
         select(
             F.c.id,
             func.coalesce(F.c.title, F.c.url).label("title"),
-            F.c.paused, F.c.tags,
+            F.c.paused, F.c.tags, F.c.folder_id,
             func.sum(case(
                 (and_(A.c.status == "summarized", S.c.read_at.is_(None),
                       S.c.dismissed_at.is_(None)), 1), else_=0

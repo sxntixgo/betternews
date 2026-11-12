@@ -31,6 +31,11 @@ def _offset() -> int:
         return 0
 
 
+def _folder_arg() -> int | None:
+    raw = request.args.get("folder", "").strip()
+    return int(raw) if raw.isdigit() else None
+
+
 @bp.get("/articles")
 @api_auth
 def list_articles():
@@ -55,6 +60,8 @@ def list_articles():
         # be mixed into this one, greyed out, where it was most of what a
         # reader scrolled past.
         dismissed=request.args.get("dismissed") == "1",
+        # A folder in the sidebar: every feed filed in it.
+        folder_id=_folder_arg(),
     )
     declickbait = presenters.declickbait(db)
     return jsonify({
@@ -204,6 +211,7 @@ def dismiss_all():
         hidden=request.args.get("hidden") == "1",
         saved=request.args.get("saved") == "1",
         topic=request.args.get("topic", "").strip() or None,
+        folder_id=_folder_arg(),
     )
     db.commit()
     return jsonify({"dismissed": n})

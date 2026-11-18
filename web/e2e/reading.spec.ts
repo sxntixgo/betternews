@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
-import { DETAIL, article, mockApi, openDrawer, openSearch, signedIn , openDigest } from './fixtures';
+import { DETAIL, article, mockApi, openDrawer, openSearch, signedIn } from './fixtures';
 
 /**
  * The reading features the server-rendered UI has and the SPA did not:
- * search, the hidden view, dismiss-all, the digest, topic filtering, and the
+ * search, the hidden view, dismiss-all, topic filtering, and the
  * refresh button that waits for the pipeline.
  */
 test.beforeEach(async ({ page }) => {
@@ -92,37 +92,6 @@ test('scrolling keeps paging the pile once it is open', async ({ page }) => {
   await expect.poll(() => offsets.length).toBeGreaterThan(1);
   // Never the same page twice: that was a real bug on WebKit.
   expect(offsets).toEqual([...new Set(offsets)]);
-});
-
-test('the digest is behind a button, not above the list', async ({ page }) => {
-  // It used to render into #digest-panel on load, which pushed the first
-  // article below the fold on every screen for prose you read once.
-  await expect(page.locator('.digest-body')).toHaveCount(0);
-
-  await openDigest(page);
-  const dialog = page.getByRole('dialog', { name: 'What you missed' });
-  await expect(dialog).toContainText('Argentina');
-
-  // Dismiss is not Close: it tells the server to drop the cached briefing so
-  // the next one is rebuilt rather than served stale.
-  let dropped = false;
-  page.on('request', (r) => {
-    if (r.url().includes('/digest/dismiss')) dropped = true;
-  });
-  await dialog.getByRole('button', { name: 'Dismiss' }).click();
-  await expect(dialog).toBeHidden();
-  await expect.poll(() => dropped).toBe(true);
-});
-
-test('closing the digest does not drop the briefing', async ({ page }) => {
-  await openDigest(page);
-  await expect(page.getByRole('dialog', { name: 'What you missed' })).toBeVisible();
-  await page.keyboard.press('Escape');
-  await expect(page.getByRole('dialog', { name: 'What you missed' })).toBeHidden();
-  // Still there to reopen -- Close and Dismiss are different verbs.
-  await openDigest(page);
-  await expect(page.getByRole('dialog', { name: 'What you missed' }))
-    .toContainText('Argentina');
 });
 
 test('refresh kicks the pipeline and reloads when it finishes', async ({ page }) => {
@@ -458,16 +427,14 @@ test.describe('keyboard votes', () => {
     expect(voted).toBe(false);
   });
 
-  test('w opens the briefing, and the sheet lists every key', async ({ page }) => {
-    await page.keyboard.press('w');
-    await expect(page.getByRole('dialog', { name: 'What you missed' })).toBeVisible();
-    await page.keyboard.press('Escape');
-
+  test('the sheet lists every key', async ({ page }) => {
     // The overlay is generated from SHORTCUTS, so a key that works but is not
     // listed means the list drifted from the handlers.
     await page.keyboard.press('?');
     const sheet = page.getByRole('dialog');
-    for (const k of ['d', 'w', 'Shift D']) await expect(sheet).toContainText(k);
+    for (const k of ['d', 'Shift D', 'Esc']) await expect(sheet).toContainText(k);
+    // The digest and its `w` key were removed (2026-11-18).
+    await expect(sheet).not.toContainText('What you missed');
   });
 });
 

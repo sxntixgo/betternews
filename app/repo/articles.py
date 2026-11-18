@@ -335,39 +335,6 @@ def mark_notified(db, user_id: int, article_ids: list[int]) -> None:
         _upsert_state(db, user_id, aid, notified_at=func.now())
 
 
-def unread_count(db, user_id: int) -> int:
-    stmt = (
-        select(func.count())
-        .select_from(A.outerjoin(
-            S, and_(S.c.article_id == A.c.id, S.c.user_id == user_id)))
-        .where(A.c.status.in_(VISIBLE_STATUSES))
-        .where(S.c.read_at.is_(None))
-        .where(S.c.dismissed_at.is_(None))
-        .where(NOT_HIDDEN_SQL)
-    )
-    return db.execute(stmt, {"pref_uid": user_id}).scalar_one()
-
-
-def unread_since(db, user_id: int, since) -> int:
-    """`unread_count`, restricted to articles ingested since `since`.
-
-    Keyed on `created_at` (ingest time), never `published_at` -- feeds carry
-    wrong and future publication dates, which is why retention keys on
-    `created_at` too.
-    """
-    stmt = (
-        select(func.count())
-        .select_from(A.outerjoin(
-            S, and_(S.c.article_id == A.c.id, S.c.user_id == user_id)))
-        .where(A.c.status.in_(VISIBLE_STATUSES))
-        .where(S.c.read_at.is_(None))
-        .where(S.c.dismissed_at.is_(None))
-        .where(NOT_HIDDEN_SQL)
-        .where(A.c.created_at >= since)
-    )
-    return db.execute(stmt, {"pref_uid": user_id}).scalar_one()
-
-
 def sidebar_counts(db, user_id: int):
     """Per-feed unread / hidden / saved tallies for the sidebar."""
     joined = F.outerjoin(A, A.c.feed_id == F.c.id).outerjoin(

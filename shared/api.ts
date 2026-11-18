@@ -211,22 +211,6 @@ export interface ManagedFeed {
   folder_id: number | null;
 }
 
-export interface Digest {
-  body: string | null;
-  article_count: number;
-  cached: boolean;
-  articles: { id: number; url: string }[];
-}
-
-/** What the "what you missed" strip shows, without generating the briefing. */
-export interface DigestMeta {
-  story_count: number;
-  /** Weekday of the previous visit, e.g. "Friday". Null on a first visit. */
-  since_label: string | null;
-  /** An estimate. Measuring it would mean generating the briefing. */
-  read_minutes: number;
-}
-
 /**
  * The Ollama endpoint, and which one is actually in force.
  *
@@ -706,18 +690,6 @@ export class BetterNewsClient {
       `/topics/${encodeURIComponent(topic)}/stance`,
       { method: 'POST', body: JSON.stringify({ stance }) },
     );
-  }
-
-  digest() {
-    return this.request<Digest>('/digest');
-  }
-
-  digestMeta() {
-    return this.request<DigestMeta>('/digest/meta');
-  }
-
-  dismissDigest() {
-    return this.request<{ ok: boolean }>('/digest/dismiss', { method: 'POST' });
   }
 
   search(q: string, init?: RequestInit) {

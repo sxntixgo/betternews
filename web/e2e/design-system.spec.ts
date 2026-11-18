@@ -391,8 +391,8 @@ test.describe('the drawer', () => {
  * Added after an audit found 16 classes below 4.5:1 in light and 15 in dark,
  * the worst at 2.12:1 -- the action buttons on every card. Two of them were
  * token mix-ups rather than palette choices: the offline bar coloured itself
- * with the *gold* accent's ink, and a cleanup swapped the what-you-missed
- * button's `--color-on-accent` for `--color-offline-ink`, putting near-white on
+ * with the *gold* accent's ink, and a cleanup swapped the (since removed)
+ * what-you-missed button's `--color-on-accent` for `--color-offline-ink`, putting near-white on
  * gold. Both are "light ink", which is why the swap read as harmless and why
  * nothing caught it -- the screenshots cannot see contrast, and no assertion
  * looked at colour at all.
@@ -489,8 +489,8 @@ const MIXED: Article[] = [
  * Added after an audit found 16 classes below 4.5:1 in light and 15 in dark,
  * the worst at 2.12:1 -- the action buttons on every card. Two of them were
  * token mix-ups rather than palette choices: the offline bar coloured itself
- * with the *gold* accent's ink, and a cleanup swapped the what-you-missed
- * button's `--color-on-accent` for `--color-offline-ink`, putting near-white on
+ * with the *gold* accent's ink, and a cleanup swapped the (since removed)
+ * what-you-missed button's `--color-on-accent` for `--color-offline-ink`, putting near-white on
  * gold. Both are "light ink", which is why the swap read as harmless and why
  * nothing caught it -- the screenshots cannot see contrast, and no assertion
  * looked at colour at all.

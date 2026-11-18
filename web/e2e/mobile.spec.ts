@@ -396,7 +396,7 @@ test.describe('the top bar and the drawer fit the screen', () => {
     // `.app-header` is the new top row -- hamburger, title, unread count, and
     // Refresh / Mark all read / Search as full-strength text on every width
     // (see redesign.spec.ts). Measured before the redesign: Refresh, Dismiss
-    // all, What you missed and the field wrapped onto three rows -- a 173px
+    // all, the old digest button and the field wrapped onto three rows -- a 173px
     // header on a 664px screen, a quarter of the viewport spent before the
     // first headline. This is the row that replaces that measurement.
     const header = (await page.locator('.app-header').boundingBox())!;
@@ -507,17 +507,9 @@ test.describe('the top bar and the drawer fit the screen', () => {
     for (const name of ['Refresh', 'Mark all read']) {
       await expect(header.getByRole('button', { name })).toBeVisible();
     }
-    // The briefing is a header action on a desktop and the strip's "Read"
-    // button on a phone. That is the design's split, and it is load-bearing:
-    // as a fourth action at 390px it left no gap between the unread count and
-    // Refresh, wrapped every label, and stood the header up at 127px.
-    const briefing = header.getByRole('button', { name: 'What you missed' });
-    if (isMobile) {
-      await expect(briefing).toBeHidden();
-      await expect(page.locator('.missed-cta')).toBeVisible();
-    } else {
-      await expect(briefing).toBeVisible();
-    }
+    // The "What you missed" digest was removed (2026-11-18): no header action
+    // and no strip on any width.
+    await expect(header.getByRole('button', { name: 'What you missed' })).toHaveCount(0);
     // Search is an action of the phone's header only: above 900px the field it
     // reveals is already open, so the button is hidden (and still rendered --
     // the "/" shortcut clicks it). The field is the named control there.
@@ -551,7 +543,6 @@ test.describe('the top bar and the drawer fit the screen', () => {
 
   test('on a desktop the words are still there', async ({ page, isMobile }) => {
     test.skip(isMobile, 'desktop only');
-    await expect(page.locator('#digest-btn')).toContainText('What you missed');
     await expect(page.locator('#search')).toBeVisible();
     // `.search-toggle` was an icon that existed only at phone width, then a
     // text action at every width. Task 7 settled it: on a desktop it toggled

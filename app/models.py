@@ -49,7 +49,7 @@ users = Table(
     Column("must_change_password", Boolean, nullable=False, server_default="false"),
     _ts(name="created_at", nullable=False, server_default=func.now()),
     _ts(name="last_login_at"),
-    _ts(name="last_seen_at"),
+    _ts(name="last_seen_at"),   # unused since the digest went (2026-11-18)
     CheckConstraint("role IN ('user','admin')", name="role_valid"),
 )
 # Case-insensitive uniqueness without the citext extension.
@@ -289,9 +289,9 @@ ollama_calls = Table(
 Index("ix_ollama_calls_at", ollama_calls.c.at.desc())
 
 
-# One cached digest per user. Keyed by a fingerprint of the unread set, so a
-# digest is reused until what you have not read actually changes — otherwise
-# every page load would cost an Ollama call.
+# Unused since the "what you missed" digest was removed (2026-11-18). The table
+# stays, with whatever it held, so removing the feature loses nothing and needs
+# no migration; drop it in a later migration if it is never coming back.
 digests = Table(
     "digests", metadata,
     Column("user_id", Integer, ForeignKey("users.id", ondelete="CASCADE"),

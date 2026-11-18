@@ -105,25 +105,6 @@ def test_topic_fields_match_the_contract(client, token, seeded):
     assert set(got[0]) == declared_fields("Topic")
 
 
-def test_digest_fields_match_the_contract(client, app, token):
-    from unittest.mock import patch
-    from app.db import get_db_direct
-    with app.app_context():
-        db = get_db_direct()
-        fid = add_feed(db)
-        for i in range(6):
-            add_article(db, fid, seq=i, guid=f"dg{i}")
-        db.close()
-    with patch("app.ollama_client.generate", return_value="**Theme**\nBrief."):
-        got = client.get("/api/v1/digest", headers=token).get_json()
-    assert set(got) == declared_fields("Digest")
-
-
-def test_digest_meta_fields_match_the_contract(client, token):
-    assert set(client.get("/api/v1/digest/meta", headers=token).get_json()) \
-        == declared_fields("DigestMeta")
-
-
 def test_opinion_values_match_the_declared_union(client, token, seeded):
     """`opinion` is a union in the contract, so the API must not invent a third."""
     src = CONTRACT.read_text()

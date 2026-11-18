@@ -38,8 +38,7 @@ EVERY_ENDPOINT = [
     ("post", f"{API}/articles/1/save"), ("post", f"{API}/articles/1/dismiss"),
     ("post", f"{API}/articles/1/read"), ("post", f"{API}/articles/1/vote"),
     ("get", f"{API}/feeds"), ("get", f"{API}/topics"),
-    ("post", f"{API}/topics/space/stance"), ("get", f"{API}/digest"),
-    ("get", f"{API}/digest/meta"), ("get", f"{API}/me"),
+    ("post", f"{API}/topics/space/stance"), ("get", f"{API}/me"),
 ]
 
 
@@ -329,22 +328,6 @@ def test_a_bad_stance_is_rejected(client, token):
     assert r.is_json
 
 
-def test_the_digest_endpoint(client, app, token):
-    from unittest.mock import patch
-    from app.db import get_db_direct
-    with app.app_context():
-        db = get_db_direct()
-        fid = add_feed(db)
-        for i in range(6):
-            add_article(db, fid, seq=i, guid=f"d{i}")
-        db.close()
-    with patch("app.ollama_client.generate", return_value="**Theme**\nA briefing."):
-        body = client.get(f"{API}/digest", headers=auth(token)).get_json()
-    assert body["body"].startswith("**Theme**")
-    assert body["article_count"] >= 6
-    assert body["cached"] is False
-
-
 def test_a_405_outside_the_api_is_still_html(client):
     """The API handler must not hijack method errors on the HTML side."""
     r = client.delete("/login")
@@ -593,22 +576,6 @@ def test_status_reports_the_pipeline_stamp(client, app, token):
     assert set(body) >= {"last_pipeline_run_at", "last_poll_at", "feed_count",
                          "article_counts", "high_score"}
     assert body["feed_count"] == 1
-
-
-def test_digest_dismiss_clears_the_cached_briefing(client, app, token):
-    from unittest.mock import patch
-    from app.db import get_db_direct
-    with app.app_context():
-        db = get_db_direct()
-        fid = add_feed(db)
-        for i in range(6):
-            add_article(db, fid, seq=i, guid=f"dd{i}")
-        db.close()
-    with patch("app.ollama_client.generate", return_value="**Theme**\nBrief."):
-        assert client.get(f"{API}/digest", headers=auth(token)).get_json()["cached"] is False
-        assert client.get(f"{API}/digest", headers=auth(token)).get_json()["cached"] is True
-        assert client.post(f"{API}/digest/dismiss", headers=auth(token)).status_code == 200
-        assert client.get(f"{API}/digest", headers=auth(token)).get_json()["cached"] is False
 
 
 def test_export_returns_a_zip(client, app, token):
@@ -1240,7 +1207,7 @@ def test_models_list_every_job_and_flag_what_is_missing(client, token):
     with patch("app.ollama_client.list_models", return_value=["llama3.2:3b"]):
         body = client.get(f"{API}/settings/models", headers=auth(token)).get_json()
     ids = {a["id"] for a in body["actions"]}
-    assert len(ids) == 6, "every job the app runs through Ollama"
+    assert len(ids) == 5, "every job the app runs through the LLM"
     assert all("recommended" in a and "why" in a for a in body["actions"])
 
 
@@ -1294,8 +1261,8 @@ def test_a_reasoning_model_on_a_json_job_is_flagged_as_suboptimal(client, app, t
     scoring = next(a for a in body["actions"] if a["id"] == "scoring")
     assert scoring["suboptimal"] is True
     # The free-text jobs are the ones reasoning actually suits.
-    digest = next(a for a in body["actions"] if a["id"] == "digest")
-    assert digest["suboptimal"] is False
+    profile = next(a for a in body["actions"] if a["id"] == "profile")
+    assert profile["suboptimal"] is False
 
 
 def test_installed_is_unknown_rather_than_false_without_ollama(client, token):
@@ -2076,7 +2043,7 @@ def test_prompts_show_what_is_actually_sent(client, app, token):
         db.close()
     body = client.get(f"{API}/settings/prompts", headers=auth(token)).get_json()
     ids = {r["id"] for r in body["rendered"]}
-    assert {"scoring", "scoring_batch", "summary", "profile", "digest"} <= ids
+    assert {"scoring", "scoring_batch", "summary", "profile"} <= ids
     scoring = next(r for r in body["rendered"] if r["id"] == "scoring")
     # The whole thing, not the 1,500-character truncation the call log stores.
     assert len(scoring["text"]) > 1500

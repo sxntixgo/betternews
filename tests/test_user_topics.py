@@ -136,30 +136,6 @@ def test_an_explicit_topic_filter_overrides_a_hide(db_conn):
     assert _list(db_conn, uid, topic="crypto") == ["Crypto Thing"]
 
 
-def test_hidden_topics_leave_the_unread_count(db_conn):
-    """A count that disagrees with the list is worse than no count."""
-    from app.repo.articles import unread_count
-    uid = _uid(db_conn)
-    fid = add_feed(db_conn)
-    add_article(db_conn, fid, seq=1, guid="a", topics=["crypto"])
-    add_article(db_conn, fid, seq=2, guid="b", topics=["ai"])
-    assert unread_count(db_conn, uid) == 2
-    user_topics.set_stance(db_conn, uid, "crypto", "hide")
-    db_conn.commit()
-    assert unread_count(db_conn, uid) == 1
-
-
-def test_the_digest_skips_hidden_topics(db_conn):
-    from app import digest
-    uid = _uid(db_conn)
-    fid = add_feed(db_conn)
-    add_article(db_conn, fid, seq=1, guid="a", title="Crypto", topics=["crypto"])
-    add_article(db_conn, fid, seq=2, guid="b", title="AI", topics=["ai"])
-    user_topics.set_stance(db_conn, uid, "crypto", "hide")
-    db_conn.commit()
-    assert [r["title"] for r in digest.unread_for(db_conn, uid)] == ["AI"]
-
-
 # ── isolation ★ ────────────────────────────────────────────────────────────────
 
 def test_one_users_stance_does_not_touch_another_list(db_conn):

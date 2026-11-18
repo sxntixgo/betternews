@@ -394,8 +394,6 @@ def prompts_get():
              "text": prompt_mod.summarization_prompt(snippet)},
             {"id": "profile", "label": "Preference profile",
              "text": prompt_mod.profile_prompt([title], [], evidence="")},
-            {"id": "digest", "label": "What you missed",
-             "text": prompt_mod.digest_prompt([{"id": 1, "title": title, "summary": snippet[:200]}])},
         ],
         "locked": [why for _, why in prompt_overrides.INVARIANTS],
     })

@@ -16,7 +16,6 @@ Flask + HTMX, no build step, Postgres storage, runs in Docker.
 - **Background polling** — APScheduler polls feeds and runs the scoring/summary pipeline on an interval, in its own worker process.
 - **Retention** — old articles are pruned on a schedule; favorites and your voting history are never touched.
 - **Personal topic preferences** — boost or hide topics from your profile; it changes only your list, never anyone else's.
-- **"What you missed"** — one briefing that groups everything unread into themes, instead of a wall of headlines.
 - **Offline reading** — articles you've opened stay readable with no network; votes queue and sync on reconnect.
 - **Markdown export** — your saves, likes or everything, as files with YAML front matter.
 - **Padding removal** — related-story rails, newsletter pitches and older-news recaps are folded away in the reader. Collapsed, never deleted.
@@ -105,8 +104,8 @@ model flags are touched, and it applies to articles summarized from then on.
 
 **Settings → Ollama** has two parts. *Connection* sets the host and port
 (overriding `OLLAMA_HOST`), with a Test-connection button. *Model per job* lists
-the six things the app asks Ollama to do — relevance scoring, article summaries,
-video summaries, padding detection, preference profile, and the digest — and lets
+the five things the app asks the model to do — relevance scoring, article summaries,
+video summaries, padding detection and the preference profile — and lets
 each use a different model, chosen from what your server reports installed.
 
 The requirements really do differ: scoring runs on every article and needs

@@ -17,7 +17,6 @@ export function Toolbar({
   search,
   onSearch,
   onDismissAll,
-  onDigest,
   onRefreshed,
   canPoll,
   title,
@@ -28,7 +27,6 @@ export function Toolbar({
   search: string;
   onSearch: (q: string) => void;
   onDismissAll: () => void;
-  onDigest: () => void;
   onRefreshed: () => void;
   canPoll: boolean;
   title: string;
@@ -85,9 +83,9 @@ export function Toolbar({
           dismiss twice each, with two accessible names apiece.
 
           The ids are the old row's, deliberately. Several specs drive
-          `#poll-btn`, `#dismiss-all-btn` and `#digest-btn` directly, and those
-          are the same three actions doing the same three jobs; renaming them
-          would have churned the suite to no end.
+          `#poll-btn` and `#dismiss-all-btn` directly, and those are the same
+          actions doing the same jobs; renaming them would have churned the
+          suite to no end.
 
           `.drawer-toggle` keeps its class for the same reason -- it is the
           control other specs open the drawer by. It is no longer fixed over
@@ -124,13 +122,6 @@ export function Toolbar({
             onClick={onDismissAll}
           >
             Mark all read
-          </button>
-          <button
-            id="digest-btn"
-            className="header-action"
-            onClick={onDigest}
-          >
-            What you missed
           </button>
           <button
             className="header-action is-ink search-toggle"

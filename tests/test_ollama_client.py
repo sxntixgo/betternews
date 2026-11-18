@@ -7,15 +7,25 @@ import pytest
 from app import ollama_client
 
 
-def _mock_response(text: str, status: int = 200, thinking: str | None = None) -> MagicMock:
+def _mock_response(text: str, status: int = 200, thinking: str | None = None,
+                   thinking_field: str = "reasoning_content") -> MagicMock:
+    """An OpenAI-style chat completion. LM Studio returns reasoning as
+    `reasoning_content`, Ollama's /v1 as `reasoning`."""
     r = MagicMock()
     r.status_code = status
-    body = {"response": text}
+    message = {"role": "assistant", "content": text}
     if thinking is not None:
-        body["thinking"] = thinking
-    r.json.return_value = body
+        message[thinking_field] = thinking
+    r.json.return_value = {"choices": [{"index": 0, "message": message}]}
     r.raise_for_status = MagicMock()
     return r
+
+
+def _models(*ids) -> MagicMock:
+    resp = MagicMock()
+    resp.raise_for_status = MagicMock()
+    resp.json.return_value = {"object": "list", "data": [{"id": i} for i in ids]}
+    return resp
 
 
 @patch("app.ollama_client.httpx.post")
@@ -101,12 +111,7 @@ def test_generate_unexpected_error_returns_none(mock_post):
 
 @patch("app.ollama_client.httpx.get")
 def test_list_models_success(mock_get):
-    resp = MagicMock()
-    resp.raise_for_status = MagicMock()
-    resp.json.return_value = {
-        "models": [{"name": "llama3.1:8b"}, {"name": "qwen2.5:7b"}]
-    }
-    mock_get.return_value = resp
+    mock_get.return_value = _models("qwen2.5:7b", "llama3.1:8b")
     assert ollama_client.list_models() == ["llama3.1:8b", "qwen2.5:7b"]
 
 
@@ -119,9 +124,8 @@ def test_list_models_failure_returns_empty(mock_get, caplog):
 
 @patch("app.ollama_client.httpx.get")
 def test_list_models_skips_blank_names(mock_get):
-    resp = MagicMock()
-    resp.raise_for_status = MagicMock()
-    resp.json.return_value = {"models": [{"name": ""}, {"name": "ok:1"}, {}]}
+    resp = _models("", "ok:1")
+    resp.json.return_value["data"].append({})
     mock_get.return_value = resp
     assert ollama_client.list_models() == ["ok:1"]
 
@@ -165,41 +169,35 @@ def test_compose_base_url_rejects(host, port, fragment):
 def test_generate_uses_base_url_override(mock_post):
     mock_post.return_value = _mock_response("ok")
     ollama_client.generate("m", "p", base_url="http://1.2.3.4:9999")
-    assert mock_post.call_args[0][0] == "http://1.2.3.4:9999/api/generate"
+    assert mock_post.call_args[0][0] == "http://1.2.3.4:9999/v1/chat/completions"
 
 
 @patch("app.ollama_client.httpx.post")
 def test_generate_falls_back_to_env_base(mock_post):
     mock_post.return_value = _mock_response("ok")
     ollama_client.generate("m", "p")
-    assert mock_post.call_args[0][0] == f"{ollama_client.OLLAMA_BASE}/api/generate"
+    assert mock_post.call_args[0][0] == f"{ollama_client.OLLAMA_BASE}/v1/chat/completions"
 
 
 @patch("app.ollama_client.httpx.post")
 def test_generate_strips_trailing_slash_from_base(mock_post):
     mock_post.return_value = _mock_response("ok")
     ollama_client.generate("m", "p", base_url="http://1.2.3.4:9999/")
-    assert mock_post.call_args[0][0] == "http://1.2.3.4:9999/api/generate"
+    assert mock_post.call_args[0][0] == "http://1.2.3.4:9999/v1/chat/completions"
 
 
 @patch("app.ollama_client.httpx.get")
 def test_list_models_uses_base_url_override(mock_get):
-    resp = MagicMock()
-    resp.raise_for_status = MagicMock()
-    resp.json.return_value = {"models": [{"name": "a:1"}]}
-    mock_get.return_value = resp
+    mock_get.return_value = _models("a:1")
     assert ollama_client.list_models("http://1.2.3.4:9999") == ["a:1"]
-    assert mock_get.call_args[0][0] == "http://1.2.3.4:9999/api/tags"
+    assert mock_get.call_args[0][0] == "http://1.2.3.4:9999/v1/models"
 
 
 # ── probe ──────────────────────────────────────────────────────────────────────
 
 @patch("app.ollama_client.httpx.get")
 def test_probe_success_reports_model_count(mock_get):
-    resp = MagicMock()
-    resp.raise_for_status = MagicMock()
-    resp.json.return_value = {"models": [{"name": "a:1"}, {"name": "b:2"}]}
-    mock_get.return_value = resp
+    mock_get.return_value = _models("a:1", "b:2")
     ok, message, models = ollama_client.probe("http://1.2.3.4:9999")
     assert ok is True
     assert "2 model(s)" in message
@@ -208,10 +206,7 @@ def test_probe_success_reports_model_count(mock_get):
 
 @patch("app.ollama_client.httpx.get")
 def test_probe_reachable_but_no_models(mock_get):
-    resp = MagicMock()
-    resp.raise_for_status = MagicMock()
-    resp.json.return_value = {"models": []}
-    mock_get.return_value = resp
+    mock_get.return_value = _models()
     ok, message, models = ollama_client.probe("http://1.2.3.4:9999")
     assert ok is True
     assert "no models are installed" in message
@@ -269,10 +264,7 @@ def test_generate_follows_redirects(mock_post):
 
 @patch("app.ollama_client.httpx.get")
 def test_list_models_follows_redirects(mock_get):
-    resp = MagicMock()
-    resp.raise_for_status = MagicMock()
-    resp.json.return_value = {"models": []}
-    mock_get.return_value = resp
+    mock_get.return_value = _models()
     ollama_client.list_models()
     assert mock_get.call_args.kwargs["follow_redirects"] is True
 
@@ -429,34 +421,59 @@ def test_a_long_preview_keeps_the_tail():
 # ── reasoning models ───────────────────────────────────────────────────────────
 
 @patch("app.ollama_client.httpx.post")
-def test_structured_calls_ask_the_model_not_to_think(mock_post):
-    """Asking for JSON means we want the answer, not the reasoning that
-    consumed the whole output budget."""
+def test_the_prompt_is_sent_as_one_user_message(mock_post):
+    mock_post.return_value = _mock_response("ok")
+    ollama_client.generate("m", "summarize this")
+    payload = mock_post.call_args.kwargs["json"]
+    assert payload["model"] == "m"
+    assert payload["messages"] == [{"role": "user", "content": "summarize this"}]
+    assert payload["stream"] is False
+
+
+@patch("app.ollama_client.httpx.post")
+def test_structured_calls_ask_for_json_mode(mock_post):
     mock_post.return_value = _mock_response('{"score": 0.5}')
     ollama_client.generate("m", "p", expect_json=True)
-    assert mock_post.call_args.kwargs["json"]["think"] is False
+    assert mock_post.call_args.kwargs["json"]["response_format"] == {"type": "json_object"}
 
 
 @patch("app.ollama_client.httpx.post")
-def test_free_text_calls_do_not_disable_thinking(mock_post):
-    """Summaries and digests are prose; reasoning may well improve them."""
+def test_free_text_calls_do_not_ask_for_json_mode(mock_post):
     mock_post.return_value = _mock_response("a summary")
     ollama_client.generate("m", "p")
-    assert "think" not in mock_post.call_args.kwargs["json"]
+    assert "response_format" not in mock_post.call_args.kwargs["json"]
 
 
 @patch("app.ollama_client.httpx.post")
-def test_a_server_that_rejects_think_is_retried_without_it(mock_post):
-    """Older Ollama, or a model with no thinking mode, must not be reported as
-    a failure we caused."""
+def test_a_server_that_rejects_json_mode_is_retried_without_it(mock_post):
+    """LM Studio accepts only `json_schema` or `text`; the JSON is then
+    recovered from the reply, as for any model that wraps it."""
     bad = MagicMock()
     bad.status_code = 400
-    bad.text = '{"error":"model does not support think"}'
+    bad.text = '{"error":"\'response_format.type\' must be \'json_schema\' or \'text\'"}'
     bad.raise_for_status.side_effect = httpx.HTTPStatusError(
         "e", request=MagicMock(), response=bad)
     mock_post.side_effect = [bad, _mock_response('{"score": 0.7}')]
     assert ollama_client.generate("m", "p", expect_json=True)["score"] == 0.7
-    assert "think" not in mock_post.call_args_list[1].kwargs["json"]
+    assert "response_format" not in mock_post.call_args_list[1].kwargs["json"]
+
+
+@pytest.mark.parametrize("field", ["reasoning_content", "reasoning"])
+@patch("app.ollama_client.httpx.post")
+def test_reasoning_is_read_from_either_field(mock_post, field):
+    mock_post.return_value = _mock_response(
+        "", thinking='Let me think... {"score": 0.3}', thinking_field=field)
+    assert ollama_client.generate("m", "p", expect_json=True)["score"] == 0.3
+
+
+@patch("app.ollama_client.httpx.post")
+def test_a_reply_without_choices_is_an_empty_response(mock_post):
+    ollama_client.clear_last_error()
+    r = _mock_response("")
+    r.json.return_value = {"choices": []}
+    mock_post.return_value = r
+    assert ollama_client.generate("m", "p", expect_json=True) is None
+    assert "empty response" in ollama_client.last_error["message"]
 
 
 @patch("app.ollama_client.httpx.post")

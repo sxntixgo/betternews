@@ -35,7 +35,7 @@ Browser (HTMX) ──► Flask app ─┐
 ```
 
 - **Flask app** in Docker serving HTML fragments.
-- **Ollama** runs on the host (or any reachable host) and does all the LLM work.
+- **Ollama** (or any server with the OpenAI-compatible API, such as LM Studio) runs on the host or any reachable host and does all the LLM work. The app calls `/v1/chat/completions` and `/v1/models`; `OLLAMA_HOST` is the server's base URL without `/v1`.
 - **Postgres 16** persists feeds, articles, votes, preferences and settings in a named volume.
 
 See [`CLAUDE.md`](CLAUDE.md) for a detailed codebase guide (key files, routes, DB schema, article status flow).

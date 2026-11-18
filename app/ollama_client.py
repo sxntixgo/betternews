@@ -1,3 +1,10 @@
+"""HTTP client for the LLM server.
+
+Speaks the OpenAI-compatible API (`/v1/chat/completions`, `/v1/models`), which
+Ollama, LM Studio and llama.cpp's server all offer, so the same code works with
+any of them. The module keeps its historical name; `OLLAMA_HOST` is still the
+endpoint variable.
+"""
 import json
 import logging
 import os
@@ -119,16 +126,19 @@ def generate(
     base_url: str | None = None,
     action: str | None = None,
 ) -> dict | str | None:
-    """Call Ollama /api/generate. Returns dict if expect_json=True, str otherwise, None on failure."""
-    payload: dict = {"model": model, "prompt": prompt, "stream": False}
+    """Call /v1/chat/completions. Returns dict if expect_json=True, str otherwise, None on failure."""
+    payload: dict = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "stream": False,
+    }
     if expect_json:
-        payload["format"] = "json"
-        # Reasoning models spend their output budget thinking and often never
-        # reach the JSON -- or put it in `thinking` and leave `response` empty.
-        # Asking for structured output means we do not want the reasoning.
-        # Servers and models that do not support this reject it, so the call is
-        # retried once without it rather than failing outright.
-        payload["think"] = False
+        # JSON mode. Ollama honours it; LM Studio accepts only `json_schema` or
+        # `text` and rejects the request, so the call is retried once without
+        # it and the JSON is recovered from the reply (see _validate_json).
+        # `json_schema` is not used: with a reasoning model on LM Studio it
+        # returns an empty answer.
+        payload["response_format"] = {"type": "json_object"}
 
     target = _base(base_url)
     started = time.monotonic()
@@ -139,7 +149,7 @@ def generate(
     for attempt in range(MAX_RETRIES):
         try:
             r = httpx.post(
-                f"{_base(base_url)}/api/generate",
+                f"{_base(base_url)}/v1/chat/completions",
                 json=payload,
                 timeout=timeout,
                 # Without this a reverse proxy that redirects to HTTPS returns a
@@ -148,11 +158,15 @@ def generate(
             )
             r.raise_for_status()
             body = r.json()
-            # A thinking model returns its reasoning separately. When it uses
-            # its whole budget reasoning, `response` is empty and the answer,
-            # if there is one, is in `thinking`.
-            text: str = (body.get("response") or "").strip()
-            thinking: str = (body.get("thinking") or "").strip()
+            choices = body.get("choices") or [{}]
+            message = choices[0].get("message") or {}
+            # A thinking model returns its reasoning separately (LM Studio:
+            # `reasoning_content`, Ollama: `reasoning`). When it uses its whole
+            # budget reasoning, `content` is empty and the answer, if there is
+            # one, is in the reasoning.
+            text: str = (message.get("content") or "").strip()
+            thinking: str = (message.get("reasoning_content")
+                             or message.get("reasoning") or "").strip()
             if not text and thinking:
                 log.info("Model %s answered only in `thinking` (%d chars)",
                          model, len(thinking))
@@ -197,11 +211,12 @@ def generate(
         except httpx.HTTPStatusError as exc:
             code = exc.response.status_code
             body = (exc.response.text or "")[:300].strip()
-            if code == 400 and "think" in body.lower() and "think" in payload:
-                # Older Ollama, or a model with no thinking mode. Drop it and
-                # try again rather than reporting a failure we caused.
-                log.info("Server rejected `think`; retrying without it")
-                payload.pop("think", None)
+            if (code == 400 and "response_format" in body
+                    and "response_format" in payload):
+                # A server without JSON mode (LM Studio). Drop it and try again
+                # rather than reporting a failure we caused.
+                log.info("Server rejected JSON mode; retrying without it")
+                payload.pop("response_format", None)
                 continue
             if code == 404:
                 # What Ollama says when the model is not pulled.
@@ -233,7 +248,7 @@ def generate(
 
 
 def list_models(base_url: str | None = None) -> list[str]:
-    """Return installed model names from Ollama /api/tags. Empty list on failure."""
+    """Return the model names the server offers (/v1/models). Empty list on failure."""
     try:
         return _fetch_models(_base(base_url))
     except Exception as exc:
@@ -266,10 +281,10 @@ def probe(base_url: str | None = None) -> tuple[bool, str, list[str]]:
 
 
 def _fetch_models(target: str) -> list[str]:
-    r = httpx.get(f"{target}/api/tags", timeout=10, follow_redirects=True)
+    r = httpx.get(f"{target}/v1/models", timeout=10, follow_redirects=True)
     r.raise_for_status()
     data = r.json()
-    return sorted(m["name"] for m in data.get("models", []) if m.get("name"))
+    return sorted(m["id"] for m in data.get("data", []) if m.get("id"))
 
 
 def _extract_json_object(text: str) -> str | None:

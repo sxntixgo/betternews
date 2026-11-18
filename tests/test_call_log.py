@@ -23,7 +23,7 @@ def _resp(body="hello", status=200):
     r = MagicMock()
     r.status_code = status
     r.text = body
-    r.json.return_value = {"response": body}
+    r.json.return_value = {"choices": [{"message": {"role": "assistant", "content": body}}]}
     r.raise_for_status = MagicMock()
     return r
 

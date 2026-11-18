@@ -203,6 +203,37 @@ def test_a_failed_code_exchange_is_a_502_not_a_sign_in(app, anon_client, sso):
         assert "user_id" not in s
 
 
+class _NotJson(_Resp):
+    def json(self):
+        raise ValueError("not json")
+
+
+def _unreachable(url, **kw):
+    raise httpx.ConnectError("down")
+
+
+@pytest.mark.parametrize("discovery", [
+    _unreachable,                                          # provider down
+    lambda url, **kw: _Resp(500, {}),                      # provider error
+    lambda url, **kw: _NotJson(200, None),                 # garbage instead of JSON
+    lambda url, **kw: _Resp(200, {"issuer": ISSUER}),      # no endpoints
+    lambda url, **kw: _Resp(200, ["not", "an", "object"]),  # JSON, but not an object
+], ids=["unreachable", "http-500", "not-json", "no-endpoint", "not-object"])
+def test_start_falls_back_to_password_when_discovery_fails(anon_client, sso, monkeypatch, discovery):
+    from app.views import oidc
+    good_get = oidc.httpx.get
+    monkeypatch.setattr(oidc.httpx, "get", discovery)
+    r = anon_client.get("/login/sso")
+    assert r.status_code == 502
+    assert b"Sign in with your password" in r.data
+    with anon_client.session_transaction() as s:
+        assert "user_id" not in s
+    # nothing broken is cached: once the provider answers properly, SSO works without a restart
+    assert oidc._discovery == {}
+    monkeypatch.setattr(oidc.httpx, "get", good_get)
+    assert anon_client.get("/login/sso").status_code == 302
+
+
 # ── what the SPA asks ──────────────────────────────────────────────────────────
 
 def test_the_spa_is_told_whether_sso_is_offered(anon_client, monkeypatch):

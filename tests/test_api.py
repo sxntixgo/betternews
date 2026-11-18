@@ -1986,6 +1986,15 @@ def test_renaming_a_folder(client, token):
                        json={"name": "x"}).status_code == 404
 
 
+def test_a_folder_cannot_be_renamed_to_nothing(client, token):
+    a = _folder(client, token, "A")
+    for body in ({"name": "   "}, {"name": ""}, {}):
+        r = client.post(f"{API}/folders/{a}/rename", headers=auth(token), json=body)
+        assert r.status_code == 400
+    assert client.post(f"{API}/folders/{a}/rename", headers=auth(token),
+                       json={"name": "A2"}).get_json()["name"] == "A2"
+
+
 def test_deleting_a_folder_keeps_its_feeds(client, app, token):
     made = _feeds(app, "verge")
     a = _folder(client, token, "A")

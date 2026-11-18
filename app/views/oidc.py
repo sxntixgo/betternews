@@ -59,13 +59,20 @@ def _issuer() -> str:
     return os.environ["OIDC_ISSUER"].rstrip("/") + "/"
 
 
+_ENDPOINTS = ("authorization_endpoint", "token_endpoint", "userinfo_endpoint")
+
+
 def _provider() -> dict:
     """The provider's endpoints, fetched once per process."""
     issuer = _issuer()
     if issuer not in _discovery:
         r = httpx.get(issuer + ".well-known/openid-configuration", timeout=_TIMEOUT)
         r.raise_for_status()
-        _discovery[issuer] = r.json()
+        doc = r.json()
+        # Check before caching: a broken document would otherwise stick until a restart.
+        if not isinstance(doc, dict) or not all(doc.get(k) for k in _ENDPOINTS):
+            raise ValueError("discovery document lacks the endpoints")
+        _discovery[issuer] = doc
     return _discovery[issuer]
 
 

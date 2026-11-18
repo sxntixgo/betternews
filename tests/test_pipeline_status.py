@@ -138,12 +138,12 @@ def test_one_broken_job_reads_as_singular(db_conn):
 
 
 def test_every_job_broken_is_reported_as_such(db_conn):
-    """The state a fresh install lands in: nothing configured, so all six jobs
+    """The state a fresh install lands in: nothing configured, so all five jobs
     fall back to a default model the server does not have."""
     add_article(db_conn, add_feed(db_conn), status="new", score=None)
     d = _diagnose(db_conn, probe=(True, "ok", ["llama3.1:8b"]))
     assert d["kind"] == "model_missing"
-    for label in ("Relevance scoring", "Article summaries", "What you missed"):
+    for label in ("Relevance scoring", "Article summaries", "Preference profile"):
         assert label in d["detail"]
 
 
@@ -152,7 +152,7 @@ def test_several_broken_jobs_read_as_a_list(db_conn):
     add_article(db_conn, add_feed(db_conn), status="new", score=None)
     set_setting(db_conn, "summary_model", "real:8b")
     llm_config.set_model(db_conn, "scoring", "ghost:1b")
-    llm_config.set_model(db_conn, "digest", "ghost:1b")
+    llm_config.set_model(db_conn, "profile", "ghost:1b")
     db_conn.commit()
     d = _diagnose(db_conn, probe=(True, "ok", ["real:8b"]))
     assert " and " in d["detail"] and " are set to use " in d["detail"]

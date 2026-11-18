@@ -1,6 +1,6 @@
 """Which model runs which job.
 
-The app makes six distinct kinds of Ollama call, and they have genuinely
+The app makes five distinct kinds of LLM call, and they have genuinely
 different requirements — scoring needs reliable JSON across a batch, summaries
 need fluent prose in the article's language, transcript work is long-context.
 One model for all of them is a compromise, so each is configurable.
@@ -107,15 +107,6 @@ ACTIONS: tuple[Action, ...] = (
         "summary_model", False, False,
         "Runs nightly. This one shapes every future score, so it is the best "
         "place to spend on a stronger or reasoning model.",
-        14,
-    ),
-    Action(
-        "digest", "What you missed",
-        "Writes the briefing that groups your unread articles into themes. "
-        "Once per change to your unread list.",
-        "summary_model", False, False,
-        "Grouping loosely-related articles into themes rewards a stronger "
-        "model, and it runs rarely enough that speed hardly matters.",
         14,
     ),
 )

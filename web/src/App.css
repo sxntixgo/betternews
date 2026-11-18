@@ -45,9 +45,7 @@ body {
    was arranged to protect: Mark all read was unreachable from the bottom of a
    long list, and the fixed toggle floated over the first headline with no
    background of its own. The drawer's scrim closes the drawer now, so the
-   toggle rides in the header's flow and the header pins.
-
-   The missed strip below stays unpinned: it scrolls with the list. */
+   toggle rides in the header's flow and the header pins. */
 
 
 nav { display: flex; align-items: center; gap: 12px; flex-shrink: 0; margin-left: auto; }
@@ -372,7 +370,7 @@ nav a { color: var(--color-accent); text-decoration: none; font-size: 14px; }
 .site-content { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 /* The reading column is a surface in front of the page, which is what makes
    the warm background read as a background rather than as the card colour.
-   On `#article-list` and the digest, not `.site-main` -- that class came from
+   On `#article-list`, not `.site-main` -- that class came from
    the server templates and does not exist in this app, so the rule that used
    to be here styled nothing at all. */
 #article-list {
@@ -931,18 +929,6 @@ dialog[open] { display: flex; flex-direction: column; }
 
 .histogram { width: 100%; max-width: 460px; height: auto; margin: 8px 0; }
 
-/* "What you missed" briefing. A dialog now, not a card above the list --
-   `.digest-card` and its border went with the panel, since the modal draws its
-   own surface. Capped so a long briefing scrolls inside the dialog rather than
-   growing it past the viewport on a phone. */
-.digest-modal { max-width: 620px; }
-.digest-modal .digest-body { max-height: 60vh; overflow-y: auto; }
-.digest-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
-.digest-head h2 { margin: 0; font-size: 15px; }
-.digest-actions { margin-left: auto; display: flex; gap: 4px; }
-.digest-body { font-size: 14px; line-height: 1.6; }
-.digest-body strong { display: inline-block; margin-top: 6px; }
-
 .offline-bar {
   background: var(--color-offline-surface);
   color: var(--color-offline-ink);
@@ -1483,7 +1469,7 @@ kbd {
 /* ── The compact header ──────────────────────────────────────────────────
    Hamburger, page title and unread count, then the three actions a reader
    reaches for most -- Refresh, Mark all read, Search -- as text at full
-   below, which still carries the admin-only refresh, the digest opener and
+   below, which still carries the admin-only refresh and
    the field-behind-a-button search: those have no home up here and stay
    exactly as they were. */
 .app-header {
@@ -1569,42 +1555,8 @@ kbd {
 }
 .header-action.is-ink { color: var(--color-ink); }
 
-/* ── The "what you missed" strip ─────────────────────────────────────────
-   The trigger for the digest modal, not the digest itself -- Digest.tsx still
-   fetches only when opened. Built from `feeds.unread`, the same count the
-   favicon already draws, so showing this costs no request beyond the feed
-   list the shell already holds. `position: static` on purpose: it scrolls
-   away with the list rather than pinning above it. */
-.missed-strip {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 16px 16px 0;
-  padding: 14px 16px;
-  border-radius: var(--radius-strip);
-  background: var(--color-surface-accent);
-  position: static;
-}
-.missed-text { flex: 1; min-width: 0; }
-.missed-title { font-size: 13px; font-weight: 600; line-height: 1.2; color: var(--color-gold-strong); }
-.missed-sub { margin-top: 4px; font-size: 11.5px; font-weight: 400; line-height: 1.3; color: var(--color-gold-soft); }
-.missed-cta {
-  flex: none;
-  padding: 8px 14px;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: var(--color-accent);
-  /* On-accent, not offline-ink. A cleanup pass swapped these and put near-white
-     on gold -- 2.11:1 in dark. They are both "light ink", which is exactly why
-     the swap looked harmless. */
-  color: var(--color-on-accent);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
 /* ── Toolbar: words on a desktop, icons on a phone ──────────────────────────
-   Measured before: Refresh, Dismiss all, What you missed and the field wrapped
+   Measured before: Refresh, Dismiss all, the old digest button and the field wrapped
    onto three rows on a 390x664 screen -- a 173px header, a quarter of the
    viewport spent before the first headline, with the search box crushed to
    53px and reading "Fi". */
@@ -1712,14 +1664,6 @@ kbd {
     gap: 9px;
     padding: 34px 48px 24px;
   }
-  /* Held to the list's own text measure so the strip and the cards share a
-     left and a right edge: 760 less the two 48px gutters. */
-  .missed-strip {
-    margin: 16px 48px 0;
-    max-width: 664px;
-    padding: 16px 20px;
-  }
-
   /* 17, from 20, tracking down with it. The base rule sets the weight for both
      widths; only size, line-height and tracking are per-width. */
   .article-title { font-size: 17px; line-height: 1.35; letter-spacing: -0.1px; }
@@ -1950,16 +1894,4 @@ kbd {
     width: 100%;
   }
   .single-card { margin-top: 34px; }
-}
-
-/* The briefing is a header action on a desktop and the strip on a phone. That
-   is the design's own split -- "on mobile the 'what you missed' affordance is
-   the strip below instead of a toolbar item" -- and it is load-bearing, not
-   cosmetic: four actions do not fit 390px. With this one in, the unread count
-   ran flush into Refresh with no gap at all ("139Refresh"), every action
-   wrapped, and the header stood 127px tall against the 61px the redesign was
-   built to reclaim. Screenshot coverage caught it; nothing else could. */
-#digest-btn { display: none; }
-@media (min-width: 900px) {
-  #digest-btn { display: inline; }
 }

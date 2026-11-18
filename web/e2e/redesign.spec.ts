@@ -103,51 +103,19 @@ test.describe('mobile header', () => {
     await mockApi(page);
     await page.goto('/');
     const actions = page.locator('.header-actions');
-    // Two at every width. The briefing is a header action on a desktop and the
-    // strip's "Read" button on a phone -- the design's own split, and not
-    // decoration: as a fourth action at 390px it left no gap between the unread
-    // count and Refresh, wrapped every label, and pushed the header to 127px.
+    // Two at every width (plus Search on a phone). The "What you missed"
+    // digest and its strip were removed on 2026-11-18.
     for (const name of ['Refresh', 'Mark all read']) {
       await expect(actions.getByRole('button', { name })).toBeVisible();
     }
-    const briefing = actions.getByRole('button', { name: 'What you missed' });
-    if (isMobile) {
-      await expect(briefing).toBeHidden();
-      await expect(page.locator('.missed-cta')).toBeVisible();
-    } else {
-      await expect(briefing).toBeVisible();
-    }
-    // Search is the fourth on a phone, where it reveals the field. Above 900px
+    await expect(actions.getByRole('button', { name: 'What you missed' })).toHaveCount(0);
+    await expect(page.locator('.missed-strip')).toHaveCount(0);
+    // Search is the third on a phone, where it reveals the field. Above 900px
     // the field is already open beside it, so the button is hidden -- see
     // "the toolbar drops Search" below, which also holds it in the DOM.
     const search = actions.getByRole('button', { name: 'Search' });
     if (isMobile) await expect(search).toBeVisible();
     else await expect(search).toBeHidden();
-  });
-
-  test('the missed strip sits above the list and is not sticky', async ({ page }) => {
-    await signedIn(page);
-    await mockApi(page);
-    await page.goto('/');
-    const strip = page.locator('.missed-strip');
-    await expect(strip).toBeVisible();
-    expect(await strip.evaluate((el) => getComputedStyle(el).position)).toBe('static');
-    await expect(strip.getByRole('button', { name: 'Read' })).toBeVisible();
-    // Above the list and scrolling with it -- the claim in the name, which
-    // went unasserted. It sits outside `#article-list` rather than in it, so
-    // "first list item" was never literally true either.
-    const stripBox = (await strip.boundingBox())!;
-    const listBox = (await page.locator('#article-list').boundingBox())!;
-    expect(stripBox.y + stripBox.height).toBeLessThanOrEqual(listBox.y + 1);
-  });
-
-  test('the subtitle reports the count and label from digest/meta, not the raw unread count', async ({ page }) => {
-    await signedIn(page);
-    await mockApi(page);
-    await page.goto('/');
-    // fixtures' DIGEST_META: story_count 32, since_label 'Friday', read_minutes 2.
-    // FEEDS.unread is 139 -- if this read that instead, it would say so.
-    await expect(page.locator('.missed-sub')).toHaveText('32 stories since Friday · 2 min summary');
   });
 });
 

@@ -1,14 +1,13 @@
-"""Everything the reading list needs around it: feeds, topics, the digest."""
+"""Everything the reading list needs around it: feeds, topics, status."""
 
 import logging
 
 from flask import current_app, jsonify, request
 from sqlalchemy import text as sql
 
-from app import digest as digest_mod, llm_config, presenters, user_topics
+from app import presenters, user_topics
 from app.api import api_admin, api_auth, bp, current_api_user, error, serializers
 from app.db import get_db, get_setting
-from app.pipeline import ollama_base
 from app.repo import articles as art_repo
 from app.repo import folders as folders_repo
 
@@ -55,62 +54,7 @@ def set_stance(topic: str):
     except ValueError as exc:
         return error(str(exc), 400)
     db.commit()
-    # A stance changes which articles are unread, so the cached digest is stale.
-    digest_mod.clear(db, uid)
-    db.commit()
     return jsonify({"topic": topic, "stance": stance})
-
-
-@bp.get("/digest")
-@api_auth
-def digest():
-    """"What you missed". Cached against the unread set, so this is cheap until
-    that set changes."""
-    db = get_db()
-    uid = current_api_user()
-    body, count, from_cache = digest_mod.generate(
-        db, uid, model=llm_config.model_for(db, "digest"), base_url=ollama_base(db),
-    )
-    db.commit()
-    return jsonify({
-        "body": body,
-        "article_count": count,
-        "cached": from_cache,
-        "articles": [{"id": r["id"], "url": r["url"]}
-                     for r in digest_mod.unread_for(db, uid)],
-    })
-
-
-@bp.get("/digest/meta")
-@api_auth
-def digest_meta():
-    """What the strip says, without generating the briefing it links to.
-
-    This mutates on a GET -- a deliberate exception. Arriving *is* the event
-    being recorded (`repo.users.touch_last_seen`), and the alternative is a
-    second request whose only job is to say "I am here", which is worse than
-    the thing it is avoiding.
-    """
-    from app.repo import users as user_repo
-
-    db = get_db()
-    uid = current_api_user()
-    prev = user_repo.touch_last_seen(db, uid)
-    db.commit()
-
-    story_count = (
-        art_repo.unread_since(db, uid, prev) if prev is not None
-        else art_repo.unread_count(db, uid)
-    )
-    # An estimate, not a measurement: measuring the real reading time means
-    # generating the briefing, which is exactly what this endpoint exists to
-    # avoid.
-    read_minutes = max(1, round(min(story_count, digest_mod.MAX_ARTICLES) / 6))
-    return jsonify({
-        "story_count": story_count,
-        "since_label": prev.strftime("%A") if prev else None,
-        "read_minutes": read_minutes,
-    })
 
 
 @bp.get("/me")
@@ -132,16 +76,6 @@ def me():
         "declickbait": presenters.declickbait(db),
         "content_filter_mode": presenters.content_filter_mode(db),
     })
-
-
-@bp.post("/digest/dismiss")
-@api_auth
-def digest_dismiss():
-    """Drop the cached briefing so the next request rebuilds it."""
-    db = get_db()
-    digest_mod.clear(db, current_api_user())
-    db.commit()
-    return jsonify({"ok": True})
 
 
 @bp.get("/status")

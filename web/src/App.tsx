@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { isNetworkError } from '@shared/api';
-import type { Article, DigestMeta, FeedList, ListQuery, Me } from '@shared/api';
+import type { Article, FeedList, ListQuery, Me } from '@shared/api';
 import { api, setAuthFailureHandler } from './api/client';
 import { useArticles } from './api/useArticles';
 import { ArticleCard } from './components/ArticleCard';
 import { SingleStory } from './components/SingleStory';
 import { Reader } from './components/Reader';
 import { CommandPalette, type Command } from './components/CommandPalette';
-import { Digest } from './components/Digest';
 import { ShortcutsOverlay } from './components/ShortcutsOverlay';
 import { drawFavicon, askForNotificationsOnce, notifyHighScores } from './favicon';
 import { isEditableTarget } from './keyboard';
@@ -54,7 +53,6 @@ export default function App() {
       });
   }, [signedIn, retries]);
   const [feeds, setFeeds] = useState<FeedList | null>(null);
-  const [digestMeta, setDigestMeta] = useState<DigestMeta | null>(null);
   const [feed, setFeed] = useState<number | undefined>();
   // A folder (by id), read as one list. Never set together with `feed`.
   const [folder, setFolder] = useState<number | undefined>();
@@ -67,7 +65,6 @@ export default function App() {
   // Bumped to force the list to refetch after a poll or a dismiss-all.
   const [reloads, setReloads] = useState(0);
   const [focused, setFocused] = useState(-1);
-  const [showDigest, setShowDigest] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showPalette, setShowPalette] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
@@ -176,15 +173,6 @@ export default function App() {
   }, [signedIn, articles.length, reloads]);
 
   useEffect(() => {
-    // Once per sign-in, not on every reload: `/digest/meta` records the visit
-    // (`repo.users.touch_last_seen`) as a side effect of being asked, so
-    // calling it repeatedly would keep pushing "since Friday" toward "since
-    // now". It never generates the briefing itself -- that's still only
-    // `GET /digest`, opened on demand -- so this is cheap on every page load.
-    if (signedIn) void api.digestMeta().then(setDigestMeta).catch(() => {});
-  }, [signedIn]);
-
-  useEffect(() => {
     if (feeds) drawFavicon(feeds.unread);
   }, [feeds, theme]);
 
@@ -226,7 +214,6 @@ export default function App() {
       if (e.key === 'Escape') {
         setShowPalette(false);
         setShowShortcuts(false);
-        setShowDigest(false);
         setReading(null);
         return;
       }
@@ -264,9 +251,6 @@ export default function App() {
                                 hidden: hidden || undefined, topic })
             .then(() => setReloads((n) => n + 1))
             .catch(() => {});
-          break;
-        case 'w':
-          setShowDigest(true);
           break;
         case '/': {
           e.preventDefault();
@@ -470,7 +454,7 @@ export default function App() {
             until you reconnect.
           </div>
         )}
-        {/* Single-story mode replaces the header, the missed strip and the
+        {/* Single-story mode replaces the header and the
             list with one full-height dark shell -- an alternative to the
             list, not layered on top of it. The drawer and its "One at a
             time" entry point are untouched, so `Feeds` here (or running out
@@ -493,7 +477,6 @@ export default function App() {
               onSearch={setSearch}
               canPoll={me?.role === 'admin'}
               onRefreshed={() => setReloads((n) => n + 1)}
-              onDigest={() => setShowDigest(true)}
               onDismissAll={async () => {
                 await api.dismissAll({ feed, folder, saved: saved || undefined,
                                        hidden: hidden || undefined, topic });
@@ -503,28 +486,6 @@ export default function App() {
               unread={feeds?.unread ?? 0}
               onOpenDrawer={() => setDrawerOpen((v) => !v)}
             />
-
-            {/* The briefing's trigger, not the briefing itself -- Digest still
-                fetches the briefing body only when opened. The subtitle comes from
-                `digestMeta` (`GET /digest/meta`), which answers counts and the
-                previous-visit weekday without generating anything; that's a
-                separate endpoint from `GET /digest` specifically so this strip
-                never costs an LLM call. Hidden with nothing missed: `since_label`
-                is null before the first visit ever recorded one, in which case the
-                subtitle falls back to a plain unread count. */}
-            {digestMeta && digestMeta.story_count > 0 && (
-              <div className="missed-strip">
-                <div className="missed-text">
-                  <div className="missed-title">What you missed</div>
-                  <div className="missed-sub">
-                    {digestMeta.since_label
-                      ? `${digestMeta.story_count} stories since ${digestMeta.since_label} · ${digestMeta.read_minutes} min summary`
-                      : `${digestMeta.story_count} unread`}
-                  </div>
-                </div>
-                <button className="missed-cta" onClick={() => setShowDigest(true)}>Read</button>
-              </div>
-            )}
 
             <div id="article-list">
               {error && <p className="error">{error}</p>}
@@ -622,7 +583,6 @@ export default function App() {
         <Insights onClose={() => setShowInsights(false)} />
       )}
       {showLog && me?.role === 'admin' && <CallLog onClose={() => setShowLog(false)} />}
-      {showDigest && <Digest onClose={() => setShowDigest(false)} />}
       {showShortcuts && <ShortcutsOverlay onClose={() => setShowShortcuts(false)} />}
       {showPalette && (
         <CommandPalette commands={commands} onClose={() => setShowPalette(false)} />

@@ -29,7 +29,6 @@ def test_every_generate_call_site_has_an_action():
         "summarization_prompt": "summary", "summarization_with_title_prompt": "summary",
         "transcript_summarization_prompt": "transcript",
         "aside_prompt": "asides", "profile_prompt": "profile",
-        "digest_prompt": "digest",
     }
     assert prompts_used <= set(mapping), f"unregistered prompt: {prompts_used - set(mapping)}"
     assert set(mapping.values()) == set(ALL_IDS)
@@ -40,7 +39,7 @@ def test_every_generate_call_site_has_an_action():
 def test_unset_actions_fall_back_to_the_env_default(db_conn):
     from app.pipeline import DEFAULT_SCORING_MODEL, DEFAULT_SUMMARY_MODEL
     assert llm_config.model_for(db_conn, "scoring") == DEFAULT_SCORING_MODEL
-    assert llm_config.model_for(db_conn, "digest") == DEFAULT_SUMMARY_MODEL
+    assert llm_config.model_for(db_conn, "profile") == DEFAULT_SUMMARY_MODEL
 
 
 @pytest.mark.parametrize("action_id", ALL_IDS)
@@ -55,25 +54,25 @@ def test_existing_installs_keep_working(db_conn):
     set_setting(db_conn, "summary_model", "legacy:8b")
     set_setting(db_conn, "scoring_model", "legacyscore:8b")
     db_conn.commit()
-    assert llm_config.model_for(db_conn, "digest") == "legacy:8b"
+    assert llm_config.model_for(db_conn, "profile") == "legacy:8b"
     assert llm_config.model_for(db_conn, "asides") == "legacy:8b"
     assert llm_config.model_for(db_conn, "scoring") == "legacyscore:8b"
 
 
 def test_a_per_action_choice_overrides_the_legacy_setting(db_conn):
     set_setting(db_conn, "summary_model", "legacy:8b")
-    llm_config.set_model(db_conn, "digest", "special:70b")
+    llm_config.set_model(db_conn, "profile", "special:70b")
     db_conn.commit()
-    assert llm_config.model_for(db_conn, "digest") == "special:70b"
+    assert llm_config.model_for(db_conn, "profile") == "special:70b"
     assert llm_config.model_for(db_conn, "summary") == "legacy:8b"   # unaffected
 
 
 def test_clearing_a_choice_reverts_to_the_fallback(db_conn):
     set_setting(db_conn, "summary_model", "legacy:8b")
-    llm_config.set_model(db_conn, "digest", "special:70b")
-    llm_config.set_model(db_conn, "digest", "")
+    llm_config.set_model(db_conn, "profile", "special:70b")
+    llm_config.set_model(db_conn, "profile", "")
     db_conn.commit()
-    assert llm_config.model_for(db_conn, "digest") == "legacy:8b"
+    assert llm_config.model_for(db_conn, "profile") == "legacy:8b"
 
 
 def test_unknown_action_is_rejected(db_conn):
@@ -107,7 +106,7 @@ def test_inherited_is_reported(db_conn):
     db_conn.commit()
     rows = {r["action"].id: r for r in llm_config.current(db_conn)}
     assert rows["scoring"]["inherited"] is False
-    assert rows["digest"]["inherited"] is True
+    assert rows["profile"]["inherited"] is True
 
 
 # ── the pipeline actually uses them ────────────────────────────────────────────
@@ -208,7 +207,7 @@ def test_per_article_jobs_avoid_reasoning_models(action_id):
     assert "not a reasoning model" in why
 
 
-@pytest.mark.parametrize("action_id", ["transcript", "profile", "digest"])
+@pytest.mark.parametrize("action_id", ["transcript", "profile"])
 def test_rare_free_text_jobs_prefer_the_stronger_model(action_id):
     model, why = llm_config.recommend(action_id, INSTALLED)
     assert model == "gpt-oss:20b"

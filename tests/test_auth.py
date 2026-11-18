@@ -244,7 +244,7 @@ def test_empty_password_is_rejected():
 
 # ── signed-out pages must not call authenticated endpoints ────────────────────
 
-AUTHED_ENDPOINTS = ("/sidebar/feeds", "/articles", "/count", "/digest", "/status")
+AUTHED_ENDPOINTS = ("/sidebar/feeds", "/articles", "/count", "/status")
 
 
 @pytest.mark.parametrize("path", ["/login", "/register"])

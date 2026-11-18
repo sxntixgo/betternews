@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import type { Article, ArticleDetail, DigestMeta, FeedList, Me } from '../../shared/api';
+import type { Article, ArticleDetail, FeedList, Me } from '../../shared/api';
 
 /** Shapes mirror shared/api.ts, so a contract change breaks these too. */
 export const ME: Me = {
@@ -57,17 +57,6 @@ export const DETAIL: ArticleDetail = {
     },
     { aside: null, label: null, blocks: [{ type: 'p', text: 'The reporting continues here.' }] },
   ],
-};
-
-export const DIGEST = {
-  body: '**Argentina** — three stories on the peso.\n**Tech** — one on chips.',
-  article_count: 7,
-  cached: false,
-  articles: [{ id: 1, url: 'https://example.com/1' }],
-};
-
-export const DIGEST_META: DigestMeta = {
-  story_count: 32, since_label: 'Friday', read_minutes: 2,
 };
 
 /** 25 articles over two pages, so infinite scroll has something to do. */
@@ -146,9 +135,6 @@ export async function mockApi(page: Page, articles: Article[] = ARTICLES) {
     ] },
   }));
   await page.route('**/api/v1/topics/*/stance', (r) => r.fulfill({ json: { topic: 'x', stance: 'more' } }));
-  await page.route('**/api/v1/digest', (r) => r.fulfill({ json: DIGEST }));
-  await page.route('**/api/v1/digest/meta', (r) => r.fulfill({ json: DIGEST_META }));
-  await page.route('**/api/v1/digest/dismiss', (r) => r.fulfill({ json: { ok: true } }));
   await page.route('**/api/v1/status', (r) => r.fulfill({
     json: {
       high_score: [], last_poll_at: null, last_pipeline_run_at: '2026-08-01T10:00:00+00:00',
@@ -571,18 +557,4 @@ export async function openDrawer(page: Page) {
       setTimeout(done, 500);
     }));
   }
-}
-
-/**
- * Open the briefing, from wherever this width offers it.
- *
- * A desktop has it as a header action; a phone has it as the "Read" button on
- * the what-you-missed strip, because four actions do not fit a 390px header.
- * A test that hard-codes `#digest-btn` therefore passes on one project and
- * fails on two.
- */
-export async function openDigest(page: Page) {
-  const header = page.locator('#digest-btn');
-  if (await header.isVisible()) return header.click();
-  return page.locator('.missed-cta').click();
 }

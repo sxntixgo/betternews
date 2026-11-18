@@ -54,7 +54,6 @@ Flask app in Docker; Ollama on Windows host; **Postgres 16** in the `db` compose
 - `app/tags.py` — feed tag normalisation. `feeds.tags` is a comma-separated Text column, **not an array**; `list()` on it iterates characters, which is exactly what the first API serializer did. Lives outside `app/views/` because the tag a client types and the tag the sidebar groups by must be the same string.
 - `app/feeds.py` — feedparser polling. `poll_all_feeds(app)` is the entry point.
 - `app/scheduler.py` — APScheduler wiring. Jobs registered here.
-- `app/digest.py` — the "what you missed" briefing. Per-user (unread is per-user), cached against a fingerprint of the unread set so it only regenerates when that set changes.
 - `app/extract.py` — ordered extraction chain; the winning rung is stored on `articles.extract_source`.
 - `app/export.py` — Markdown/zip export, scoped to the calling user.
 - `app/affinity.py` — **the reader's own votes as a scoring signal, and the strongest one there is.** Measured on 2,149 real votes, held out 5-fold: the LLM relevance score separated likes from dislikes at **AUC 0.524** (a coin flip); per-topic like-rates managed **0.756**. A 50/50 blend scored 0.632 — *worse than affinity alone* — which is why `adjust()` replaces the score rather than nudging it. Guards matter: below 40 votes, or 8 of either kind, it returns `{}` and stays out of the way, because a reader with only likes gives every topic a smoothed rate of 1.0 and that flattens the ranking entirely.
@@ -157,10 +156,9 @@ is cleared.
 - `GET|POST /login` `GET|POST /register` `GET|POST /logout` — public
 - `GET /health` — public; the container healthcheck curls it
 
-**JSON — `/api/v1`, 61 routes**, in `app/api/`: `articles` (list, detail, vote,
+**JSON — `/api/v1`, 66 routes**, in `app/api/`: `articles` (list, detail, vote,
 save, dismiss, dismiss-all, search, export), `feeds` (+ OPML), `me` (password,
-tokens, preferences), `auth` (login, register, logout), `topics`, `digest`
-(+ meta), `status`, `poll`, `rescore-hidden`, `settings` (14), `admin` (users,
+tokens, preferences), `auth` (login, register, logout), `topics`, `status`, `poll`, `rescore-hidden`, `settings` (14), `admin` (users,
 insights, ollama-log).
 
 Read `shared/api.ts` for the shapes — `tests/test_api_contract.py` parses it and
@@ -168,7 +166,7 @@ asserts the API sends exactly those fields, so a rename cannot silently break
 both clients.
 
 ## LLM notes
-- **Six distinct jobs use Ollama**: relevance scoring (batched, JSON), article summaries (plus the clickbait rewrite — same request), video transcript summaries, padding detection (JSON), preference-profile rebuild, and the "what you missed" digest. Each takes its model from `llm_config.model_for(db, action)`, resolving per-action setting → legacy `scoring_model`/`summary_model` → env default.
+- **Five distinct jobs use the LLM**: relevance scoring (batched, JSON), article summaries (plus the clickbait rewrite — same request), video transcript summaries, padding detection (JSON), and the preference-profile rebuild. (The "what you missed" digest was removed on 2026-11-18; its `digests` table and `users.last_seen_at` column are left in place, unused, so nothing was lost and no migration was needed.) Each takes its model from `llm_config.model_for(db, action)`, resolving per-action setting → legacy `scoring_model`/`summary_model` → env default.
 - The Settings panel lists the models Ollama actually reports and **flags a configured model that is not installed** — that exact mismatch (`ministral-3:14b`) made every scoring call fail silently for six weeks.
 - **`generate()` follows redirects.** Without that, putting a reverse proxy in front of Ollama that upgrades HTTP to HTTPS makes every call fail with a 308 and nothing but a log line to show for it.
 - **A run reporting `0 scored` in ~0s is a failing run, not an idle one.** Failures return fast, and batching means few calls, so a broken model completes the whole pipeline in under half a second. `pipeline.last_llm_error()` records why; `/insights` and the empty reading list both show it.
@@ -285,13 +283,12 @@ both clients.
   quiet the compiler is how a control comes out of a refactor still rendering and doing
   nothing.
 - **One header, not two.** `components/Toolbar.tsx` renders a single `.app-header` with
-  Refresh, Mark all read, What you missed and Search as text; an icon toolbar stacked
+  Refresh, Mark all read and Search as text; an icon toolbar stacked
   under a text header would spend the vertical space the redesign exists to reclaim,
   and rendered three of those actions twice with two accessible names apiece. The ids
-  are the old row's on purpose — `#poll-btn`, `#dismiss-all-btn`, `#digest-btn` and
+  are the old row's on purpose — `#poll-btn`, `#dismiss-all-btn` and
   `.drawer-toggle` are what several specs drive, and they are the same controls doing
-  the same jobs. A "what you missed" strip sits above the list, offering the digest
-  where the unread count is rather than behind a header button alone. The header is
+  the same jobs. The header is
   `position: sticky` at z-index 15 and `.drawer-toggle` rides inside it. It was
   unpinned with the toggle fixed above the drawer — circular, and it cost both
   Mark-all-read's reachability from the foot of a long list and a clean first
@@ -301,16 +298,6 @@ both clients.
   `.toggle` opts out and takes a 44px target from `::after`; `.segment` takes a 32px
   floor. At 40px under `--radius-pill` a 42×26 switch renders as a circle — on touch
   devices only, which is why it survived so long.
-- **`GET /api/v1/digest/meta`** backs that strip: `{ story_count, since_label,
-  read_minutes }`. It does not generate the briefing — `GET /digest` does, through the
-  LLM, so a strip backed by it would mean a model call on every page load;
-  `read_minutes` is an estimate for the same reason. It mutates on a GET, deliberately:
-  arriving is the event being recorded (`repo.users.touch_last_seen`), and the
-  alternative is a second request whose only job is to say "I am here." The stored
-  `last_seen_at` only advances once it is more than 30 minutes stale, or a page refresh
-  would collapse "since Friday" into "since a minute ago" — a label that resets whenever
-  you look at it says nothing. It is not `last_login_at`: with a 90-day session cookie
-  that can be months.
 - **The article card is two rows.** `.article-head` — the photo floats right and the
   headline and summary wrap around it — over a single `.article-meta` line carrying
   score · source · age · duplicate count on the left and Save / Up / Down on the right.
@@ -414,9 +401,9 @@ both clients.
   the same edges. 900px is the one breakpoint, and the reading column's whole desktop
   layout is one `@media (min-width: 900px)` block (`App.css` ~1413) — below that it
   collapses to the phone layout, drawer overlay and all, rather than to a third
-  in-between one nobody tests. Four smaller blocks at the same width sit beside their
-  own rules rather than in it: the drawer's switch metrics, the sign-in screen, the
-  single-story cap (which must come last — see below), and `#digest-btn`. Five in the
+  in-between one nobody tests. Three smaller blocks at the same width sit beside their
+  own rules rather than in it: the drawer's switch metrics, the sign-in screen and the
+  single-story cap (which must come last — see below). Four in the
   file, one for the layout.
 - **Four display preferences, all per-device localStorage**: `theme`,
   `density`, `photos`, `tags`. `density` (compact) drops the summary and the

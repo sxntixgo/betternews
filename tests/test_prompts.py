@@ -161,22 +161,6 @@ def test_per_article_prose_follows_the_article_language(builder, args):
     assert "language" in p.lower()
 
 
-def test_the_digest_is_english_whatever_the_articles_are():
-    """Deliberately the exception: the briefing is one piece of prose over a
-    mixed-language list, so it has one language of its own."""
-    p = prompts.digest_prompt([{"id": 1, "title": "Título", "summary": "Resumen"}])
-    assert "ENTIRE briefing in ENGLISH" in p
-    assert "Translate any title or claim" in p
-
-
-def test_the_digest_forbids_other_scripts():
-    """Models drift into other scripts mid-paragraph; Chinese characters showed
-    up in a briefing over Spanish articles."""
-    p = prompts.digest_prompt([{"id": 1, "title": "t", "summary": "s"}])
-    assert "only the Latin alphabet" in p
-    assert "Chinese" in p
-
-
 # ── the profile knows what the reader chose, not just what they clicked ───────
 
 def test_the_profile_prompt_includes_stated_topic_stances():

@@ -62,6 +62,15 @@ jobs:
   web:
     name: web (typecheck + playwright)
     runs-on: ubuntu-latest
+    # The visual baselines (e2e/*-snapshots) are made in this image, so CI renders
+    # in it too: the bare runner's fonts and anti-aliasing differ by a few pixels,
+    # which failed the screenshot tests on every run. Keep the tag equal to the
+    # @playwright/test version in package-lock.json; regenerate baselines with
+    #   docker run --rm --ipc=host -v "$PWD":/w -w /w/web mcr.microsoft.com/playwright:v<ver>-noble \
+    #     npx playwright test --update-snapshots=changed
+    container:
+      image: mcr.microsoft.com/playwright:v1.62.0-noble
+      options: --ipc=host
     defaults:
       run:
         working-directory: web
@@ -93,8 +102,9 @@ jobs:
         # this app the engine the reader actually uses had never executed a
         # line of it -- and the app then failed to load on an iPhone while
         # every phone test passed. Dropping webkit here restores that blind
-        # spot exactly.
-        run: npx playwright install --with-deps chromium webkit
+        # spot exactly. The image already has both at this version; this only
+        # catches a package-lock bump that the image tag above did not follow.
+        run: npx playwright install chromium webkit
 
       # The live project is skipped automatically: it needs BN_E2E_TOKEN and a
       # running stack, neither of which exists here. See web/e2e/live.spec.ts.

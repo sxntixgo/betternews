@@ -1,0 +1,26 @@
+{
+  // news: Flask/gunicorn + scheduler (Python) and the SPA (Node). Shared setup: the devcontainer repo.
+  // Works the same in VS Code ("Reopen in Container") and the CLI (homestack's bin/dev).
+  "name": "${localWorkspaceFolderBasename}",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
+  "runArgs": ["--name", "${localWorkspaceFolderBasename}-${devcontainerId}"],
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers/features/python:1": {},
+    "ghcr.io/devcontainers/features/node:1": {}
+  },
+  "mounts": [
+    // Shared setup (shell, prompt, vim, Claude Code, opencode): ~/Dev/devcontainer on puck, read-only
+    "source=${localEnv:HOME}/Dev/devcontainer,target=/opt/devcontainer,type=bind,readonly",
+    // Claude Code plugins (frugal-skills, orchestration) + opencode implementer: ~/Dev/skills-and-orchestration, read-only
+    "source=${localEnv:HOME}/Dev/skills-and-orchestration,target=/opt/skills,type=bind,readonly",
+    // atlas token for opencode (identity: claude-code), read-only, never in git
+    "source=${localEnv:HOME}/.config/atlas-tokens/claude-code,target=/opt/secrets/atlas-token,type=bind,readonly",
+    // Claude Code login and history, kept across rebuilds (one volume per folder name)
+    "source=claude-home-${localWorkspaceFolderBasename},target=/home/vscode/.claude,type=volume"
+  ],
+  "containerEnv": {
+    "OPENCODE_DISABLE_CLAUDE_CODE_SKILLS": "1"
+  },
+  "postCreateCommand": "bash /opt/devcontainer/install.sh"
+}
